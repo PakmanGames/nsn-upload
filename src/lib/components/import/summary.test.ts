@@ -9,6 +9,7 @@ import {
 	columnsOpenByDefault,
 	columnsSummary,
 	rowsSummary,
+	rowsTitle,
 	sheetsSummary,
 	statusChips,
 	summarySentence,
@@ -71,8 +72,18 @@ describe('R2 chips and R6 rows summary', () => {
 			['4 in conflict', 'conflict'],
 			['3 held back', 'all']
 		]);
-		expect(rowsSummary(pencom)).toBe('4 records · 4 in conflict · 3 held back');
+		expect(rowsSummary(pencom)).toBe('4 records · 4 in conflict');
 		expect(rowsSummary(fixture(WOW))).toBe('180 records · 4 warnings · 2 split from D136');
+	});
+
+	it('titles Rows with the sentence row count and held-back rows apart', () => {
+		const pencom = fixture(PENCOM);
+		expect(rowsTitle(pencom)).toBe('Rows (7) · 3 held back');
+		// Excluding Search Log drops its rows from the sentence ("4 rows"); the title follows and still names them.
+		const excluded = fixture(PENCOM, acceptAll(pencom));
+		expect(summarySentence(excluded)).toContain(' · 4 rows · ');
+		expect(rowsTitle(excluded)).toBe('Rows (4) · 3 held back');
+		expect(rowsTitle(fixture(WOW))).toBe('Rows (179)');
 	});
 });
 

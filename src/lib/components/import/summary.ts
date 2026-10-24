@@ -92,9 +92,22 @@ export function statusChips(analysis: WorkbookAnalysis): Chip[] {
 	return chips.filter((chip) => chip.count > 0);
 }
 
-/** Rows section summary: the records that import or wait in place, then the notable counts. */
+/**
+ * Rows section title: the same row count as the summary sentence, then the rows of held-back tables on their own.
+ * The sentence counts `summary.sourceRows`, which leaves out excluded tables, so counting every record here
+ * would read "Rows (7)" next to "4 rows" once a table is excluded.
+ */
+export function rowsTitle(analysis: WorkbookAnalysis): string {
+	const held = heldBackGroups(analysis).reduce(
+		(count, group) => count + new Set(group.records.map((record) => record.sourceRow)).size,
+		0
+	);
+	return `Rows (${analysis.summary.sourceRows.toLocaleString()})${held ? ` · ${held.toLocaleString()} held back` : ''}`;
+}
+
+/** Rows section summary: the records that import or wait in place, then the notable counts. Held back is in the title. */
 export function rowsSummary(analysis: WorkbookAnalysis): string {
-	const chips = statusChips(analysis).filter((chip) => ['warning', 'conflict', 'split', 'held'].includes(chip.tone));
+	const chips = statusChips(analysis).filter((chip) => ['warning', 'conflict', 'split'].includes(chip.tone));
 	return [plural(activeRecords(analysis).length, 'record'), ...chips.map((chip) => chip.label)].join(' · ');
 }
 
