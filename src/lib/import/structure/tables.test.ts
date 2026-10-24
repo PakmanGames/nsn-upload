@@ -276,13 +276,22 @@ describe('tables side by side on one sheet', () => {
 	it('keeps plain ids when side-by-side tables start on different rows', () => {
 		const rows: CellInput[][] = [
 			['Part Number', 'NSN', 'Description'],
-			['BRK-1000', nsn(0), 'Screw 0', null, 'NIIN', 'CAGE Code'],
-			...block(4, 1, 1).map((row, i) => [...row, null, niin(10 + i), '1ABC2'])
+			['BRK-1000', nsn(0), 'Screw 0', null, 'Part Number', 'NIIN'],
+			...block(4, 1, 1).map((row, i) => [...row, null, `NUT-${i}`, niin(10 + i)])
 		];
 		expect(sheetOf(rows).tables.map((t) => [t.id, rangeToA1(t.range)])).toEqual([
 			['Parts@1', 'A1:C6'],
 			['Parts@2', 'E2:F6']
 		]);
+	});
+
+	it('reads a blank spacer column between different fields as part of one table', () => {
+		// Only a field named on both sides of the gap shows two tables; one table maps each field once.
+		const rows: CellInput[][] = [
+			['Part Number', 'NSN', 'Description', null, 'NIIN', 'CAGE Code'],
+			...block(4, 1).map((row, i) => [...row, null, niin(10 + i), '1ABC2'])
+		];
+		expect(sheetOf(rows).tables.map((t) => [t.id, rangeToA1(t.range)])).toEqual([['Parts@1', 'A1:F5']]);
 	});
 
 	it('does not split a table at a hidden blank column', () => {

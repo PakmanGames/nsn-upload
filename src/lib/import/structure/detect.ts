@@ -384,17 +384,23 @@ function isBlankColumn(sheet: SheetModel, col: number, band: CellRange): boolean
 	return true;
 }
 
-/** The same bar `nextTable` sets for a new table: its own header maps a primary column at high confidence. */
-function headsTable(sheet: SheetModel, region: CellRange): boolean {
+/**
+ * The fields a segment's own header maps, or null when it does not head a table: the bar `nextTable` sets, a
+ * primary column at high confidence.
+ */
+function segmentFields(sheet: SheetModel, region: CellRange): Set<Field> | null {
 	const { best } = bandHeader(sheet, region, { left: region.left, right: region.right });
-	return !!best && [...best.assigned.values()].some((e) => isPrimary(e.field) && e.confidence === 'high');
+	const mapped = best ? [...best.assigned.values()] : [];
+	return mapped.some((e) => isPrimary(e.field) && e.confidence === 'high') ? new Set(mapped.map((e) => e.field)) : null;
 }
 
 /**
  * The column spans of tables side by side in a band, or null when the band holds one table. The band is cut
  * at visible columns blank in every row (a hidden column never separates, since the user cannot see a gap).
- * A segment starts a table only when it heads one by itself; any other segment, such as a notes column, stays
- * with the table to its left, or the first one, as it would without the split.
+ * A segment starts a new table only when it heads one by itself and names a field the table to its left
+ * already has: one table maps each field once, while a blank spacer column inside one table (`Part`, gap,
+ * `NSN`) separates different fields. Any other segment, such as a notes column, stays with the table to its
+ * left, or the first one, as it would without the split.
  */
 function sideBySide(sheet: SheetModel, band: CellRange): Span[] | null {
 	const right = Math.min(band.right, band.left + MAX_COLUMNS - 1);
@@ -409,14 +415,20 @@ function sideBySide(sheet: SheetModel, band: CellRange): Span[] | null {
 		}
 	}
 	if (segments.length < 2) return null;
-	const tables: Span[] = [];
+	const tables: Array<Span & { fields: Set<Field> }> = [];
 	for (const segment of segments) {
-		if (headsTable(sheet, { ...band, ...segment })) tables.push({ ...segment });
-		else if (tables.length > 0) tables.at(-1)!.right = segment.right;
+		const fields = segmentFields(sheet, { ...band, ...segment });
+		const current = tables.at(-1);
+		if (fields && (!current || [...fields].some((field) => current.fields.has(field)))) {
+			tables.push({ ...segment, fields });
+		} else if (current) {
+			current.right = segment.right;
+			for (const field of fields ?? []) current.fields.add(field);
+		}
 	}
 	if (tables.length < 2) return null;
 	tables[0].left = segments[0].left;
-	return tables;
+	return tables.map(({ left, right }) => ({ left, right }));
 }
 
 /**
