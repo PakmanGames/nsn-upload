@@ -49,6 +49,7 @@ export type DecisionDraft = {
 	subject: string;
 	tableId?: string;
 	recordIds: string[];
+	existingIds?: string[];
 	cells: string[];
 	/** Offered before the kind's fixed options, e.g. one `prefer:<id>` per conflicting record. */
 	extraOptions?: DecisionOption[];
@@ -90,6 +91,7 @@ export class DecisionLog {
 			state: byUser ? 'user' : draft.auto ? 'auto' : 'pending',
 			tableId: draft.tableId,
 			recordIds: draft.recordIds,
+			existingIds: draft.existingIds,
 			cells: draft.cells,
 			options,
 			chosen: byUser ? stored : draft.auto ? draft.suggested : null,

@@ -63,7 +63,9 @@ export function finalizeAnalysis(
 	flagFscMismatches(entries);
 
 	for (const entry of entries) {
-		const status = entry.status ?? contentStatus(entry.record);
+		// A held-back table's records wait on its include decision, whatever their contents.
+		const status =
+			entry.status ?? (entry.table === 'pending' ? 'pending' : contentStatus(entry.record));
 		entry.record.status = status;
 		entry.record.approved =
 			entry.table === 'included' && !entry.held && (status === 'valid' || status === 'warning');
@@ -110,17 +112,35 @@ function summarize(
 
 const STORED_FIELDS = ['part', 'description', 'nsn', 'niin', 'cage'] as const;
 
-/** Approved records as storage inputs. FSC is not stored; it lives on in the NSN. */
+/**
+ * Approved records as storage inputs. A record whose storage conflict was settled with replace-saved
+ * overwrites the first matching saved record; every other approved record is added.
+ */
 export function toImportPlan(analysis: WorkbookAnalysis): ImportPlan {
-	const add = analysis.records
-		.filter((record) => record.approved)
-		.map(({ fields }) => {
-			const input: MappingInput = {};
-			for (const field of STORED_FIELDS) {
-				const value = fields[field]?.value;
-				if (value !== undefined) input[field] = value;
-			}
-			return input;
-		});
-	return { add, replace: [] };
+	const replaced = new Map(
+		analysis.decisions
+			.filter(
+				({ kind, chosen }) => kind === 'resolve-storage-conflict' && chosen === 'replace-saved'
+			)
+			.map(({ recordIds, existingIds }) => [recordIds[0], existingIds?.[0]])
+	);
+	const plan: ImportPlan = { add: [], replace: [] };
+	for (const record of analysis.records) {
+		if (!record.approved) continue;
+		const input = toInput(record);
+		const id = replaced.get(record.id);
+		if (id) plan.replace.push({ id, input });
+		else plan.add.push(input);
+	}
+	return plan;
+}
+
+/** FSC is not stored; it lives on in the NSN. */
+function toInput({ fields }: CandidateRecord): MappingInput {
+	const input: MappingInput = {};
+	for (const field of STORED_FIELDS) {
+		const value = fields[field]?.value;
+		if (value !== undefined) input[field] = value;
+	}
+	return input;
 }

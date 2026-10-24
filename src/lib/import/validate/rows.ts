@@ -1,19 +1,23 @@
 /**
- * Table inclusion and the per-row decisions: newline splits, ambiguous multi-value rows, and rows
- * imported without their malformed values.
+ * Table inclusion and the per-row decisions: newline splits, ambiguous multi-value rows, identifiers
+ * that contradict each other, and rows imported without their malformed values.
  *
  * Splits and pairings are shaped by T4 (buildRecords reads the same decision ids from overrides);
  * these steps make each one visible and reversible, and hold back rows that wait for the user.
  */
 import {
+	FIELDS,
 	PRIMARY_FIELDS,
 	decisionId,
 	type CandidateRecord,
+	type ColumnMapping,
+	type Confidence,
 	type Field,
+	type Issue,
 	type SheetAnalysis,
 	type TableCandidate
 } from '../model';
-import { qualifiedRef, rangeToA1 } from '../refs';
+import { colLetter, qualifiedRef, rangeToA1 } from '../refs';
 import type { DecisionLog } from './decisions';
 import {
 	FIELD_LABELS,
@@ -56,13 +60,25 @@ export function decideTables(
 	return states;
 }
 
+const CONFIDENCE_RANK: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
+
+/** One line: the mapping panel already shows the full evidence for every column. */
 function tableReason(table: TableCandidate): string {
 	const kind = table.source === 'ai' ? 'AI-proposed table' : 'Table';
 	const what = `${kind} on ${table.sheet} (${rangeToA1(table.range)})`;
-	const why = table.reasons.length > 0 ? ` (${table.reasons.join('; ')})` : '';
-	return table.status === 'ready'
-		? `${what} is ready${why}.`
-		: `${what} needs review${why}. It is held back until you include it.`;
+	const primary = table.columns.filter(
+		(column): column is ColumnMapping & { field: Field } =>
+			column.field !== null && PRIMARY_FIELDS.includes(column.field)
+	);
+	if (primary.length === 0) return `${what} has no primary column mapped.`;
+	// Strict comparison keeps the leftmost column on a tie.
+	const weakest = primary.reduce((a, b) =>
+		CONFIDENCE_RANK[b.confidence] < CONFIDENCE_RANK[a.confidence] ? b : a
+	);
+	const header = weakest.header ? ` ("${weakest.header}")` : '';
+	return `${what}: weakest primary column is ${FIELD_LABELS[weakest.field]} in ${colLetter(
+		weakest.col
+	)}${header}, ${weakest.confidence} confidence.`;
 }
 
 /** Row-level decisions for records of included tables. Entries arrive in workbook order. */
@@ -121,13 +137,35 @@ export function decideRows(log: DecisionLog, entries: Entry[]): void {
 			});
 		}
 
+		const conflicted = row.filter(({ record }) => record.issues.some(isIdentifierConflict));
+		if (conflicted.length > 0) {
+			const issues = conflicted.flatMap(({ record }) =>
+				record.issues.filter(isIdentifierConflict)
+			);
+			const messages = new Set(issues.map((issue) => issue.message.replace(/\.$/, '')));
+			const { chosen } = log.decide({
+				...base,
+				recordIds: conflicted.map(({ record }) => record.id),
+				kind: 'resolve-identifier-conflict',
+				cells: [...new Set(issues.flatMap((issue) => issue.cells))],
+				suggested: 'exclude-row',
+				auto: false,
+				reason: `${[...messages].join('; ')}. The file does not say which identifier is right, so excluding the row is suggested.`
+			});
+			// prefer-*: T4 kept the chosen identifiers and rejected the others, so the records import with
+			// a warning. Had T4 not applied the choice, its error would remain and keep them out.
+			if (chosen === null) conflicted.forEach((entry) => hold(entry, 'pending'));
+			if (chosen === 'exclude-row') conflicted.forEach((entry) => hold(entry));
+		}
+
 		const partial = row.filter(
-			({ record }) => Object.keys(record.rejected).length > 0 && hasPrimary(record)
+			({ record, held }) => !held && hasPrimary(record) && malformed(record).length > 0
 		);
 		if (partial.length > 0) {
 			const sample = partial[0].record;
+			const fields = malformed(sample);
 			const problems = sample.issues.filter(
-				(issue) => issue.severity !== 'info' && issue.field && issue.field in sample.rejected
+				(issue) => issue.severity !== 'info' && issue.field && fields.includes(issue.field)
 			);
 			const messages = problems.map((issue) => issue.message.replace(/\.$/, ''));
 			const kept = PRIMARY_FIELDS.filter((field) => sample.fields[field]).map(
@@ -147,6 +185,23 @@ export function decideRows(log: DecisionLog, entries: Entry[]): void {
 			if (chosen === 'exclude-row') partial.forEach((entry) => hold(entry));
 		}
 	}
+}
+
+/**
+ * T4's NSN-vs-NIIN/FSC conflict. decideRows runs before the duplicate checks add their own `conflict`
+ * issues, so every one seen here came from the row itself.
+ */
+const isIdentifierConflict = (issue: Issue) => issue.code === 'conflict';
+
+/** Rejected fields, except cells an identifier-conflict choice rejected; that decision covers them. */
+function malformed(record: CandidateRecord): Field[] {
+	const covered = new Set(
+		record.issues.filter(isIdentifierConflict).flatMap((issue) => issue.cells)
+	);
+	return FIELDS.filter((field) => {
+		const rejected = record.rejected[field];
+		return rejected !== undefined && !covered.has(qualifiedRef(record.sheet, rejected.cell));
+	});
 }
 
 /**
