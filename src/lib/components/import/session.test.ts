@@ -76,6 +76,28 @@ describe('ImportSession', () => {
 		expect(engine.read).toHaveBeenCalledTimes(1);
 	});
 
+	it('sets up a table by hand in place of earlier column choices for the same table, and removes it again', async () => {
+		const engine = { ...spyEngine(), analyze: vi.fn(mockEngine.analyze) };
+		const session = await loaded(engine);
+		const spec = { headerRows: [], range: { top: 1, left: 1, bottom: 99, right: 1 }, columns: { 1: 'nsn' as const } };
+		session.setColumn('Sheet1@1', 2, 'part');
+		session.setColumn('Search Log@2', 2, null);
+
+		session.setManualTable('Sheet1', spec);
+		// The column choice was made for the detected Sheet1@1, which the table set up by hand replaces.
+		expect(session.overrides).toEqual({
+			columns: { 'Search Log@2': { 2: null } },
+			manualTables: [{ ...spec, sheet: 'Sheet1' }]
+		});
+		expect(engine.analyze).toHaveBeenLastCalledWith(session.model, [], session.overrides);
+
+		session.setColumn('Sheet1@1', 1, 'niin');
+		session.removeManualTable('Sheet1');
+		// Changes made to the table set up by hand leave with it, so detection takes over as it was.
+		expect(session.overrides).toEqual({ columns: { 'Search Log@2': { 2: null } } });
+		expect(engine.read).toHaveBeenCalledTimes(1);
+	});
+
 	it('accepts every suggestion in one step, and a revert brings a decision back to pending', async () => {
 		const session = await loaded();
 		const before = session.analysis!.summary;

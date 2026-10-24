@@ -223,8 +223,10 @@ export function expectSummaryConsistent(analysis: WorkbookAnalysis): void {
 	expect(summary.sourceRows, 'summary.sourceRows').toBe(
 		new Set(counted.map((record) => `${record.tableId}:${record.sourceRow}`)).size
 	);
+	// Tables the user set up by hand are included without a decision.
+	const handMade = analysis.sheets.flatMap((sheet) => sheet.tables).filter((table) => table.source === 'user');
 	expect(summary.tablesIncluded, 'summary.tablesIncluded').toBe(
-		tableDecisions.filter((decision) => decision.chosen === 'include').length
+		tableDecisions.filter((decision) => decision.chosen === 'include').length + handMade.length
 	);
 	expect(summary.toImport, 'summary.toImport').toBe(records.filter((record) => record.approved).length);
 	expect(summary.pendingDecisions, 'summary.pendingDecisions').toBe(

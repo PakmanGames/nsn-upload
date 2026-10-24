@@ -22,11 +22,13 @@ import {
 	type Overrides,
 	type SheetAnalysis,
 	type StoredMapping,
+	type TableSpec,
 	type VerificationResult,
 	type WorkbookAnalysis,
 	type WorkbookModel
 } from './model';
 import { readWorkbook } from './reader';
+import { tableId } from './structure/table';
 import { toImportPlan } from './validate';
 
 export type ImportPhase = 'idle' | 'reading' | 'analyzing' | 'ready' | 'importing' | 'done' | 'error';
@@ -69,6 +71,13 @@ export type AiRun = {
 };
 
 const aiPreferenceKey = 'nsn-upload-interview-task:ai-assistance';
+
+/** The overrides without the column choices stored for one table. */
+function withoutColumns(overrides: Overrides, id: string): Overrides {
+	if (!overrides.columns?.[id]) return overrides;
+	const { [id]: _, ...columns } = overrides.columns;
+	return { ...overrides, columns };
+}
 
 export class ImportSession {
 	phase = $state<ImportPhase>('idle');
@@ -156,6 +165,27 @@ export class ImportSession {
 	resetColumn(tableId: string, col: number) {
 		const { [col]: _, ...rest } = this.overrides.columns?.[tableId] ?? {};
 		this.#apply({ ...this.overrides, columns: { ...this.overrides.columns, [tableId]: rest } });
+	}
+
+	/**
+	 * Replaces detection on the sheet with a table the user set up by hand; it is included without a decision.
+	 * Column choices stored under the same table id belonged to the table it replaces, so they are dropped.
+	 */
+	setManualTable(sheet: string, spec: TableSpec) {
+		const manualTables = (this.overrides.manualTables ?? []).filter((table) => table.sheet !== sheet);
+		this.#apply({
+			...withoutColumns(this.overrides, tableId(sheet, spec)),
+			manualTables: [...manualTables, { ...spec, sheet }]
+		});
+	}
+
+	/** Drops the sheet's table set up by hand, with the column changes made to it, so detection takes over again. */
+	removeManualTable(sheet: string) {
+		const removed = this.overrides.manualTables?.find((table) => table.sheet === sheet);
+		if (!removed) return;
+		const { manualTables: _, ...rest } = withoutColumns(this.overrides, tableId(sheet, removed));
+		const manualTables = this.overrides.manualTables!.filter((table) => table !== removed);
+		this.#apply(manualTables.length > 0 ? { ...rest, manualTables } : rest);
 	}
 
 	choose(decisionId: string, option: string) {
