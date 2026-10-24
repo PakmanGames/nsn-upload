@@ -5,15 +5,21 @@ import { expect, type Locator, type Page } from '@playwright/test';
 export const FIXTURE_DIR = fileURLToPath(new URL('../../example-excel-uploads/', import.meta.url));
 export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-export async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
+/** Opens the Smart Upload window from the mappings page. */
+export async function openSmartUpload(page: Page): Promise<Locator> {
 	await page.goto('/');
 	const dialog = page.getByRole('dialog', { name: 'Smart Upload' });
-	// The button is server-rendered, and a click that lands before hydration does nothing (it happens on a busy
-	// machine), so click until the dialog opens.
+	// The page is server-rendered, and a click that lands before hydration does nothing (seen on a loaded
+	// machine), so click again until the window opens. Clicking only while it is closed keeps the retry safe.
 	await expect(async () => {
-		await page.getByRole('button', { name: 'Smart Upload' }).click();
-		await expect(dialog).toBeVisible({ timeout: 1_000 });
-	}).toPass();
+		if (!(await dialog.isVisible())) await page.getByRole('button', { name: 'Smart Upload' }).click();
+		await expect(dialog).toBeVisible({ timeout: 2_000 });
+	}).toPass({ timeout: 20_000 });
+	return dialog;
+}
+
+export async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
+	const dialog = await openSmartUpload(page);
 	await dialog.locator('input[type=file]').setInputFiles(file);
 	await expect(importButton(dialog)).toBeVisible();
 	return dialog;
@@ -36,6 +42,8 @@ export async function openSection(dialog: Locator, id: SectionId): Promise<Locat
 	const details = section(dialog, id);
 	const isOpen = await details.evaluate((element) => (element as HTMLDetailsElement).open);
 	if (!isOpen) await details.locator('summary').first().click();
-	for (const fold of await details.locator('details:not([open]) > summary').all()) await fold.click();
+	// Opening a fold drops it from the closed set, so always open the first closed one until none is left.
+	const closed = details.locator('details:not([open]) > summary');
+	while ((await closed.count()) > 0) await closed.first().click();
 	return details;
 }

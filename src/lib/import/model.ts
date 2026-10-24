@@ -158,7 +158,10 @@ export type SheetAnalysis = {
 	index: number;
 	status: SheetStatus;
 	reasons: string[];
-	/** At most one table per sheet in the 5-hour scope. */
+	/**
+	 * Every table found on the sheet, in row order. Detected tables never share rows, so they never share a
+	 * header row or an id; an accepted AI proposal replaces them with its one table.
+	 */
 	tables: TableCandidate[];
 	/** Why an AI interpretation could help, or null when deterministic analysis is confident. */
 	aiTrigger: string | null;

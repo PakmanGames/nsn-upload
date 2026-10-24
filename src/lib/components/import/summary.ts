@@ -9,6 +9,7 @@
 import type {
 	CandidateRecord,
 	ColumnMapping,
+	Confidence,
 	Decision,
 	Field,
 	Issue,
@@ -18,11 +19,12 @@ import type {
 	WorkbookAnalysis,
 	WorkbookModel
 } from '$lib/import/model';
-import { rangeToA1 } from '$lib/import/refs';
+import { colLetter, rangeToA1 } from '$lib/import/refs';
 import type { AiAvailability } from '$lib/import/ai';
 import type { AiRun } from '$lib/import/session.svelte';
 import { DECISION_KIND_LABEL, FIELD_LABEL, plural, type ChipTone, type RecordFilter } from './labels';
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const joinAnd = (items: Array<string | number>) =>
 	items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 
@@ -39,6 +41,45 @@ export function heldBackTables(analysis: WorkbookAnalysis): Set<string> {
 export function activeRecords(analysis: WorkbookAnalysis): CandidateRecord[] {
 	const held = heldBackTables(analysis);
 	return analysis.records.filter((record) => !held.has(record.tableId));
+}
+
+/** "rows 34-58": tables on one sheet never share rows, so their rows tell them apart where a user looks in Excel. */
+export function tableRows({ range }: TableCandidate): string {
+	return range.top === range.bottom ? `row ${range.top}` : `rows ${range.top}-${range.bottom}`;
+}
+
+/** The table's sheet, plus its rows when the sheet has several tables: "Sheet1, rows 34-58". */
+export function tableLabel(table: TableCandidate, sheets: SheetAnalysis[]): string {
+	const several = (sheets.find((sheet) => sheet.name === table.sheet)?.tables.length ?? 0) > 1;
+	return several ? `${table.sheet}, ${tableRows(table)}` : table.sheet;
+}
+
+const PRIMARY_NOUN: Partial<Record<Field, string>> = { part: 'part numbers', nsn: 'NSNs', niin: 'NIINs' };
+const CONFIDENCE_RANK: Record<Confidence, number> = { high: 3, medium: 2, low: 1 };
+
+/** Why a needs-review table is held back, from the identifier column that held it back. */
+function doubt(table: TableCandidate): string {
+	const primaries = table.columns.filter((column) => column.field && PRIMARY_NOUN[column.field]);
+	if (primaries.length === 0) return 'none of its columns was recognized as part numbers, NSNs, or NIINs';
+	const best = primaries.reduce((b, c) => (CONFIDENCE_RANK[c.confidence] > CONFIDENCE_RANK[b.confidence] ? c : b));
+	const weakest = primaries.reduce((w, c) => (CONFIDENCE_RANK[c.confidence] < CONFIDENCE_RANK[w.confidence] ? c : w));
+	const doubtful = best.confidence !== 'high' ? best : weakest.confidence === 'low' ? weakest : null;
+	if (doubtful) {
+		return `we're not sure column ${colLetter(doubtful.col)} holds ${PRIMARY_NOUN[doubtful.field!]} (${doubtful.reasons.at(-1)})`;
+	}
+	// Every column is sure: two columns compete for one field, or the AI was not confident about the table.
+	return table.source === 'ai' ? 'the AI was not confident about this table' : "we're not sure which column is which";
+}
+
+/**
+ * Why a table does not import as things stand, and how to include it; null when it imports. A table waiting on
+ * the user and one left out by a choice are both brought in by the same switch.
+ */
+export function heldBackNote(table: TableCandidate, decision: Decision | undefined, records: number): string | null {
+	if (!decision || decision.chosen === 'include') return null;
+	const include = `switch it on to import its ${plural(records, 'record')}`;
+	if (decision.chosen === 'exclude') return `Left out of the import. To bring it back, ${include}.`;
+	return `Not imported yet: ${doubt(table)}. Check its columns, then ${include}.`;
 }
 
 /* ---------- R1 ---------- */
@@ -58,13 +99,18 @@ export type SummaryParts = {
 export function summaryParts(analysis: WorkbookAnalysis): SummaryParts {
 	const { summary, sheets } = analysis;
 	const ready = sheets.filter((sheet) => sheet.status === 'ready').length;
+	const readyTables = sheets.flatMap((sheet) => sheet.tables).filter((table) => table.status === 'ready').length;
 	const total = sheets.length;
 	const pending = summary.pendingDecisions;
 	const held = heldBackTables(analysis);
 	const choosing = sheets.some((sheet) => sheet.tables.some((table) => !held.has(table.id) && partColumnChoices(table).length > 0));
 	return {
-		// The verb follows the nearer noun: "1 of 2 sheets has", "0 of 1 sheet has", "2 of 6 sheets have".
-		sheets: `${ready} of ${plural(total, 'sheet')} ${ready === 1 || total === 1 ? 'has an importable table' : 'have importable tables'}`,
+		sheets:
+			// Tables are counted only where a sheet holds several ready ones: "2 tables on 1 sheet are ready".
+			readyTables > ready
+				? `${plural(readyTables, 'table')} on ${ready === total ? plural(ready, 'sheet') : `${ready} of ${plural(total, 'sheet')}`} are ready`
+				: // The verb follows the nearer noun: "1 of 2 sheets has", "0 of 1 sheet has", "2 of 6 sheets have".
+					`${ready} of ${plural(total, 'sheet')} ${ready === 1 || total === 1 ? 'has an importable table' : 'have importable tables'}`,
 		rows:
 			plural(summary.sourceRows, 'row') +
 			(summary.candidates !== summary.sourceRows ? ` → ${plural(summary.candidates, 'record')}` : ''),
@@ -133,12 +179,18 @@ export function rowsSummary(analysis: WorkbookAnalysis): string {
 }
 
 /** Held-back tables with their records, for the folded lines under the Rows table. */
-export function heldBackGroups(analysis: WorkbookAnalysis): Array<{ table: TableCandidate; records: CandidateRecord[] }> {
+export function heldBackGroups(
+	analysis: WorkbookAnalysis
+): Array<{ table: TableCandidate; label: string; records: CandidateRecord[] }> {
 	const held = heldBackTables(analysis);
 	return analysis.sheets.flatMap((sheet) =>
 		sheet.tables
 			.filter((table) => held.has(table.id))
-			.map((table) => ({ table, records: analysis.records.filter((record) => record.tableId === table.id) }))
+			.map((table) => ({
+				table,
+				label: tableLabel(table, analysis.sheets),
+				records: analysis.records.filter((record) => record.tableId === table.id)
+			}))
 	);
 }
 
@@ -151,8 +203,17 @@ const SHEET_SUMMARY: Array<[SheetStatus, string]> = [
 	['hidden', 'hidden']
 ];
 
+/** Ready and needs review count tables instead of sheets once a sheet holds several, each with its own status. */
 export function sheetsSummary(sheets: SheetAnalysis[]): string {
-	return SHEET_SUMMARY.map(([status, label]) => [sheets.filter((sheet) => sheet.status === status).length, label] as const)
+	const tables = sheets.some((sheet) => sheet.tables.length > 1) ? sheets.flatMap((sheet) => sheet.tables) : null;
+	return SHEET_SUMMARY.map(([status, label]): readonly [number, string] => {
+		if (!tables || (status !== 'ready' && status !== 'needs-review')) {
+			return [sheets.filter((sheet) => sheet.status === status).length, label];
+		}
+		const count = tables.filter((table) => table.status === status).length;
+		const state = status === 'ready' ? 'ready' : count === 1 ? 'needs review' : 'need review';
+		return [count, `${count === 1 ? 'table' : 'tables'} ${state}`];
+	})
 		.filter(([count]) => count > 0)
 		.map(([count, label]) => `${count} ${label}`)
 		.join(' · ');
@@ -169,7 +230,10 @@ export function columnsSummary(analysis: WorkbookAnalysis): string {
 	const tables = analysis.sheets.flatMap((sheet) => sheet.tables).filter((table) => !held.has(table.id));
 	if (tables.length === 0) return 'No table is included';
 	if (tables.length === 1) return mappedFields(tables[0]).join(', ');
-	return tables.map((table) => `${table.sheet}: ${mappedFields(table).join(', ')}`).join(' · ');
+	// Tables of one sheet need only their rows; the sheet name would repeat on every one.
+	const oneSheet = new Set(tables.map((table) => table.sheet)).size === 1;
+	const label = (table: TableCandidate) => (oneSheet ? capitalize(tableRows(table)) : tableLabel(table, analysis.sheets));
+	return tables.map((table) => `${label(table)}: ${mappedFields(table).join(', ')}`).join(' · ');
 }
 
 /**
@@ -230,6 +294,8 @@ function groupKey(record: CandidateRecord, issue: Issue): [key: string, order: n
 			if (issue.field === 'part' && value && /\(.+\)/.test(value.value)) return ['note-in-brackets', 1];
 			if (value?.provenance.transforms.includes('restore-leading-zeros')) return [`leading-zeros:${field}`, 2];
 			if (value?.provenance.transforms.includes('numeric-to-text')) return [`stored-as-number:${field}`, 2];
+			// A date read as Excel shows it has no transform of its own; only the normalizer's message names it.
+			if (issue.message.includes('is stored as a date')) return [`stored-as-date:${field}`, 2];
 			return ['unusual', 3];
 		}
 		case 'missing-optional':
@@ -265,6 +331,8 @@ function describe(key: string, { records, issue }: Group): WorthALook {
 			return { title: `${plural(n, field)} ${verb(n, 'was', 'were')} stored as a number`, detail: `${rowList(records)}; leading zeros restored` };
 		case 'stored-as-number':
 			return { title: `${plural(n, field)} ${verb(n, 'was', 'were')} stored as a number`, detail: `${rowList(records)}; leading zeros may have been lost` };
+		case 'stored-as-date':
+			return { title: `${plural(n, field)} ${verb(n, 'was', 'were')} stored as a date`, detail: `${rowList(records)}; imported as Excel shows ${verb(n, 'it', 'them')}` };
 		case 'unusual':
 			return { title: `${plural(n, 'value')} ${verb(n, 'looks', 'look')} unusual`, detail: `${rowList(records)}, kept as written` };
 		case 'missing':
@@ -363,8 +431,16 @@ export function decisionHeading(
 	};
 	const where = () => (first ? `${first.sheet} row ${first.sourceRow}` : DECISION_KIND_LABEL[decision.kind]);
 	switch (decision.kind) {
-		case 'resolve-conflict':
-			return { badge: 'Conflict', tone: 'conflict', kind: 'Same part on two sheets', title: identity() };
+		case 'resolve-conflict': {
+			const group = decision.recordIds.flatMap((id) => records.get(id) ?? []);
+			const kind =
+				new Set(group.map((record) => record.sheet)).size > 1
+					? 'Same part on two sheets'
+					: new Set(group.map((record) => record.tableId)).size > 1
+						? 'Same part in two tables'
+						: 'Same part twice in one table';
+			return { badge: 'Conflict', tone: 'conflict', kind, title: identity() };
+		}
 		case 'resolve-storage-conflict':
 			return { badge: 'Already saved', tone: 'saved', kind: 'Differs from a saved record', title: identity() };
 		case 'resolve-identifier-conflict':

@@ -26,6 +26,8 @@ export type Entry = {
 	held: boolean;
 	/** Status set by a decision; otherwise the status follows from the record's contents. */
 	status?: RecordStatus;
+	/** A1 range of the record's table, set only when its sheet has several tables, so messages can name it. */
+	tableRange?: string;
 };
 
 export const FIELD_LABELS: Record<Field, string> = {
@@ -45,7 +47,7 @@ export function joinList(items: string[]): string {
 	return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
-export const rowLabels = (entries: Entry[]) => joinList(entries.map(({ record }) => rowLabel(record)));
+export const rowLabels = (entries: Entry[]) => joinList(entries.map(rowLabel));
 
 export const hasPrimary = (record: CandidateRecord) =>
 	PRIMARY_FIELDS.some((field) => record.fields[field] !== undefined);
@@ -123,10 +125,11 @@ export function describeIdentity({ fields }: CandidateRecord): string {
 	return parts.filter(Boolean).join(' and ');
 }
 
-/** E.g. "Active Parts row 136 (value 2 of 2)". */
-export function rowLabel(record: CandidateRecord): string {
+/** E.g. "Active Parts row 136 (value 2 of 2)", or "Sheet1 row 37 of the table at E34:K58" on a sheet of several tables. */
+export function rowLabel({ record, tableRange }: Entry): string {
+	const table = tableRange ? ` of the table at ${tableRange}` : '';
 	const split = record.split ? ` (value ${record.split.index} of ${record.split.total})` : '';
-	return `${record.sheet} row ${record.sourceRow}${split}`;
+	return `${record.sheet} row ${record.sourceRow}${table}${split}`;
 }
 
 /** Qualified refs of the cells a field's value came from; derived values point at their inputs. */

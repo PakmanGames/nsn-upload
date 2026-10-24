@@ -77,13 +77,13 @@ function dropCopy(log: DecisionLog, original: Entry, copy: Entry): void {
 		cells: [...identityCells(original.record), ...identityCells(copy.record)],
 		suggested: 'drop',
 		auto: true,
-		reason: `${rowLabel(copy.record)} repeats ${rowLabel(original.record)} with the same values.`,
+		reason: `${rowLabel(copy)} repeats ${rowLabel(original)} with the same values.`,
 		at: at(copy)
 	});
 	copy.record.issues.push({
 		code: 'duplicate-in-table',
 		severity: 'warning',
-		message: `Same values as ${rowLabel(original.record)} in this table.`,
+		message: `Same values as ${rowLabel(original)} in this table.`,
 		cells: identityCells(original.record),
 		relatedRecords: [original.record.id]
 	});
@@ -113,7 +113,7 @@ function merge(log: DecisionLog, entries: Entry[]): void {
 					? 'duplicate-in-table'
 					: 'duplicate-across-sheets',
 			severity: 'warning',
-			message: `Same ${describeIdentity(other.record)} as ${rowLabel(primary.record)}.`,
+			message: `Same ${describeIdentity(other.record)} as ${rowLabel(primary)}.`,
 			cells: identityCells(primary.record),
 			relatedRecords: [primary.record.id]
 		});
@@ -131,16 +131,16 @@ function resolveConflict(log: DecisionLog, entries: Entry[], differing: Field[])
 		tableId: sharedTable(entries),
 		recordIds: entries.map(({ record }) => record.id),
 		cells: differing.flatMap((field) => entries.flatMap(({ record }) => fieldCells(record, field))),
-		extraOptions: entries.map(({ record }) => ({
-			id: `prefer:${record.id}`,
-			label: `Use ${rowLabel(record)}`
+		extraOptions: entries.map((entry) => ({
+			id: `prefer:${entry.record.id}`,
+			label: `Use ${rowLabel(entry)}`
 		})),
 		suggested: `prefer:${best.record.id}`,
 		auto: false,
 		reason: `${rowLabels(entries)} describe the same ${describeIdentity(
 			best.record
 		)} but disagree on ${joinList(differing.map((field) => FIELD_LABELS[field]))}. ${rowLabel(
-			best.record
+			best
 		)} has the most filled fields, so it is suggested.`,
 		at: at(entries[0])
 	});
@@ -151,7 +151,7 @@ function resolveConflict(log: DecisionLog, entries: Entry[], differing: Field[])
 	for (const field of differing) {
 		const holders = entries.filter(({ record }) => record.fields[field]);
 		const values = holders.map(
-			({ record }) => `"${record.fields[field]!.value}" (${rowLabel(record)})`
+			(holder) => `"${holder.record.fields[field]!.value}" (${rowLabel(holder)})`
 		);
 		for (const entry of entries) {
 			entry.record.issues.push({
@@ -226,7 +226,7 @@ function dropSaved(log: DecisionLog, entry: Entry): void {
 		cells: identityCells(entry.record),
 		suggested: 'drop',
 		auto: true,
-		reason: `${rowLabel(entry.record)} is already in your saved mappings (${describeIdentity(
+		reason: `${rowLabel(entry)} is already in your saved mappings (${describeIdentity(
 			entry.record
 		)}).`,
 		at: at(entry)
@@ -262,7 +262,7 @@ function resolveStorageConflict(log: DecisionLog, entry: Entry, matches: StoredM
 		cells: [...identityCells(record), ...differing.flatMap((field) => fieldCells(record, field))],
 		suggested: 'keep-saved',
 		auto: false,
-		reason: `${rowLabel(record)} has the same ${describeIdentity(record)} as ${
+		reason: `${rowLabel(entry)} has the same ${describeIdentity(record)} as ${
 			matches.length === 1 ? 'a saved mapping' : `${matches.length} saved mappings`
 		} but a different ${labels}. Keeping the saved mapping is suggested.`,
 		at: at(entry)

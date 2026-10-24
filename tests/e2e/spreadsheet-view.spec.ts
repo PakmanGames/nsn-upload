@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { pencom, wow } from '../fixtures/expectations';
-import { FIXTURE_DIR, importButton, openSection, upload, XLSX_TYPE } from './helpers';
+import { FIXTURE_DIR, importButton, openSection, openSmartUpload, upload, XLSX_TYPE } from './helpers';
 
 const WIDE = { width: 1440, height: 900 };
 
@@ -154,9 +154,7 @@ test.describe('at 1440 px', () => {
 		}
 		const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 		// upload() waits the default 5 s; reading and analyzing 100,000 rows can take longer on a slow machine.
-		await page.goto('/');
-		await page.getByRole('button', { name: 'Smart Upload' }).click();
-		const dialog = page.getByRole('dialog', { name: 'Smart Upload' });
+		const dialog = await openSmartUpload(page);
 		await dialog.locator('input[type=file]').setInputFiles({ name: 'large.xlsx', mimeType: XLSX_TYPE, buffer });
 		await expect(dialog.getByRole('button', { name: /^Import 99,999 records/ })).toBeVisible({ timeout: 30_000 });
 		const grid = await openSpreadsheet(dialog);

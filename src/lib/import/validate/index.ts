@@ -17,6 +17,7 @@ import type {
 	WorkbookAnalysis,
 	WorkbookModel
 } from '../model';
+import { rangeToA1 } from '../refs';
 import { DecisionLog } from './decisions';
 import { decideDuplicates, decideStorage } from './duplicates';
 import { contentStatus, groupBy, type Entry, type TableState } from './entry';
@@ -47,13 +48,20 @@ export function finalizeAnalysis(
 		])
 	);
 	const tables = decideTables(log, sheets, idsByTable);
+	// Two tables on one sheet are told apart in messages by their ranges.
+	const ranges = new Map(
+		sheets
+			.filter((sheet) => sheet.tables.length > 1)
+			.flatMap((sheet) => sheet.tables.map((table) => [table.id, rangeToA1(table.range)] as const))
+	);
 
 	// Copies, so the steps below never mutate the records buildRecords() returned.
 	const entries: Entry[] = ordered.map((record) => ({
 		record: { ...record, fields: { ...record.fields }, issues: [...record.issues] },
 		sheetIndex: position(record),
 		table: tables.get(record.tableId) ?? 'excluded',
-		held: false
+		held: false,
+		tableRange: ranges.get(record.tableId)
 	}));
 
 	// Order matters: each step only sees records the previous ones left headed for import.

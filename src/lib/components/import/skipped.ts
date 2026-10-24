@@ -3,12 +3,14 @@
  * was dropped by mistake. Blank rows are only spacing and are not listed.
  */
 import type { SkippedRow, TableCandidate, WorkbookAnalysis, WorkbookModel } from '$lib/import/model';
+import { tableLabel } from './summary';
 
 /** Values shown per skipped row; enough to recognize a form label or a repeated header. */
 const PREVIEW_VALUES = 4;
 
 export type SkippedLine = { row: number; reason: SkippedRow['reason']; preview: string };
-export type SkippedGroup = { table: TableCandidate; rows: SkippedLine[] };
+/** `label` names the table: its sheet, plus its rows when the sheet has several tables. */
+export type SkippedGroup = { table: TableCandidate; label: string; rows: SkippedLine[] };
 
 /** The row's own values across the sheet, joined with " · "; merged cells count once. */
 function preview(model: WorkbookModel, sheetName: string, row: number): string {
@@ -30,7 +32,7 @@ export function skippedGroups(analysis: WorkbookAnalysis, model: WorkbookModel |
 			const rows = table.skippedRows
 				.filter((skip) => skip.reason !== 'blank')
 				.map((skip) => ({ ...skip, preview: preview(model, table.sheet, skip.row) }));
-			return rows.length > 0 ? [{ table, rows }] : [];
+			return rows.length > 0 ? [{ table, label: tableLabel(table, analysis.sheets), rows }] : [];
 		})
 	);
 }

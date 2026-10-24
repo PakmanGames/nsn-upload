@@ -69,13 +69,28 @@ function splitValues(text: string, transforms: readonly Transform[]): Normalized
 	}));
 }
 
+/** Digits joined by single separators, as a date format that mirrors typing shows it (`4-2002` under m-yyyy). */
+const DIGITS_AND_SEPARATORS = /^\d+(?:[-/.]\d+)+$/;
+
 const part: FieldRule = ({ cell, at, text, transforms }) => {
 	if (cell.kind === 'date') {
-		return invalid(
-			'part',
-			at,
-			`Part number in ${at} is stored as a date ("${text}"); Excel converted it and the original value cannot be recovered`
-		);
+		// A month name (`4-Mar`) or a full date (`4/1/2002`) is Excel's rewrite, and the typed value is gone.
+		// Digits and separators that still read as a part number are most likely what was typed, as with a
+		// part number stored as a number; the warning says it may still differ.
+		if (!DIGITS_AND_SEPARATORS.test(text) || !isPlausiblePart(text)) {
+			return invalid(
+				'part',
+				at,
+				`Part number in ${at} is stored as a date ("${text}"); Excel converted it and the original value cannot be recovered`
+			);
+		}
+		return {
+			kind: 'ok',
+			values: [{ value: text, transforms: [...transforms] }],
+			warnings: [
+				warning('part', at, `Part number in ${at} is stored as a date; imported as Excel shows it ("${text}"), which may differ from what was typed`)
+			]
+		};
 	}
 	const warnings: Issue[] = [];
 	if (cell.kind === 'number') {

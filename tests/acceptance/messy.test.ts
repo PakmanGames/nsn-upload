@@ -384,9 +384,8 @@ describe('messy unseen workbooks', () => {
 		});
 	});
 
-	describe('documented gap: two different tables stacked on one sheet', () => {
-		// Design note §1 and §11: one table per sheet. Data stops before a clearly different table's header,
-		// which is named in the sheet's reasons and not imported.
+	describe('two different tables stacked on one sheet', () => {
+		// The first table ends before the second one's header, and the second is read as a table of its own.
 		const workbook = useWorkbook('stacked.xlsx', [
 			{
 				name: 'Stacked',
@@ -404,13 +403,15 @@ describe('messy unseen workbooks', () => {
 			}
 		]);
 
-		it('imports the first table and names the second in the reasons, without importing it', () => {
-			const table = tableOf(workbook.analysis, 'Stacked');
-			expect(table).toMatchObject({ status: 'ready', headerRows: [1], dataRows: [2, 3, 4] });
-			expect(table.range.bottom).toBeLessThan(6);
-			expect(sheetOf(workbook.analysis, 'Stacked').reasons.join('\n')).toMatch(/Row 6 starts another table/);
-			expect(recordsOf(workbook.analysis, 'Stacked').map((record) => record.sourceRow)).toEqual([2, 3, 4]);
-			expect(workbook.analysis.summary.toImport).toBe(3);
+		it('imports both tables, each with its own header and mapping', () => {
+			const [first, second] = sheetOf(workbook.analysis, 'Stacked').tables;
+			expect(first).toMatchObject({ id: 'Stacked@1', status: 'ready', headerRows: [1], dataRows: [2, 3, 4] });
+			expect(first.range.bottom).toBe(4);
+			expect(first.reasons.join('\n')).toMatch(/Row 6 starts another table/);
+			expect(second).toMatchObject({ id: 'Stacked@6', status: 'ready', headerRows: [6], dataRows: [7, 8, 9] });
+			expect(mappedColumns(second)).toEqual({ niin: 'A', description: 'B', cage: 'C' });
+			expect(recordsOf(workbook.analysis, 'Stacked').map((record) => record.sourceRow)).toEqual([2, 3, 4, 7, 8, 9]);
+			expect(workbook.analysis.summary).toMatchObject({ tablesIncluded: 2, toImport: 6 });
 		});
 	});
 

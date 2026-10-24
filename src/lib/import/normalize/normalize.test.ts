@@ -51,6 +51,14 @@ const OK_CASES: OkCase[] = [
 		warnings: ['stored as a number; leading zeros may have been lost']
 	},
 	{
+		// Excel stored a typed 4-2002 as April 2002 and shows it back with format m-yyyy.
+		name: 'part stored as a date that shows digits only',
+		field: 'part',
+		cell: { ...cell('4-2002', 'date', 37347), numFmt: 'm-yyyy' },
+		values: [['4-2002', []]],
+		warnings: ['stored as a date; imported as Excel shows it ("4-2002")']
+	},
+	{
 		name: 'part with parenthetical annotation',
 		field: 'part',
 		cell: cell('12273108 (EATON M144E)'),
@@ -193,6 +201,13 @@ const INVALID_CASES: InvalidCase[] = [
 		field: 'part',
 		cell: cell('3/4/2026', 'date', 46085),
 		message: `Part number in ${AT} is stored as a date ("3/4/2026"); Excel converted it and the original value cannot be recovered`
+	},
+	{
+		// A month name is Excel's rewrite of a typed 3-4; the part number is gone.
+		name: 'part stored as a date that shows a month name',
+		field: 'part',
+		cell: cell('4-Mar', 'date', 46085),
+		message: `Part number in ${AT} is stored as a date ("4-Mar"); Excel converted it and the original value cannot be recovered`
 	},
 	{ name: 'nsn too short', field: 'nsn', cell: cell('12663107'), message: `NSN "12663107" in ${AT} has 8 digits, expected 13` },
 	{

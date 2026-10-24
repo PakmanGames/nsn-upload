@@ -101,7 +101,7 @@ export function sheetOf(analysis: WorkbookAnalysis, name: string): SheetAnalysis
 	return sheet;
 }
 
-/** The single table on a sheet (the 5-hour scope has at most one). */
+/** The one table on a sheet; fails when the sheet has none or several. */
 export function tableOf(analysis: WorkbookAnalysis, sheetName: string): TableCandidate {
 	const { tables } = sheetOf(analysis, sheetName);
 	expect(tables, `tables on "${sheetName}"`).toHaveLength(1);

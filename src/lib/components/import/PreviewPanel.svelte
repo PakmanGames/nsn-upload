@@ -13,7 +13,8 @@
 	type Props = {
 		/** Records of tables that are not held back; held-back tables fold into one line each below the table. */
 		records: CandidateRecord[];
-		held: Array<{ table: TableCandidate; records: CandidateRecord[] }>;
+		/** `label` names the table: its sheet, plus its rows when the sheet has several tables. */
+		held: Array<{ table: TableCandidate; label: string; records: CandidateRecord[] }>;
 		/** Rows each table left out (repeated headers, rows below the table, ...), so the user can check nothing was lost. */
 		skipped: SkippedGroup[];
 		sheetNames: string[];
@@ -356,7 +357,7 @@
 				class="flex cursor-pointer list-none items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
 			>
 				<ChevronRight size={14} class="shrink-0 transition group-open/held:rotate-90" />
-				{group.table.sheet} · {plural(new Set(group.records.map((record) => record.sourceRow)).size, 'row')} held back, not importing
+				{group.label} · {plural(new Set(group.records.map((record) => record.sourceRow)).size, 'row')} held back, not importing
 			</summary>
 			<ul class="mt-1 divide-y divide-slate-100 text-sm text-slate-600">
 				{#each group.records as record (record.id)}
@@ -379,7 +380,7 @@
 				class="flex cursor-pointer list-none items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
 			>
 				<ChevronRight size={14} class="shrink-0 transition group-open/skipped:rotate-90" />
-				{group.table.sheet} · {plural(group.rows.length, 'row')} skipped, not importing
+				{group.label} · {plural(group.rows.length, 'row')} skipped, not importing
 			</summary>
 			<ul class="mt-1 divide-y divide-slate-100 text-sm text-slate-600">
 				{#each group.rows as line (line.row)}
