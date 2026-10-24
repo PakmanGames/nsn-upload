@@ -6,7 +6,7 @@
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Upload from '@lucide/svelte/icons/upload';
 	import X from '@lucide/svelte/icons/x';
-	import type { CandidateRecord, ColumnMapping, Field, MappingInput, StoredMapping } from '$lib/import/model';
+	import type { CandidateRecord, ColumnMapping, Field, ImportPlan, StoredMapping } from '$lib/import/model';
 	import { colLetter } from '$lib/import/refs';
 	import { ImportSession } from '$lib/import/session.svelte';
 	import AiAssist from './AiAssist.svelte';
@@ -22,8 +22,8 @@
 		/** Records already saved, so the analysis can flag duplicates against them. */
 		existing: StoredMapping[];
 		onClose: () => void;
-		/** Saves the approved records and returns how many were added. */
-		onImport: (inputs: MappingInput[]) => number;
+		/** Adds the plan's new records and replaces the saved records it names. */
+		onImport: (plan: ImportPlan) => void;
 	};
 
 	let { open, existing, onClose, onImport }: Props = $props();
@@ -71,6 +71,8 @@
 		return (analysis?.records ?? []).filter((record) => !record.approved && (ids.has(record.id) || tables.has(record.tableId)));
 	});
 	const heldBackIds = $derived(new Set(heldBack.map((record) => record.id)));
+	/** Saved records by id, so a storage conflict can show the saved values next to the new ones. */
+	const savedById = $derived(new Map(existing.map((mapping) => [mapping.id, mapping])));
 	const drawerRecord = $derived(drawerRecordId ? recordsById.get(drawerRecordId) : undefined);
 
 	$effect(() => {
@@ -290,7 +292,7 @@
 							type="button"
 							class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-800 disabled:bg-slate-300"
 							disabled={analysis.summary.toImport === 0 || session.busy}
-							onclick={() => void session.import(onImport)}
+							onclick={() => session.import(onImport)}
 						>
 							{#if session.phase === 'importing'}<LoaderCircle class="animate-spin" size={16} />{/if}
 							Import {plural(analysis.summary.toImport, 'record')}
@@ -311,7 +313,7 @@
 							<CircleCheck size={24} />
 						</div>
 						<h3 class="mt-4 text-lg font-semibold text-slate-950">
-							{plural(session.importedCount, 'record')} added to your NSN table
+							{plural(session.imported?.add.length ?? 0, 'record')} added to your NSN table
 						</h3>
 						<p class="mt-1 text-sm text-slate-500">Saved in this browser.</p>
 						<dl class="mt-6 divide-y divide-slate-100 rounded-lg border border-slate-200 text-left text-sm">
@@ -322,6 +324,11 @@
 								</div>
 							{/each}
 						</dl>
+						{#if session.imported?.replace.length}
+							<p class="mt-1 text-sm font-medium text-slate-700">
+								{plural(session.imported.replace.length, 'saved record')} replaced with values from this file
+							</p>
+						{/if}
 						{#if reasons.review + reasons.invalid + reasons.duplicate + reasons.excluded}
 							<p class="mt-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Not imported</p>
 							<dl class="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-left text-sm">
@@ -362,7 +369,14 @@
 							id="decisions"
 							class="scroll-mt-4 border-b border-slate-200 p-4 xl:col-start-3 xl:row-start-1 xl:overflow-y-auto xl:border-b-0 xl:border-l"
 						>
-							<DecisionsPanel {session} decisions={analysis.decisions} records={recordsById} {aiTables} onOpenRecord={openRecord} />
+							<DecisionsPanel
+								{session}
+								decisions={analysis.decisions}
+								records={recordsById}
+								saved={savedById}
+								{aiTables}
+								onOpenRecord={openRecord}
+							/>
 						</div>
 						<div class="min-w-0 space-y-4 p-4 xl:col-start-2 xl:row-start-1 xl:overflow-y-auto">
 							{#if activeSheet}

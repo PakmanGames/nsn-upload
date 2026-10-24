@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { decisionId } from '$lib/import/model';
+import { decisionId, type ImportPlan } from '$lib/import/model';
 import { ImportSession, type ImportEngine } from '$lib/import/session.svelte';
 import { mockEngine } from './mock-analysis';
 
@@ -117,12 +117,26 @@ describe('ImportSession', () => {
 		expect(session.analysis!.sheets.find((sheet) => sheet.name === 'Search Log')!.tables[0].source).toBe('deterministic');
 	});
 
-	it('imports only approved records and reports the count', async () => {
+	it('imports only approved records as additions', async () => {
 		const session = await loaded();
-		const onImport = vi.fn((inputs: unknown[]) => inputs.length);
-		await session.import(onImport);
+		const onImport = vi.fn<(plan: ImportPlan) => void>();
+		session.import(onImport);
 		expect(session.phase).toBe('done');
-		expect(session.importedCount).toBe(session.analysis!.summary.toImport);
-		expect(onImport.mock.calls[0][0]).toHaveLength(session.analysis!.summary.toImport);
+		expect(onImport.mock.calls[0][0].add).toHaveLength(session.analysis!.summary.toImport);
+		expect(onImport.mock.calls[0][0].replace).toEqual([]);
+		expect(session.imported).toBe(onImport.mock.calls[0][0]);
+	});
+
+	it('replaces the saved record when a storage conflict is resolved with replace-saved', async () => {
+		const session = await loaded();
+		const conflict = session.analysis!.decisions.find((decision) => decision.kind === 'resolve-storage-conflict')!;
+		session.choose(conflict.id, 'replace-saved');
+		const onImport = vi.fn<(plan: ImportPlan) => void>();
+		session.import(onImport);
+		const plan = onImport.mock.calls[0][0];
+		expect(plan.replace).toEqual([
+			{ id: 'demo-1', input: expect.objectContaining({ part: 'M30294', description: 'Bolt, hexagon head' }) }
+		]);
+		expect(plan.add.length + plan.replace.length).toBe(session.analysis!.summary.toImport);
 	});
 });

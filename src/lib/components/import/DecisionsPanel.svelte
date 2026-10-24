@@ -5,7 +5,7 @@
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import Undo2 from '@lucide/svelte/icons/undo-2';
 	import WandSparkles from '@lucide/svelte/icons/wand-sparkles';
-	import type { CandidateRecord, Decision, DecisionKind, Field } from '$lib/import/model';
+	import type { CandidateRecord, Decision, DecisionKind, Field, StoredMapping } from '$lib/import/model';
 	import type { ImportSession } from '$lib/import/session.svelte';
 	import { DECISION_KIND_LABEL, FIELD_LABEL, plural } from './labels';
 
@@ -13,11 +13,13 @@
 		session: ImportSession;
 		decisions: Decision[];
 		records: Map<string, CandidateRecord>;
+		/** Saved records by id, for storage conflicts. */
+		saved: Map<string, StoredMapping>;
 		aiTables: Set<string>;
 		onOpenRecord: (recordId: string) => void;
 	};
 
-	let { session, decisions, records, aiTables, onOpenRecord }: Props = $props();
+	let { session, decisions, records, saved, aiTables, onOpenRecord }: Props = $props();
 
 	/** The option picked in a pending decision's control before it is applied; defaults to the suggestion. */
 	let picks = $state<Record<string, string>>({});
@@ -36,7 +38,40 @@
 		>
 	);
 
-	const COMPARE: Field[] = ['part', 'nsn', 'description', 'cage'];
+	const COMPARE: Field[] = ['part', 'nsn', 'niin', 'description', 'cage'];
+	type Column = { label: string; values: Partial<Record<Field, string>> };
+
+	const valuesOf = (record: CandidateRecord): Column['values'] =>
+		Object.fromEntries(Object.entries(record.fields).map(([field, value]) => [field, value.value]));
+	/** Same comparison the validation stage uses: case and whitespace do not make values differ. */
+	const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+	/** Side-by-side values when a decision weighs records against each other or against a saved record. */
+	function comparison(decision: Decision): Column[] {
+		const own = decision.recordIds.flatMap((id) => records.get(id) ?? []);
+		if (decision.kind === 'resolve-conflict') return own.map((record) => ({ label: describe(record.id), values: valuesOf(record) }));
+		if (decision.kind !== 'resolve-storage-conflict') return [];
+		const savedColumns = (decision.existingIds ?? []).flatMap((id) => {
+			const mapping = saved.get(id);
+			return mapping ? [{ label: 'Saved', values: mapping }] : [];
+		});
+		return [...savedColumns, ...own.map((record) => ({ label: `This file, ${describe(record.id)}`, values: valuesOf(record) }))];
+	}
+
+	type IdentifierCell = { cell: string; value: string; original: string };
+
+	/** The row's own NSN, NIIN, and FSC cells: source values, or the rejected original once a choice moved one aside. */
+	function identifierCells(record: CandidateRecord) {
+		const read = (field: Field): IdentifierCell | null => {
+			const value = record.fields[field];
+			if (value?.provenance.origin === 'source') {
+				return { cell: value.provenance.cell, value: value.value, original: value.provenance.original };
+			}
+			const rejected = record.rejected[field];
+			return rejected ? { cell: rejected.cell, value: rejected.original, original: rejected.original } : null;
+		};
+		return { nsn: read('nsn'), niin: read('niin'), fsc: read('fsc') };
+	}
 	const label = (decision: Decision, option: string | null) =>
 		decision.options.find((candidate) => candidate.id === option)?.label ?? option ?? '';
 	const describe = (id: string) => {
@@ -78,6 +113,80 @@
 	</span>
 {/snippet}
 
+{#snippet compareTable(columns: Column[])}
+	<div class="mt-2 overflow-x-auto rounded-md border border-slate-200 bg-white">
+		<table class="w-full text-left text-xs">
+			<thead class="bg-slate-50 text-slate-500">
+				<tr>
+					<th class="px-2 py-1.5 font-medium"><span class="sr-only">Field</span></th>
+					{#each columns as column, i (i)}
+						<th class="px-2 py-1.5 font-medium">{column.label}</th>
+					{/each}
+				</tr>
+			</thead>
+			<tbody class="divide-y divide-slate-100">
+				{#each COMPARE.filter((field) => columns.some((column) => column.values[field])) as field (field)}
+					{@const values = columns.map((column) => column.values[field])}
+					{@const differs = new Set(values.filter((value) => value !== undefined).map(normalize)).size > 1}
+					<tr>
+						<th scope="row" class="whitespace-nowrap px-2 py-1.5 font-medium text-slate-500">{FIELD_LABEL[field]}</th>
+						{#each values as value, i (i)}
+							<td class={['px-2 py-1.5 align-top', differs ? 'bg-amber-50 font-medium text-amber-900' : 'text-slate-700']}>
+								{value ?? '—'}
+							</td>
+						{/each}
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
+{/snippet}
+
+{#snippet identifierTable(record: CandidateRecord)}
+	{@const cells = identifierCells(record)}
+	{@const nsn = cells.nsn?.value.replace(/\D/g, '')}
+	{@const nsnFsc = nsn?.length === 13 ? nsn.slice(0, 4) : undefined}
+	{@const nsnNiin = nsn?.length === 13 ? nsn.slice(4) : undefined}
+	{@const fscDiffers = !!cells.fsc && !!nsnFsc && cells.fsc.value !== nsnFsc}
+	{@const niinDiffers = !!cells.niin && !!nsnNiin && cells.niin.value !== nsnNiin}
+	{@const highlight = 'bg-amber-50 font-medium text-amber-900'}
+	<!-- An NSN is its FSC followed by its NIIN, so lining the parts up shows which cell disagrees. -->
+	<div class="mt-2 overflow-x-auto rounded-md border border-slate-200 bg-white">
+		<table class="w-full text-left text-xs">
+			<thead class="bg-slate-50 text-slate-500">
+				<tr>
+					<th class="px-2 py-1.5 font-medium"><span class="sr-only">Field</span></th>
+					<th class="px-2 py-1.5 font-medium">Cell</th>
+					<th class="px-2 py-1.5 font-medium">FSC</th>
+					<th class="px-2 py-1.5 font-medium">NIIN</th>
+				</tr>
+			</thead>
+			<tbody class="divide-y divide-slate-100 font-mono">
+				{#each [['nsn', 'NSN'], ['niin', 'NIIN'], ['fsc', 'FSC']] as const as [field, name] (field)}
+					{@const cell = cells[field]}
+					{#if cell}
+						<tr>
+							<th scope="row" class="px-2 py-1.5 font-sans font-medium text-slate-500">{name}</th>
+							<td class="px-2 py-1.5 align-top text-slate-700">
+								{cell.cell}
+								{#if cell.original !== cell.value}
+									<span class="block font-sans text-[11px] text-slate-400">"{cell.original}"</span>
+								{/if}
+							</td>
+							<td class={['px-2 py-1.5 align-top', fscDiffers && field !== 'niin' ? highlight : 'text-slate-700']}>
+								{field === 'nsn' ? nsnFsc : field === 'fsc' ? cell.value : ''}
+							</td>
+							<td class={['px-2 py-1.5 align-top', niinDiffers && field !== 'fsc' ? highlight : 'text-slate-700']}>
+								{field === 'nsn' ? nsnNiin : field === 'niin' ? cell.value : ''}
+							</td>
+						</tr>
+					{/if}
+				{/each}
+			</tbody>
+		</table>
+	</div>
+{/snippet}
+
 <div class="space-y-6">
 	<section aria-labelledby="needs-you-heading">
 		<div class="flex items-center justify-between gap-3">
@@ -111,39 +220,17 @@
 		<ul class="mt-3 space-y-3">
 			{#each pending as decision (decision.id)}
 				{@const pick = picks[decision.id] ?? decision.suggested}
-				{@const compared = decision.kind === 'resolve-conflict' ? decision.recordIds.flatMap((id) => records.get(id) ?? []) : []}
+				{@const columns = comparison(decision)}
+				{@const identifierRecord = decision.kind === 'resolve-identifier-conflict' ? records.get(decision.recordIds[0]) : undefined}
 				<li class="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
 					{@render kindTag(decision)}
 					<p class="mt-1 text-sm text-slate-800">{decision.reason}</p>
 					{@render recordLinks(decision)}
-
-					{#if compared.length}
-						<div class="mt-2 overflow-x-auto rounded-md border border-slate-200 bg-white">
-							<table class="w-full text-left text-xs">
-								<thead class="bg-slate-50 text-slate-500">
-									<tr>
-										<th class="px-2 py-1.5 font-medium"><span class="sr-only">Field</span></th>
-										{#each compared as record (record.id)}
-											<th class="px-2 py-1.5 font-medium">{describe(record.id)}</th>
-										{/each}
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-slate-100">
-									{#each COMPARE as field (field)}
-										{@const values = compared.map((record) => record.fields[field]?.value)}
-										{@const differs = new Set(values.filter(Boolean)).size > 1}
-										<tr>
-											<th scope="row" class="whitespace-nowrap px-2 py-1.5 font-medium text-slate-500">{FIELD_LABEL[field]}</th>
-											{#each values as value, i (i)}
-												<td class={['px-2 py-1.5 align-top', differs ? 'bg-amber-50 font-medium text-amber-900' : 'text-slate-700']}>
-													{value ?? '—'}
-												</td>
-											{/each}
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+					{#if columns.length}
+						{@render compareTable(columns)}
+					{/if}
+					{#if identifierRecord}
+						{@render identifierTable(identifierRecord)}
 					{/if}
 
 					<fieldset class="mt-3">
