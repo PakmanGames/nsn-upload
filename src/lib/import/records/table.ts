@@ -146,11 +146,12 @@ function chooseLayout(ctx: TableContext, row: Row): Layout {
 		keepAsOne(ctx, row, multi[0]);
 		return { kind: 'single' };
 	}
-	const chosen = ctx.overrides.decisions?.[decisionId('ambiguous-multi-value', subject)];
-	// Until the user picks, pairing in order is only a safe default when every cell has the same count.
+	const stored = ctx.overrides.decisions?.[decisionId('ambiguous-multi-value', subject)];
 	const sameCounts = multi.every((s) => s.values.length === multi[0].values.length);
-	const pair = chosen === 'pair-in-order' || ((chosen === undefined || chosen === 'exclude') && sameCounts);
-	if (!pair) multi.forEach((source) => keepAsOne(ctx, row, source));
+	// Pairing uneven lists would leave values without a partner, so validate/ does not offer it there;
+	// a stored pair-in-order on such a row is ignored and the row stays undecided.
+	const chosen = stored === 'pair-in-order' && !sameCounts ? undefined : stored;
+	if (!sameCounts || chosen === 'keep-as-one') multi.forEach((source) => keepAsOne(ctx, row, source));
 	return { kind: 'ambiguous', multi, chosen };
 }
 
@@ -188,9 +189,9 @@ function buildRowRecords(ctx: TableContext, row: Row): CandidateRecord[] {
 	for (let index = 0; index < total; index++) {
 		const fields: CandidateRecord['fields'] = {};
 		for (const source of row.sources) {
-			// Single values repeat on every record; with uneven pairing a shorter list simply runs out.
+			// Single values repeat on every record; each multi-value cell left in the layout has `total` values.
 			const value = source.values.length === 1 ? source.values[0] : source.values[index];
-			if (value) fields[source.field] = fieldValue(ctx, row.row, source, value);
+			fields[source.field] = fieldValue(ctx, row.row, source, value);
 		}
 		const issues = [...row.issues, ...layoutIssues(ctx, layout, index, total)];
 		issues.push(...checkAndDerive(ctx, fields, row));

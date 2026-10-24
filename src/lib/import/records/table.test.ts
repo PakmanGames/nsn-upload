@@ -244,7 +244,7 @@ describe('multi-value cells', () => {
 	});
 
 	it.each([
-		['pair-in-order', 'A100\nB200\nC300', 3, true],
+		['pair-in-order', 'A100\nB200', 2, true],
 		['keep-as-one', 'A100\nB200', 1, true],
 		['exclude', 'A100\nB200', 2, false],
 		['exclude', 'A100\nB200\nC300', 1, false]
@@ -255,9 +255,13 @@ describe('multi-value cells', () => {
 
 		expect(records).toHaveLength(count);
 		for (const record of records) expect(record).toMatchObject({ status: 'warning', approved });
-		if (choice === 'pair-in-order') {
-			expect(records.map((r) => r.fields.nsn?.value)).toEqual(['5305016582565', '5305016582566', undefined]);
-		}
+	});
+
+	it('ignores a stored pair-in-order choice when the value counts differ', () => {
+		const sheet = sheetOf(['Part', 'NSN'], { 2: ['A100\nB200\nC300', '5305016582565\n5305016582566'] });
+		const overrides = { decisions: { [decisionId('ambiguous-multi-value', `${TABLE_ID}:r2`)]: 'pair-in-order' } };
+
+		expect(build(sheet, ['part', 'nsn'], overrides)).toEqual(build(sheet, ['part', 'nsn']));
 	});
 });
 
