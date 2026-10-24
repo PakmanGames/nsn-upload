@@ -490,8 +490,10 @@
 									bind:filter
 									bind:scope={previewScope}
 									heldBack={heldBackIds}
+									excluded={new Set(session.overrides.excludedRecords)}
 									activeRecordId={drawerRecordId}
 									onOpen={(record) => openRecord(record.id)}
+									onToggle={(record, include) => session.setRecordExcluded(record.id, !include)}
 								/>
 							</Section>
 							<Section

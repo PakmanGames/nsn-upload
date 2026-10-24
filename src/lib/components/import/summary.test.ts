@@ -127,6 +127,14 @@ describe('R9 worth a look', () => {
 		]);
 	});
 
+	it('leaves out a row the user unchecked, since the line says these rows still import', () => {
+		const annotated = fixture(WOW).records.find((record) => record.sourceRow === 43)!;
+		expect(worthALook(fixture(WOW, { excludedRecords: [annotated.id] })).map((line) => line.title)).toEqual([
+			'2 rows had a malformed NSN',
+			'1 record has no description'
+		]);
+	});
+
 	it('says nothing for held-back or warning-free files', () => {
 		expect(worthALook(fixture(PENCOM))).toEqual([]);
 		expect(worthALook(fixture(PENCOM, acceptAll(fixture(PENCOM))))).toEqual([]);

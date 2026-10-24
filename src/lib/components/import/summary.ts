@@ -259,7 +259,8 @@ export function worthALook(analysis: WorkbookAnalysis): WorthALook[] {
 	);
 	const groups = new Map<string, Group>();
 	for (const record of activeRecords(analysis)) {
-		if (record.status !== 'warning') continue;
+		// The line promises these rows still import, so a row the user unchecked or excluded is left out.
+		if (record.status !== 'warning' || !record.approved) continue;
 		const seen = new Set<string>();
 		for (const issue of record.issues) {
 			if (issue.severity === 'info' || (issue.code === 'conflict' && settled.has(record.id))) continue;

@@ -17,12 +17,25 @@
 		scope: string;
 		/** Ids of records held back until a pending decision is made; the Pending tab lists them. */
 		heldBack: Set<string>;
+		/** Ids of records the user unchecked; they keep their checkbox so they can be checked again. */
+		excluded: Set<string>;
 		activeRecordId: string | null;
 		onOpen: (record: CandidateRecord) => void;
+		onToggle: (record: CandidateRecord, include: boolean) => void;
 	};
 
-	let { records, held, sheetNames, filter = $bindable(), scope = $bindable(), heldBack, activeRecordId, onOpen }: Props =
-		$props();
+	let {
+		records,
+		held,
+		sheetNames,
+		filter = $bindable(),
+		scope = $bindable(),
+		heldBack,
+		excluded,
+		activeRecordId,
+		onOpen,
+		onToggle
+	}: Props = $props();
 
 	const pageSize = 100;
 	let query = $state('');
@@ -98,6 +111,9 @@
 		if (page >= pageCount) page = pageCount - 1;
 	});
 
+	const rowName = (record: CandidateRecord) =>
+		`${record.sheet} row ${record.sourceRow}${record.split ? `, value ${record.split.index} of ${record.split.total}` : ''}`;
+
 	function firstIssue(record: CandidateRecord) {
 		return record.issues.find((issue) => issue.severity === 'error') ?? record.issues.find((issue) => issue.severity === 'warning') ?? record.issues[0];
 	}
@@ -155,7 +171,7 @@
 			</label>
 		</div>
 	</div>
-	<p class="mt-2 text-xs text-slate-500">Select a row to see where each value came from.</p>
+	<p class="mt-2 text-xs text-slate-500">Select a row to see where each value came from. Uncheck a row to leave it out of the import.</p>
 
 	<div class="mt-2 overflow-x-auto rounded-lg border border-slate-200">
 		<table class="w-full min-w-[44rem] border-collapse text-left text-sm">
@@ -179,22 +195,40 @@
 							activeRecordId === record.id && 'bg-blue-50/60 hover:bg-blue-50',
 							!record.approved && 'text-slate-500'
 						]}
-						onclick={() => onOpen(record)}
+						onclick={(event) => {
+							// The checkbox cell only toggles the import; anywhere else on the row opens the details.
+							if (!(event.target as Element).closest('[data-import-toggle]')) onOpen(record);
+						}}
 					>
-						<td class="px-3 py-2.5">
-							{#if record.approved}
-								<Check size={15} class="text-emerald-600" />
-								<span class="sr-only">Will be imported</span>
+						<td class="p-0">
+							{#if record.approved || excluded.has(record.id)}
+								<!-- A native checkbox drawn as the light check this column always showed, so 100 rows stay quiet. -->
+								<label class="relative flex cursor-pointer px-3 py-2.5" data-import-toggle>
+									<input
+										type="checkbox"
+										class="peer size-4 cursor-pointer appearance-none rounded border border-slate-300 bg-white transition checked:border-emerald-300 checked:bg-emerald-50 hover:border-slate-400 checked:hover:border-emerald-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+										checked={record.approved}
+										aria-label={`Import ${rowName(record)}`}
+										onchange={(event) => onToggle(record, event.currentTarget.checked)}
+									/>
+									<Check
+										size={12}
+										strokeWidth={3}
+										class="pointer-events-none absolute left-3.5 top-3 hidden text-emerald-600 peer-checked:block"
+									/>
+								</label>
 							{:else}
-								<Minus size={15} class="text-slate-400" />
-								<span class="sr-only">Not imported</span>
+								<span class="flex px-3 py-2.5">
+									<Minus size={15} class="text-slate-400" />
+									<span class="sr-only">Not imported</span>
+								</span>
 							{/if}
 						</td>
 						<td class="whitespace-nowrap px-3 py-2.5">
 							<button
 								type="button"
 								class="rounded text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-								aria-label={`Details for ${record.sheet} row ${record.sourceRow}${record.split ? `, value ${record.split.index} of ${record.split.total}` : ''}`}
+								aria-label={`Details for ${rowName(record)}`}
 								onclick={(event) => {
 									event.stopPropagation();
 									onOpen(record);
@@ -213,7 +247,9 @@
 							<span class={['inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', status.style]}>
 								{status.label}
 							</span>
-							{#if issue}
+							{#if excluded.has(record.id) && !record.approved}
+								<span class="mt-1 block text-xs text-slate-500">Excluded by you</span>
+							{:else if issue}
 								<span class="mt-1 block max-w-44 truncate text-xs text-slate-500" title={issue.message}>
 									{issue.message}
 								</span>
