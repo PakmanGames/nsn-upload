@@ -40,8 +40,8 @@ export const substringHeaders = {
 		pendingDecisions: 1,
 		toImport: 180
 	},
-	// Row 49's suggestion today is to exclude it, so the count stays at 180.
-	afterAcceptAll: { pendingDecisions: 0, toImport: 180 },
+	// Row 49 is now kept by "Keep the NSN" (D24): its NSN imports, with the FSC worked out from it, so 180 + 1.
+	afterAcceptAll: { pendingDecisions: 0, toImport: 181 },
 	sheet: SHEET,
 	/** Part comes from a header hint, so medium; it does not hold the table back. */
 	partColumn: { column: 'A', confidence: 'medium' },
