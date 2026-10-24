@@ -6,7 +6,7 @@ Each entry gives the TASK_SPEC requirement, the evidence, the options, and a rec
 
 Related: decided items are in [`PLAN.md`](PLAN.md) (Decisions), deferred ideas in its Backlog, and current gaps in [`ARCHITECTURE.md`](ARCHITECTURE.md) (section 11).
 
-## OD1 - Responsiveness on large workbooks (Web Worker)
+## OD1 - Responsiveness on large workbooks (Web Worker) (decided: not now, D28)
 
 **TASK_SPEC:** "Keep the interface responsive while analyzing a large workbook" and "Provide visible progress for workbooks large enough to cause a noticeable delay". A worker is "encouraged but not mandatory if responsiveness can be demonstrated another way".
 
@@ -29,7 +29,7 @@ Progress is a phase label ("Reading", "Analyzing"), not a percentage.
 
 **Recommendation:** option 1. It is a stated requirement, not a stretch goal, and the freeze is measurable.
 
-## OD2 - Labeling derived values after import
+## OD2 - Labeling derived values after import (decided: build it, D25)
 
 **TASK_SPEC:** "Any derived value must be labeled as derived rather than source-provided", and an NSN "should be deduced" from FSC + NIIN.
 
@@ -55,7 +55,7 @@ Progress is a phase label ("Reading", "Analyzing"), not a percentage.
 
 **Recommendation:** option 1. It is the most visible deferred item against the spec, and unseen review workbooks may include it.
 
-## OD4 - Including a hidden sheet on request
+## OD4 - Including a hidden sheet on request (decided: build it, D26)
 
 **TASK_SPEC:** "Ignore hidden and very-hidden worksheets by default", which implies the user could opt in.
 
@@ -67,6 +67,18 @@ Progress is a phase label ("Reading", "Analyzing"), not a percentage.
 2. Document it as intentional: hidden sheets are usually system metadata (WOW's `hiddenSheet`).
 
 **Recommendation:** option 2 unless time remains.
+
+## OD5 - Other suggestions that leave data out
+
+**Product owner principle (2026-10-24):** never lose data from the file. Identifier conflicts now suggest keeping the NSN (D24); these three suggestions still leave something out, and are parked to revisit before the next submission.
+
+| Situation | Suggestion today | Not imported | Why it was chosen |
+| --- | --- | --- | --- |
+| A table the importer is unsure is a parts list (PENCOM `Search Log`) | Exclude the table | Its rows | A log of searches, not parts; importing it adds junk records |
+| An upload matches a saved record with a different description or CAGE (D13) | Keep the saved record | The new description or CAGE | Never overwrite saved data without asking |
+| Two rows in the file describe the same part differently | Keep the row with more filled fields | The other row's description | Avoid two records for one part |
+
+The user can pick another option on each card; this is only about what is suggested.
 
 ## Spec fixes (no decision needed)
 

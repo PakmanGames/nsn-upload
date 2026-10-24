@@ -48,8 +48,13 @@ Four new workbooks came with the feedback and are in `example-excel-uploads/`.
 | M1 | Messages a user understands: plain-language explanations, with AI wording when AI assistance is on ([brief](tasks/M1-plain-language-messages.md)) | all | Not started |
 | AI1 | AI assistance on by default; the switch stays and is remembered ([brief](tasks/AI1-ai-on-by-default.md)) | all | Not started |
 | DS1 | Faster decisions: keep the NSN suggested, apply a choice to similar decisions, an Apply button that stays put ([brief](tasks/DS1-faster-decisions.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Not started |
+| L1 | Mark derived values in the saved list ([brief](tasks/L1-derived-labels-after-import.md)) | Statz | Not started |
+| H1 | "Include anyway" for hidden sheets ([brief](tasks/H1-include-hidden-sheet.md)) | synthetic, WOW | Not started |
+| E5 | Tables side by side on one sheet ([brief](tasks/E5-side-by-side-tables.md)) | synthetic | After E3; design only if time runs out |
+| X1 | A library of edge-case workbooks ([brief](tasks/X1-edge-case-workbooks.md)) | new | Not started |
 
-All Wave 2 tasks run in parallel.
+All Wave 2 tasks run in parallel, except E5 (after E3).
+**The submission is due at about 16:30 on 2026-10-24.** Work not merged by then is described as designed in `ARCHITECTURE.md` (Wave 2 section), so the design counts even where the code is not in.
 
 ### Wave 2 rules (in addition to the rules below)
 
@@ -58,16 +63,17 @@ All Wave 2 tasks run in parallel.
 
    | File | Who edits which part |
    | --- | --- |
-   | `model.ts` | E1: the contract in its brief. DS1: one `Transform` member. |
+   | `model.ts` | E1: the contract in its brief. DS1: one `Transform` member. H1: one `Overrides` field. |
    | `structure/detect.ts` | E1: one call in the no-header branch. E2: the `tryHeader` span. E3: `detectTable`, `nextTable`. |
-   | `structure/sheet.ts` | E1: the manual-table branch. E3: the deterministic branch. |
+   | `structure/sheet.ts` | E1: the manual-table branch. E3: the deterministic branch. H1: the hidden branch. |
    | `structure/columns.ts` | E2: `readHeader`. E4: the value-only rules. |
    | `records/table.ts` | E4: split and conflict matching. DS1: the `prefer-nsn` branch and FSC derivation. |
-   | `validate/rows.ts` | E1: the include suggestion for headerless tables. DS1: the identifier-conflict suggestion. |
+   | `validate/rows.ts` | E1: the include suggestion for headerless tables. DS1: the identifier-conflict suggestion. H1: the include suggestion for hidden-sheet tables. |
+   | `validate/index.ts` | L1: `toInput`, `toImportPlan`. |
    | `src/lib/import/ai/` | E1: verifier, prompt, schema. M1: new `explain*.ts` files only. |
-   | `session.svelte.ts` | E1: manual-table methods. V1: `focus`. M1: explanation state. AI1: the AI default. DS1: `chooseMany`, `resetDecisions`. |
+   | `session.svelte.ts` | E1: manual-table methods. V1: `focus`. M1: explanation state. AI1: the AI default. DS1: `chooseMany`, `resetDecisions`. H1: `setHiddenSheetIncluded`. |
    | `summary.ts` | E1: the nothing-to-import sentence. E3: counting tables. AI1: the AI line. |
-   | `SheetsPanel.svelte` | E1: the setup control. E3: one line per table. AI1: "AI is reading". |
+   | `SheetsPanel.svelte` | E1: the setup control. E3: one line per table. AI1: "AI is reading". H1: the hidden-sheet line. |
    | `ColumnsPanel.svelte` | E2: the "(no header)" label. E3: group headings. |
    | `DecisionStage.svelte` | M1: the explanation text block. DS1: options, actions, focus, the done list. |
    | `AiAssist.svelte` | M1: the explained-decisions line. AI1: default-on copy. |
@@ -76,7 +82,7 @@ All Wave 2 tasks run in parallel.
    Keep your edits inside your part, and when you rebase after another task merged, keep its behavior and rerun the whole suite.
 3. Each new fixture gets its own expectations file (`tests/fixtures/<name>.ts`) and acceptance suite (`tests/acceptance/<name>.test.ts`). Do not add to `FIXTURES` in `expectations.ts`; the coordinator registers the new fixtures after the merges.
 4. The WOW, Statz, and PENCOM expectations stay green. A change to them must be explained in the PR, not silently updated.
-5. Merge order when several are ready at once: E4, E2, E3, E1; V1, M1, AI1, and DS1 at any time.
+5. Merge order when several are ready at once: E4, E2, E3, E1, then E5; DS1 before M1; V1, AI1, L1, H1, and X1 at any time.
 6. Meet the UX bar below.
 
 ### The UX bar (every Wave 2 task)
@@ -151,6 +157,10 @@ Beyond Wave 2, what remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DE
 | D22 | Two-row header detection (OD3) is built now: today a split label like "Part" above "Number" can import a junk record and lose columns. | Product owner |
 | D23 | AI assistance is on by default whenever the server has AI configured; the switch stays and turning it off is remembered per browser. Accepted deviation from a literal reading of TASK_SPEC's "transmission disabled unless AI parsing is explicitly enabled"; nothing is sent without a server key, and the AI section says what is sent. | Product owner (AI1) |
 | D24 | An NSN that disagrees with its own FSC or NIIN stays a pending decision, now suggesting "Keep the NSN" (FSC and NIIN worked out from it, disagreeing cells listed); replaces D12's suggested exclude. A choice can be applied to similar decisions in one click. Other suggestions are unchanged. | Product owner (DS1) |
+| D25 | Derived values stay labeled after import: the saved list marks a NIIN or NSN the importer worked out (L1, was OD2). | Product owner |
+| D26 | Hidden sheets stay ignored by default; "Include anyway" brings one in, held back for confirmation; hidden sheets are never sent to the AI (H1, was OD4). | Product owner |
+| D27 | Tables side by side on one sheet are imported as separate tables, after E3 (E5). | Product owner |
+| D28 | No Web Worker for this submission: the measured main-thread times are documented as a known limit (was OD1). | Product owner |
 | D20 | The review window becomes summary-first (UX1): one sentence and the pending decision first, everything else in collapsed sections with one-line summaries; all of R1-R9 kept; Columns opens by default only when a column is medium or low confidence or was remapped. Not a "simple mode" setting. | Product owner, after the prototype |
 
 ## Backlog (future ideas)
