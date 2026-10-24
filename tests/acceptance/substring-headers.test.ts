@@ -101,6 +101,8 @@ describe(fixture.file, () => {
 			]);
 			expect(reasons('I')).toEqual(['Header mentions CAGE, but 0 of 66 values are valid CAGE codes']);
 			expect(reasons('M')).toEqual(['Header mentions FSC, but 0 of 127 values are valid FSCs']);
+			// Prices and quantities: nothing in the header or the values points at a field.
+			expect(reasons('F')).toEqual(["The header doesn't name a field we import"]);
 		});
 
 		it('imports rows 134-135 as part-only records', () => {

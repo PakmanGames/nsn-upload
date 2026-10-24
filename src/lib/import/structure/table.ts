@@ -334,11 +334,7 @@ function unmappedReasons(column: ColumnEvidence, user: UserColumns, alternatives
 		reasons.push(`Also fits ${alternatives.map((f) => FIELD_LABEL[f]).join(', ')}, but another column was a better fit`);
 	}
 	if (reasons.length === 0) {
-		reasons.push(
-			column.header
-				? `Header '${column.header}' does not name a target field`
-				: "No header, and its values aren't NSNs or NIINs"
-		);
+		reasons.push(column.header ? "The header doesn't name a field we import" : "No header, and its values aren't NSNs or NIINs");
 	}
 	return reasons;
 }
