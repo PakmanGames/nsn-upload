@@ -4,7 +4,7 @@
  * Detection, user remaps, and AI proposals all go through these rules, so the same column always gets the
  * same confidence no matter who proposed the mapping.
  */
-import type { Confidence, Field, SheetModel } from '../model';
+import type { Cell, CellRange, Confidence, Field, SheetModel } from '../model';
 import { PRIMARY_FIELDS } from '../model';
 import { colLetter } from '../refs';
 import { hasModifier, matchHeader, normalizeHeader, type HeaderMatch } from './header';
@@ -100,6 +100,11 @@ export type ColumnHeader = {
 	label: string;
 	/** Texts that mark a data cell as a header echo: the joined text and each header row's own text. */
 	echoes: string[];
+	/**
+	 * The header cells' extent when they are merged across columns (`B6:C6`): every column in it shows the same
+	 * header. Null when the column's header cells are its own.
+	 */
+	merge: CellRange | null;
 };
 
 /** A lone hyphen, dash, or minus sign: an empty cell typed by hand. */
@@ -125,8 +130,40 @@ export function readHeader(sheet: SheetModel, headerRows: readonly number[], col
 	const texts = headerRows.map(read).filter(Boolean);
 	const text = texts.filter((t, i) => t !== texts[i - 1]).join(' ');
 	const first = headerRows.length > 0 ? read(headerRows[0]) : '';
-	const label = first !== text && matchQuality(first) > matchQuality(text) ? first : text;
-	return { text, label, echoes: [...new Set([text, ...texts])] };
+	const merge = headerMerge(sheet, headerRows, col);
+	let label = first !== text && matchQuality(first) > matchQuality(text) ? first : text;
+	if (merge) label = withNsnParts(label);
+	return { text, label, echoes: [...new Set([text, ...texts])], merge };
+}
+
+const masterRef = (cell: Cell) => cell.mergedFrom ?? cell.ref;
+
+/** Columns whose header cell is this column's, in every header row: the header is merged across them. */
+function headerMerge(sheet: SheetModel, headerRows: readonly number[], col: number): CellRange | null {
+	if (headerRows.length === 0) return null;
+	let left = 1;
+	let right = Infinity;
+	for (const row of headerRows) {
+		const master = masterRef(sheet.cell(row, col));
+		let l = col;
+		while (l > 1 && masterRef(sheet.cell(row, l - 1)) === master) l--;
+		let r = col;
+		while (masterRef(sheet.cell(row, r + 1)) === master) r++;
+		left = Math.max(left, l);
+		right = Math.min(right, r);
+	}
+	return left < right ? { top: headerRows[0], left, bottom: headerRows.at(-1)!, right } : null;
+}
+
+/**
+ * An NSN header merged across columns usually spans its two parts, the FSC and the NIIN. A strong NSN label is
+ * then read as naming those parts too, so each column's values decide whether it holds the NSN, FSC, or NIIN.
+ * The label is rebuilt from single-word field names: a strong match has no modifier words to keep.
+ */
+function withNsnParts(label: string): string {
+	const matches = matchHeader(label);
+	if (!matches.some((m) => m.field === 'nsn' && m.strength === 'strong')) return label;
+	return [...new Set<Field>([...matches.map((m) => m.field), 'fsc', 'niin'])].join(' ');
 }
 
 type EvaluateOptions = {
