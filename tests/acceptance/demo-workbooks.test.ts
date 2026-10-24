@@ -148,7 +148,11 @@ describe('demo workbooks', () => {
 			expect(toImportPlan(replaced)).toEqual({
 				add: [],
 				replace: [
-					{ id: savedId(screw.part), input: { ...screw, description: 'Screw, machine, pan head, SEMS' } }
+					{
+						id: savedId(screw.part),
+						// The changed copy's NIIN is worked out from its NSN, so it stays labeled derived (D25).
+						input: { ...screw, description: 'Screw, machine, pan head, SEMS', derived: ['niin'] }
+					}
 				]
 			});
 		});

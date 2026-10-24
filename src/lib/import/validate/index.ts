@@ -140,12 +140,19 @@ export function toImportPlan(analysis: WorkbookAnalysis): ImportPlan {
 	return plan;
 }
 
-/** FSC is not stored; it lives on in the NSN. */
+/**
+ * FSC is not stored; it lives on in the NSN. A worked-out NSN or NIIN keeps its origin in `derived`
+ * (D25), which is left off entirely when every value was read, so such inputs look as they always did.
+ */
 function toInput({ fields }: CandidateRecord): MappingInput {
 	const input: MappingInput = {};
 	for (const field of STORED_FIELDS) {
 		const value = fields[field]?.value;
 		if (value !== undefined) input[field] = value;
 	}
+	const derived = (['nsn', 'niin'] as const).filter(
+		(field) => fields[field]?.provenance.origin === 'derived'
+	);
+	if (derived.length > 0) input.derived = derived;
 	return input;
 }

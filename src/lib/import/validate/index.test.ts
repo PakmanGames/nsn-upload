@@ -631,8 +631,8 @@ describe('row decisions', () => {
 		});
 
 		it.each([
-			['prefer-nsn', { part: 'P-1', nsn: '5305016582565', niin: '016582565' }],
-			['prefer-niin-fsc', { part: 'P-1', nsn: '5305016698021', niin: '016698021' }]
+			['prefer-nsn', { part: 'P-1', nsn: '5305016582565', niin: '016582565', derived: ['niin'] }],
+			['prefer-niin-fsc', { part: 'P-1', nsn: '5305016698021', niin: '016698021', derived: ['nsn'] }]
 		] as const)('imports the identifiers the user prefers (%s)', (choice, imported) => {
 			const analysis = run(sheets, [contradictory(choice)], { decisions: { [id]: choice } });
 
@@ -751,7 +751,8 @@ describe('duplicates and conflicts', () => {
 				description: 'Assembly screw',
 				nsn: '5305016698021',
 				niin: '016698021',
-				cage: '0BWZ1'
+				cage: '0BWZ1',
+				derived: ['niin']
 			}
 		]);
 	});
@@ -944,7 +945,8 @@ describe('storage conflicts (saved copy with another description or CAGE)', () =
 		description: 'Screw, Machine',
 		nsn: '5305016582565',
 		niin: '016582565',
-		cage: '0BWZ1'
+		cage: '0BWZ1',
+		derived: ['niin']
 	};
 
 	it('holds the record back with keep-saved suggested', () => {
@@ -1046,6 +1048,24 @@ describe('storage conflicts (saved copy with another description or CAGE)', () =
 		expect(decisionsOf(analysis, 'drop-duplicate')).toEqual([
 			expect.objectContaining({ state: 'auto', chosen: 'drop', recordIds: ['Parts@1:r3'] })
 		]);
+	});
+
+	it('matches saved copies whatever their derived labels (D8, D25)', () => {
+		const { derived: _, ...values } = input;
+		// This time the NIIN is read from a NIIN column, where the saved copy had it worked out.
+		const readNiin = record('Parts', 3, values);
+		const savedDerived: StoredMapping = { ...savedCopy, description: input.description, derived: ['niin'] };
+		const savedRead: StoredMapping = { ...savedCopy, description: input.description };
+		for (const [existing, incoming] of [
+			[savedDerived, records[0]],
+			[savedDerived, readNiin],
+			[savedRead, records[0]]
+		] as const) {
+			const analysis = run(sheets, [incoming], { existing: [existing] });
+			expect(find(analysis, 'Parts@1:r3')).toMatchObject({ status: 'duplicate', approved: false });
+		}
+		const conflicting = run(sheets, records, { existing: [{ ...savedCopy, derived: ['niin'] }] });
+		expect(decisionsOf(conflicting, 'resolve-storage-conflict')).toHaveLength(1);
 	});
 
 	it('falls back to the policy for a stale choice', () => {
@@ -1172,7 +1192,9 @@ describe('rows the user unchecked', () => {
 		expect(find(unchecked, screw.id)).toMatchObject({ status: 'valid', approved: false });
 		expect(find(unchecked, bolt.id)).toMatchObject({ status: 'valid', approved: true });
 		expect(unchecked.summary).toMatchObject({ valid: 2, toImport: 1 });
-		expect(toImportPlan(unchecked).add).toEqual([{ part: 'B-7', nsn: '5306016698021', niin: '016698021' }]);
+		expect(toImportPlan(unchecked).add).toEqual([
+			{ part: 'B-7', nsn: '5306016698021', niin: '016698021', derived: ['niin'] }
+		]);
 		expect(run(sheets, [screw, bolt], { excludedRecords: [] }).summary.toImport).toBe(2);
 	});
 
@@ -1202,5 +1224,26 @@ describe('toImportPlan', () => {
 			add: [{ part: 'P-1', nsn: '5305016582565', niin: '016582565' }],
 			replace: []
 		});
+	});
+
+	it('labels the identifiers the importer worked out, and only those (D25)', () => {
+		const fromNsn = record('Parts', 2, { part: 'P-1', nsn: '5305016582565' });
+		const fromFscNiin = record('Parts', 3, { part: 'P-2', fsc: '5305', niin: '016698021' });
+		fromFscNiin.fields.nsn = {
+			value: '5305016698021',
+			provenance: {
+				...fromFscNiin.fields.niin!.provenance,
+				transforms: ['derive-nsn-from-fsc-niin'],
+				origin: 'derived',
+				derivedFrom: ['D3', 'F3']
+			}
+		};
+		const partOnly = record('Parts', 4, { part: 'P-3', description: 'Bolt' });
+
+		expect(toImportPlan(run([sheet('Parts', 0)], [fromNsn, fromFscNiin, partOnly])).add).toEqual([
+			{ part: 'P-1', nsn: '5305016582565', niin: '016582565', derived: ['niin'] },
+			{ part: 'P-2', nsn: '5305016698021', niin: '016698021', derived: ['nsn'] },
+			{ part: 'P-3', description: 'Bolt' }
+		]);
 	});
 });

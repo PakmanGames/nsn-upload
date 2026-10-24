@@ -223,7 +223,7 @@ describe('unseen workbooks', () => {
 			expect(record.fields.fsc?.value).toBe('5305');
 			expect(record.rejected.niin).toEqual({ original: '016698021', cell: 'D2' });
 			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'info' }));
-			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016582565', niin: '016582565' });
+			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016582565', niin: '016582565', derived: ['niin'] });
 			expectSummaryConsistent(analysis);
 			expectTraceable(workbook.model, analysis);
 		});
@@ -238,7 +238,7 @@ describe('unseen workbooks', () => {
 			expect(record.fields.nsn?.provenance.derivedFrom).toEqual(expect.arrayContaining(['C2', 'D2']));
 			expect(record.rejected.nsn).toEqual({ original: NSN[0], cell: 'B2' });
 			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'info' }));
-			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016698021', niin: '016698021' });
+			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016698021', niin: '016698021', derived: ['nsn'] });
 			expectSummaryConsistent(analysis);
 			expectTraceable(workbook.model, analysis);
 		});
