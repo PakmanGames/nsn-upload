@@ -33,10 +33,14 @@ AI assistance is its fallback for sheets it cannot read confidently: a table tha
 It is on by default whenever the server has AI configured, and it only ever proposes structure (which rows and columns form a table), which is then verified against the workbook.
 
 **What is sent, and to whom.**
-Only the sheets the importer flagged, as a bounded sample of cells: at most 3 sheets, 60 rows and 30 columns per sheet, 120 characters per cell, and 3,000 cells in all.
-The browser posts the sample to this app's own route `/api/interpret`, which forwards it to OpenRouter (or the mock, below); the provider key stays on the server.
+Two kinds of request, both only while AI assistance is on:
+
+- The sheets the importer flagged, as a bounded sample of cells: at most 3 sheets, 60 rows and 30 columns per sheet, 120 characters per cell, and 3,000 cells in all. They go to this app's own route `/api/interpret`.
+- The facts behind each decision (at most 60 decisions per request, no sheet samples), so the explanations can be reworded in plain language. They go to `/api/explain`.
+
+Both routes forward to OpenRouter (or the mock, below); the provider key stays on the server.
 Hidden sheets, hidden rows and columns, and metadata columns (UUIDs, checksums, timestamps) are never sent.
-A workbook whose sheets all read without help sends no cells; the review window only asks the route once whether AI is available.
+A workbook whose sheets all read without help sends no sheet sample; the review window asks once whether AI is available, and sends the facts of its decisions, if any, for rewording.
 While the AI reads a sheet, the summary bar and that sheet's line say so, and the AI assistance section at the bottom of the review window says what is sent.
 
 **Turning it off.**
