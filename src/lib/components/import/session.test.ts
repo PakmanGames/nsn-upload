@@ -98,6 +98,18 @@ describe('ImportSession', () => {
 		expect(engine.read).toHaveBeenCalledTimes(1);
 	});
 
+	it('keeps the spreadsheet focus across re-analysis and clears it for another file', async () => {
+		const session = await loaded();
+		const focus = { sheet: 'Sheet1', ranges: [{ top: 2, left: 1, bottom: 2, right: 3 }] };
+		session.focus = focus;
+		// The cells do not move when a mapping changes, so the highlight stays.
+		session.setColumn('Sheet1@1', 2, 'part');
+		expect(session.focus).toBe(focus);
+
+		session.reset();
+		expect(session.focus).toBeNull();
+	});
+
 	it('accepts every suggestion in one step, and a revert brings a decision back to pending', async () => {
 		const session = await loaded();
 		const before = session.analysis!.summary;

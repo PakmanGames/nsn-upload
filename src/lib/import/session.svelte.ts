@@ -17,6 +17,7 @@ import {
 import { analyze } from './analyze';
 import {
 	WorkbookReadError,
+	type CellRange,
 	type Field,
 	type ImportPlan,
 	type Overrides,
@@ -70,6 +71,18 @@ export type AiRun = {
 	error: string | null;
 };
 
+/**
+ * Cells on one sheet that the spreadsheet view brings into view and highlights. Anything in the review that refers
+ * to cells can set it; the view only reads it.
+ */
+export type SheetFocus = {
+	sheet: string;
+	/** In reading order; the view scrolls to the first, or to all of them when they fit. */
+	ranges: CellRange[];
+	/** What the cells are, e.g. "Active Parts row 136", announced to screen readers. */
+	reason?: string;
+};
+
 const aiPreferenceKey = 'nsn-upload-interview-task:ai-assistance';
 
 /** The overrides without the column choices stored for one table. */
@@ -90,6 +103,8 @@ export class ImportSession {
 	analysis = $state.raw<WorkbookAnalysis | null>(null);
 	/** What the last import added and replaced; null until an import ran. */
 	imported = $state.raw<ImportPlan | null>(null);
+	/** Cells the spreadsheet should bring into view and highlight; null shows nothing extra. */
+	focus = $state.raw<SheetFocus | null>(null);
 
 	aiEnabled = $state(false);
 	/** Null until checked, and it is only checked once the user has AI assistance on. */
@@ -150,6 +165,7 @@ export class ImportSession {
 		this.overrides = {};
 		this.analysis = null;
 		this.imported = null;
+		this.focus = null;
 		this.aiRun = null;
 	}
 
