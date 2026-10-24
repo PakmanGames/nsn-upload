@@ -37,6 +37,19 @@ export const RECORD_STATUS: Record<CandidateRecord['status'], { label: string; s
 	pending: { label: 'Pending', style: 'bg-blue-50 text-blue-700 ring-blue-600/20' }
 };
 
+/** Summary chips (R2): the record statuses, splits, and records of held-back tables. */
+export type ChipTone = 'valid' | 'warning' | 'invalid' | 'duplicate' | 'conflict' | 'split' | 'held';
+
+export const CHIP_STYLE: Record<ChipTone, string> = {
+	valid: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+	warning: 'bg-amber-50 text-amber-800 ring-amber-600/25',
+	invalid: 'bg-red-50 text-red-700 ring-red-600/20',
+	duplicate: 'bg-slate-100 text-slate-600 ring-slate-500/20',
+	conflict: 'bg-orange-50 text-orange-800 ring-orange-600/25',
+	split: 'bg-blue-50 text-blue-700 ring-blue-600/20',
+	held: 'bg-slate-100 text-slate-600 ring-slate-500/20'
+};
+
 export const CONFIDENCE_STYLE: Record<Confidence, string> = {
 	high: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
 	medium: 'bg-amber-50 text-amber-800 ring-amber-600/25',
