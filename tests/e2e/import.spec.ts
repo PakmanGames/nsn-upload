@@ -204,7 +204,11 @@ async function withHiddenArchive(): Promise<Buffer> {
 }
 
 test('"Include anyway" brings a hidden sheet in, held back until its suggestion is accepted', async ({ page }) => {
-	const requests = recordAiRequests(page);
+	// AI assistance is on by default (AI1): it may explain decisions, but nothing from the hidden sheet goes out.
+	const sent: string[] = [];
+	page.on('request', (request) => {
+		if (new URL(request.url()).pathname.startsWith('/api/')) sent.push(request.postData() ?? '');
+	});
 	const dialog = await upload(page, { name: 'with-archive.xlsx', mimeType: XLSX_TYPE, buffer: await withHiddenArchive() });
 	await expect(await sheetCard(dialog, 'Archive')).toContainText(BADGE.hidden);
 	await expectSummary(dialog, { pendingDecisions: 0, toImport: 2 });
@@ -232,7 +236,7 @@ test('"Include anyway" brings a hidden sheet in, held back until its suggestion 
 
 	await importButton(dialog, 5).click();
 	await expect(dialog.getByRole('heading', { name: '5 records added to your NSN table' })).toBeVisible();
-	expect(requests, 'hidden sheets never go to the AI').toEqual([]);
+	expect(sent.filter((body) => /Archive|ARC-|5340-01-102-4535|5340011024535/.test(body)), 'hidden sheets never go to the AI').toEqual([]);
 });
 
 test('AI assistance turned off sends nothing; turned on, it shows the mock proposal with an AI badge', async ({ page }) => {
