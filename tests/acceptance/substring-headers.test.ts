@@ -146,9 +146,10 @@ describe(fixture.file, () => {
 
 		it('names where the FSC went (B10)', () => {
 			const [other] = recordAt(analysis, SHEET, 10);
-			expect(other.issues.find((issue) => issue.field === 'fsc')?.message).toBe(
-				`FSC 5342 in ${SHEET}!E10 matches the other NSN in ${SHEET}!B10`
-			);
+			expect(other.issues.find((issue) => issue.field === 'fsc')).toMatchObject({
+				message: 'FSC 5342 in E10 matches the other NSN in B10',
+				cells: [`${SHEET}!E10`, `${SHEET}!B10`]
+			});
 		});
 
 		it('leaves row 49 as the only pending decision: a single NSN under a different FSC', () => {

@@ -246,18 +246,21 @@ function ownersAmongSplitNsns(row: Row): Owner[] {
 	});
 }
 
-/** "FSC 5342 in Sheet!E10 matches the other NSN in Sheet!B10", on each record that does not carry it. */
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+
+/**
+ * "FSC 5342 in E10 matches the other NSN in B10", on each record that does not carry it. The record already
+ * names its sheet and row, so the message uses bare cell references; `cells` keeps the qualified ones.
+ */
 function ownedElsewhere(ctx: TableContext, { source, nsn, indexes }: Owner, total: number): Issue {
-	const at = (s: Source) => qualifiedRef(ctx.sheet.name, s.cell.ref);
-	const positions = indexes.map((i) => String(i + 1));
-	const which =
-		total === 2 ? 'the other NSN' : positions.length === 1 ? `NSN ${positions[0]} of ${total}` : `NSNs ${joinAnd(positions)} of ${total}`;
+	const ordinals = indexes.map((i) => ORDINALS[i] ?? `number ${i + 1}`);
+	const which = total === 2 ? 'the other NSN' : `the ${joinAnd(ordinals)} of ${total} NSNs`;
 	return {
 		code: 'split-from-multi-value',
 		severity: 'info',
 		field: source.field,
-		message: `${LABEL[source.field]} ${source.values[0].value} in ${at(source)} matches ${which} in ${at(nsn)}`,
-		cells: [at(source), at(nsn)]
+		message: `${LABEL[source.field]} ${source.values[0].value} in ${source.cell.ref} matches ${which} in ${nsn.cell.ref}`,
+		cells: [qualifiedRef(ctx.sheet.name, source.cell.ref), qualifiedRef(ctx.sheet.name, nsn.cell.ref)]
 	};
 }
 

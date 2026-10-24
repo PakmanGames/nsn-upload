@@ -489,7 +489,7 @@ describe('split NSNs beside one FSC or NIIN', () => {
 			code: 'split-from-multi-value',
 			severity: 'info',
 			field: 'fsc',
-			message: `FSC 5342 in ${SHEET}!C10 matches the other NSN in ${SHEET}!B10`,
+			message: 'FSC 5342 in C10 matches the other NSN in B10',
 			cells: [`${SHEET}!C10`, `${SHEET}!B10`]
 		});
 		expect([other, owner].map((r) => [r.status, r.approved])).toEqual([
@@ -502,11 +502,11 @@ describe('split NSNs beside one FSC or NIIN', () => {
 		const nsns = '5305-01-658-2565\n1680-01-581-8020\n5305-01-669-8021';
 		const first = build(sheetOf(['NSN', 'FSC'], { 2: [nsns, '5305'] }), ['nsn', 'fsc']);
 		expect(first.map((r) => r.fields.fsc?.value)).toEqual(['5305', undefined, '5305']);
-		expect(fscNote(first[1])?.message).toBe(`FSC 5305 in ${SHEET}!B2 matches NSNs 1 and 3 of 3 in ${SHEET}!A2`);
+		expect(fscNote(first[1])?.message).toBe('FSC 5305 in B2 matches the first and third of 3 NSNs in A2');
 
 		const last = build(sheetOf(['NSN', 'FSC'], { 2: [nsns, '1680'] }), ['nsn', 'fsc']);
 		expect(last.map((r) => r.fields.fsc?.value)).toEqual([undefined, '1680', undefined]);
-		expect(fscNote(last[0])?.message).toBe(`FSC 1680 in ${SHEET}!B2 matches NSN 2 of 3 in ${SHEET}!A2`);
+		expect(fscNote(last[0])?.message).toBe('FSC 1680 in B2 matches the second of 3 NSNs in A2');
 		expect([...first, ...last].map((r) => r.status)).toEqual(Array(6).fill('valid'));
 	});
 
@@ -516,9 +516,7 @@ describe('split NSNs beside one FSC or NIIN', () => {
 
 		expect(owner.fields.niin).toMatchObject({ value: '015474725', provenance: { cell: 'B2', origin: 'source' } });
 		expect(other.fields.niin).toMatchObject({ value: '015818020', provenance: { origin: 'derived', derivedFrom: ['A2'] } });
-		expect(other.issues.find((i) => i.field === 'niin')?.message).toBe(
-			`NIIN 015474725 in ${SHEET}!B2 matches the other NSN in ${SHEET}!A2`
-		);
+		expect(other.issues.find((i) => i.field === 'niin')?.message).toBe('NIIN 015474725 in B2 matches the other NSN in A2');
 		expect([other.status, owner.status]).toEqual(['valid', 'valid']);
 	});
 
