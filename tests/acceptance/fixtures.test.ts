@@ -68,7 +68,9 @@ describe('fixture acceptance', () => {
 						expect([...table.skippedRows].sort((a, b) => a.row - b.row)).toEqual(expected.skippedRows);
 					}
 					if (expected.dataRows && expected.skippedRows) {
-						const lastRow = Math.max(...expected.dataRows, ...expected.skippedRows.map(({ row }) => row));
+						// Rows below the table are listed as skipped but lie outside its range.
+						const inTable = expected.skippedRows.filter(({ reason }) => reason !== 'below-table');
+						const lastRow = Math.max(...expected.dataRows, ...inTable.map(({ row }) => row));
 						expect(table.range).toMatchObject({ top: expected.headerRows[0], bottom: lastRow });
 					}
 					if (expected.records !== undefined) {

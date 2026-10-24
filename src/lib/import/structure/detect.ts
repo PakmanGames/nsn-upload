@@ -174,6 +174,23 @@ function headerCandidates(sheet: SheetModel, extent: CellRange, span: Span): num
 	return rows;
 }
 
+/**
+ * Columns beside the header that hold values in the sampled rows: someone filled them in without a label.
+ * They join the table as columns without a header, so their values are listed rather than dropped silently.
+ */
+function withUnlabeledColumns(sheet: SheetModel, header: Span, sample: readonly number[], sheetSpan: Span): Span {
+	const hasOwnValue = (col: number) =>
+		sample.some((row) => {
+			const cell = sheet.cell(row, col);
+			return cell.kind !== 'empty' && !cell.mergedFrom;
+		});
+	let { left, right } = header;
+	// Each loop stops at the outermost column with a value, since that column becomes the new edge.
+	for (let col = sheetSpan.left; col < left; col++) if (hasOwnValue(col)) left = col;
+	for (let col = sheetSpan.right; col > right; col--) if (hasOwnValue(col)) right = col;
+	return { left, right };
+}
+
 function tryHeader(sheet: SheetModel, rows: number[], extent: CellRange, sheetSpan: Span): Trial {
 	let left = sheetSpan.right;
 	let right = sheetSpan.left;
@@ -182,17 +199,18 @@ function tryHeader(sheet: SheetModel, rows: number[], extent: CellRange, sheetSp
 		left = Math.min(left, col);
 		right = col;
 	}
-	const span = { left, right };
-	const keys = headerKeys(sheet, rows[0], span);
+	const headerSpan = { left, right };
+	const keys = headerKeys(sheet, rows[0], headerSpan);
 	// The sample ends where another table starts, so a stacked table does not score against this header.
 	const sample: number[] = [];
 	for (let r = rows.at(-1)! + 1; r <= extent.bottom && sample.length < SAMPLE_ROWS; r++) {
-		if (sheet.hiddenRows.has(r) || masterCells(sheet, r, span).length === 0) continue;
-		if (startsOtherTable(sheet, r, span, keys)) break;
+		if (sheet.hiddenRows.has(r) || masterCells(sheet, r, headerSpan).length === 0) continue;
+		if (startsOtherTable(sheet, r, headerSpan, keys)) break;
 		sample.push(r);
 	}
+	const span = withUnlabeledColumns(sheet, headerSpan, sample, sheetSpan);
 	const headers = new Map<number, ColumnHeader>();
-	for (let col = left; col <= right; col++) headers.set(col, readHeader(sheet, rows, col));
+	for (let col = span.left; col <= span.right; col++) headers.set(col, readHeader(sheet, rows, col));
 	const columns = evaluateColumns(sheet, headers, sample, { skipHeaderEcho: true });
 	const assigned = assignFields(columns);
 	// Each mapped column adds its confidence tier, primary fields one more. Ties go to the earliest row.

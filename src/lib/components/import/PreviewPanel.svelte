@@ -5,12 +5,15 @@
 	import Search from '@lucide/svelte/icons/search';
 	import type { CandidateRecord, Field, TableCandidate } from '$lib/import/model';
 	import { qualifiedRef } from '$lib/import/refs';
-	import { RECORD_STATUS, plural, type RecordFilter } from './labels';
+	import { RECORD_STATUS, SKIP_REASON, plural, type RecordFilter } from './labels';
+	import type { SkippedGroup } from './skipped';
 
 	type Props = {
 		/** Records of tables that are not held back; held-back tables fold into one line each below the table. */
 		records: CandidateRecord[];
 		held: Array<{ table: TableCandidate; records: CandidateRecord[] }>;
+		/** Rows each table left out (repeated headers, rows below the table, ...), so the user can check nothing was lost. */
+		skipped: SkippedGroup[];
 		sheetNames: string[];
 		filter: RecordFilter;
 		/** 'all' or a sheet name. */
@@ -27,6 +30,7 @@
 	let {
 		records,
 		held,
+		skipped,
 		sheetNames,
 		filter = $bindable(),
 		scope = $bindable(),
@@ -352,6 +356,26 @@
 								<span class="font-mono text-xs leading-5">· {value}</span>
 							{/each}
 						</button>
+					</li>
+				{/each}
+			</ul>
+		</details>
+	{/each}
+
+	{#each skipped as group (group.table.id)}
+		<details class="group/skipped mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-2">
+			<summary
+				class="flex cursor-pointer list-none items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
+			>
+				<ChevronRight size={14} class="shrink-0 transition group-open/skipped:rotate-90" />
+				{group.table.sheet} · {plural(group.rows.length, 'row')} skipped, not importing
+			</summary>
+			<ul class="mt-1 divide-y divide-slate-100 text-sm text-slate-600">
+				{#each group.rows as line (line.row)}
+					<li class="flex flex-wrap items-baseline gap-x-2 py-1">
+						<span class="shrink-0">Row {line.row}</span>
+						<span class="min-w-0 flex-1 basis-40 truncate text-slate-700" title={line.preview}>{line.preview}</span>
+						<span class="shrink-0 text-xs text-slate-500">{SKIP_REASON[line.reason]}</span>
 					</li>
 				{/each}
 			</ul>

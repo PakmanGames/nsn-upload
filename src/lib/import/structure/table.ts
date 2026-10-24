@@ -4,8 +4,8 @@
  * Deterministic detection, user remaps, and verified AI proposals all end here, so their row skipping,
  * pass rates, confidence, and status are computed identically.
  */
-import type { ColumnMapping, Confidence, Field, SheetModel, SkippedRow, TableCandidate, TableSpec } from '../model';
-import { colLetter, rangeToA1 } from '../refs';
+import type { Cell, ColumnMapping, Confidence, Field, SheetModel, SkippedRow, TableCandidate, TableSpec } from '../model';
+import { colLetter, emptyCell, parseA1, rangeToA1 } from '../refs';
 import {
 	alternativesFor,
 	columnName,
@@ -20,6 +20,7 @@ import {
 	type ColumnHeader
 } from './columns';
 import { matchHeader, normalizeHeader } from './header';
+import { checkValue, type Verdict } from './values';
 
 export type UserColumns = {
 	/** Column -> field chosen by the user, or null when the user excluded the column. */
@@ -107,12 +108,50 @@ function isFooter(sheet: SheetModel, row: number, mapped: ReadonlyMap<number, Fi
 	return labeled;
 }
 
+/** A cell covered by a merge from another column shows that column's value, not one of its own. */
+function ownCell(sheet: SheetModel, row: number, col: number): Cell {
+	const cell = sheet.cell(row, col);
+	return cell.mergedFrom === undefined || parseA1(cell.mergedFrom)?.col === col ? cell : emptyCell(row, col);
+}
+
+const PASSING: ReadonlySet<Verdict> = new Set(['pass', 'repaired']);
+
+/** Where the table ends early: the blank gap below its last row, and the rows under the gap left out. */
+type TableEnd = { bottom: number; gap: number[]; rows: number[] };
+
+/**
+ * The table ends at a blank gap when every row below it fits none of the table's columns, such as a form or a
+ * paragraph of terms under the table. Ending a table early loses real rows, so the rule is narrow: it cuts only
+ * at a blank gap (a misfit row inside the data run stays an invalid record), never above a row that has a
+ * passing identifier, and never above a repeated header, which continues the table.
+ */
+function misfitTail(
+	from: number,
+	to: number,
+	kindOf: (row: number) => SkippedRow['reason'] | 'data',
+	fits: (row: number) => boolean
+): TableEnd | null {
+	// Bottom up, so an ordinary table stops at its last row after one check.
+	let last = to;
+	while (last >= from && (kindOf(last) === 'blank' || (kindOf(last) !== 'repeated-header' && !fits(last)))) last--;
+	if (last < from) return null;
+	let top = last + 1;
+	while (top <= to && kindOf(top) !== 'blank') top++;
+	const gap: number[] = [];
+	const rows: number[] = [];
+	for (let row = top; row <= to; row++) {
+		if (kindOf(row) !== 'blank') rows.push(row);
+		else if (rows.length === 0) gap.push(row);
+	}
+	return rows.length > 0 ? { bottom: top - 1, gap, rows } : null;
+}
+
 function classifyRows(
 	sheet: SheetModel,
 	spec: TableSpec,
 	headers: ReadonlyMap<number, ColumnHeader>,
 	mapped: ReadonlyMap<number, Field>
-): { dataRows: number[]; skippedRows: SkippedRow[] } {
+): { dataRows: number[]; skippedRows: SkippedRow[]; end: TableEnd | null } {
 	const cols = [...headers.keys()];
 	const visibleHeaders = cols.filter((c) => !sheet.hiddenCols.has(c) && headers.get(c)!.text);
 	const mappedHeaders = visibleHeaders.filter((c) => mapped.has(c));
@@ -152,15 +191,117 @@ function classifyRows(
 		else if (!mappedCols.some((c) => hasValue(row, c))) skippedRows.push({ row, reason: 'no-mapped-values' });
 		else dataRows.push(row);
 	}
+
+	const skippedAt = new Map(skippedRows.map(({ row, reason }) => [row, reason]));
+	const isIdentifier = (cell: Cell) =>
+		checkValue('nsn', cell, sheet.name) === 'pass' || checkValue('niin', cell, sheet.name) === 'pass';
+	const fits = (row: number) =>
+		[...mapped].some(([col, field]) => PASSING.has(checkValue(field, ownCell(sheet, row, col), sheet.name))) ||
+		cols.some((col) => hasValue(row, col) && isIdentifier(sheet.cell(row, col)));
+	const end = misfitTail(start, spec.range.bottom, (row) => skippedAt.get(row) ?? 'data', fits);
+	if (end) {
+		// Both lists are in row order, so the rows below the end come off the back. The non-blank ones stay
+		// listed as skipped, so the user can see what was left out.
+		while (dataRows.length > 0 && dataRows.at(-1)! > end.bottom) dataRows.pop();
+		while (skippedRows.length > 0 && skippedRows.at(-1)!.row > end.bottom) skippedRows.pop();
+		for (const row of end.rows) skippedRows.push({ row, reason: 'below-table' });
+	}
+
 	// Only trailing rows can be footers; a "Total" between blocks is left to the record checks.
 	while (dataRows.length > 0 && isFooter(sheet, dataRows.at(-1)!, mapped)) {
 		skippedRows.push({ row: dataRows.pop()!, reason: 'footer' });
 	}
 	skippedRows.sort((a, b) => a.row - b.row);
-	return { dataRows, skippedRows };
+	return { dataRows, skippedRows, end };
 }
 
-const SKIP_LABEL: Record<SkippedRow['reason'], [string, string]> = {
+/** What a row would need to belong to the table, in the user's words. */
+const VALUE_NOUN: Record<Field, string> = {
+	part: 'part number',
+	description: 'description',
+	nsn: 'NSN',
+	niin: 'NIIN',
+	cage: 'CAGE code',
+	fsc: 'FSC'
+};
+
+/** "a", "a or b", "a, b, or c" (or "and"). */
+function joinList(items: readonly string[], word: 'and' | 'or'): string {
+	return items.length <= 2 ? items.join(` ${word} `) : `${items.slice(0, -1).join(', ')}, ${word} ${items.at(-1)}`;
+}
+
+/** "The table ends at row 30: rows 33-43, after the blank rows 31-32, have no FSC, NIIN, or NSN, so ...". */
+function endReason({ bottom, gap, rows }: TableEnd, mapped: ReadonlyMap<number, Field>): string {
+	// Mapped fields in column order, then NSN and NIIN, which count in any column.
+	const byColumn = [...mapped].sort(([a], [b]) => a - b).map(([, field]) => field);
+	const fields = [...new Set<Field>([...byColumn, 'nsn', 'niin'])];
+	const none = joinList(fields.map((field) => VALUE_NOUN[field]), 'or');
+	const blank = `the ${gap.length === 1 ? 'blank row' : 'blank rows'} ${formatRows(gap)}`;
+	const first = rows[0];
+	const last = rows.at(-1)!;
+	return first === last
+		? `The table ends at row ${bottom}: row ${first}, after ${blank}, has no ${none}, so it isn't imported`
+		: `The table ends at row ${bottom}: rows ${first}-${last}, after ${blank}, have no ${none}, so they aren't imported`;
+}
+
+type TableColumns = {
+	headers: Map<number, ColumnHeader>;
+	/** Column -> the other columns it shares a merged header with, for its reasons. */
+	merged: Map<number, string>;
+	/** One reason per column left out because it is part of a merged header. */
+	dropped: string[];
+};
+
+/**
+ * The range's columns that belong to the table. A column without a header belongs only when it holds values in
+ * the data rows. Under a header merged across columns, a column holding nothing of its own (`C` under `B6:C6`
+ * when every NIIN is merged across `B:C` too) is the same column as its neighbor, and listing it would show
+ * that column twice; when no column of the merge holds values, its first column stands for all of them.
+ * Mapped and user-set columns always belong.
+ */
+function tableColumns(
+	sheet: SheetModel,
+	headers: ReadonlyMap<number, ColumnHeader>,
+	dataRows: readonly number[],
+	pinned: (col: number) => boolean
+): TableColumns {
+	const hasValues = (col: number) =>
+		dataRows.some((row) => {
+			const cell = sheet.cell(row, col);
+			return cell.kind !== 'empty' && !cell.mergedFrom;
+		});
+	const belongs = new Set<number>();
+	const merges = new Map<string, number[]>();
+	for (const [col, header] of headers) {
+		if ((header.text && !header.merge) || pinned(col) || hasValues(col)) belongs.add(col);
+		if (header.text && header.merge) {
+			const ref = rangeToA1(header.merge);
+			merges.set(ref, [...(merges.get(ref) ?? []), col]);
+		}
+	}
+	const merged = new Map<number, string>();
+	const dropped: string[] = [];
+	for (const cols of merges.values()) {
+		if (!cols.some((col) => belongs.has(col))) belongs.add(cols[0]);
+		const members = cols.filter((col) => belongs.has(col));
+		const label = headers.get(cols[0])!.text;
+		const columns = (list: number[]) => `${list.length === 1 ? 'column' : 'columns'} ${joinList(list.map(colLetter), 'and')}`;
+		for (const col of cols) {
+			if (belongs.has(col)) continue;
+			dropped.push(`Column ${colLetter(col)} shares the merged "${label}" header with ${columns(members)} and has no values of its own, so they are one column`);
+		}
+		for (const col of members) {
+			const others = members.filter((other) => other !== col);
+			if (others.length > 0) merged.set(col, `Shares the merged "${label}" header with ${columns(others)}`);
+		}
+	}
+	return { headers: new Map([...headers].filter(([col]) => belongs.has(col))), merged, dropped };
+}
+
+/** Rows below the table are explained by the end-of-table reason instead. */
+type InTableReason = Exclude<SkippedRow['reason'], 'below-table'>;
+
+const SKIP_LABEL: Record<InTableReason, [string, string]> = {
 	blank: ['blank row', 'blank rows'],
 	hidden: ['hidden row', 'hidden rows'],
 	'repeated-header': ['repeated header row', 'repeated header rows'],
@@ -169,12 +310,11 @@ const SKIP_LABEL: Record<SkippedRow['reason'], [string, string]> = {
 };
 
 function skippedReason(skipped: readonly SkippedRow[]): string | null {
-	if (skipped.length === 0) return null;
-	const parts = (Object.keys(SKIP_LABEL) as SkippedRow['reason'][]).flatMap((reason) => {
+	const parts = (Object.keys(SKIP_LABEL) as InTableReason[]).flatMap((reason) => {
 		const rows = skipped.filter((s) => s.reason === reason).map((s) => s.row);
 		return rows.length ? [`${plural(rows.length, ...SKIP_LABEL[reason])} (${formatRows(rows)})`] : [];
 	});
-	return `Skipped ${parts.join(', ')}`;
+	return parts.length > 0 ? `Skipped ${parts.join(', ')}` : null;
 }
 
 function unmappedReasons(column: ColumnEvidence, user: UserColumns, alternatives: Field[]): string[] {
@@ -190,7 +330,13 @@ function unmappedReasons(column: ColumnEvidence, user: UserColumns, alternatives
 	if (alternatives.some((f) => column.fields.get(f)?.confidence)) {
 		reasons.push(`Also fits ${alternatives.map((f) => FIELD_LABEL[f]).join(', ')}, but another column was a better fit`);
 	}
-	if (reasons.length === 0) reasons.push(column.header ? `Header '${column.header}' does not name a target field` : 'No header text');
+	if (reasons.length === 0) {
+		reasons.push(
+			column.header
+				? `Header '${column.header}' does not name a target field`
+				: "No header, and its values aren't NSNs or NIINs"
+		);
+	}
 	return reasons;
 }
 
@@ -206,15 +352,25 @@ export function materialize(
 ): MaterializedTable {
 	const headerRows = [...spec.headerRows].sort((a, b) => a - b);
 	const { left, right } = spec.range;
-	const headers = new Map<number, ColumnHeader>();
-	for (let col = left; col <= right; col++) headers.set(col, readHeader(sheet, headerRows, col));
+	const rangeHeaders = new Map<number, ColumnHeader>();
+	for (let col = left; col <= right; col++) rangeHeaders.set(col, readHeader(sheet, headerRows, col));
 	const mapped = new Map<number, Field>();
 	for (const [col, field] of Object.entries(spec.columns)) {
-		if (headers.has(Number(col))) mapped.set(Number(col), field);
+		if (rangeHeaders.has(Number(col))) mapped.set(Number(col), field);
 	}
 
-	const { dataRows, skippedRows } = classifyRows(sheet, spec, headers, mapped);
+	const { dataRows, skippedRows, end } = classifyRows(sheet, spec, rangeHeaders, mapped);
+	const pinned = (col: number) => mapped.has(col) || user.set.has(col) || user.replaced.has(col);
+	const { headers, merged, dropped } = tableColumns(sheet, rangeHeaders, dataRows, pinned);
+	const cols = [...headers.keys()];
+	const range = {
+		top: spec.range.top,
+		left: cols[0] ?? left,
+		bottom: end?.bottom ?? spec.range.bottom,
+		right: cols.at(-1) ?? right
+	};
 	const evidence = evaluateColumns(sheet, headers, dataRows, { mapped });
+	const shared = (col: number) => (merged.has(col) ? [merged.get(col)!] : []);
 
 	const columns: ColumnMapping[] = evidence.map((column) => {
 		const field = mapped.get(column.col) ?? null;
@@ -226,7 +382,7 @@ export function materialize(
 				header: column.header,
 				field,
 				confidence: alternatives.length > 0 && !user.set.has(column.col) ? 'low' : 'high',
-				reasons: unmappedReasons(column, user, alternatives),
+				reasons: [...shared(column.col), ...unmappedReasons(column, user, alternatives)],
 				alternatives,
 				valuePassRate: null,
 				overridden: user.set.has(column.col)
@@ -234,7 +390,7 @@ export function materialize(
 		}
 		const e = column.fields.get(field)!;
 		const byUser = user.set.get(column.col) === field;
-		const reasons = describeEvidence(column, e);
+		const reasons = [...shared(column.col), ...describeEvidence(column, e)];
 		if (byUser) reasons.unshift('Set by user');
 		else if (!e.confidence) reasons.push(`Values do not support ${FIELD_LABEL[field]}`);
 		return {
@@ -293,9 +449,11 @@ export function materialize(
 	});
 
 	const reasons = [
-		`${capitalize(headerRowsPhrase(headerRows))}; table ${rangeToA1(spec.range)}`,
+		`${capitalize(headerRowsPhrase(headerRows))}; table ${rangeToA1(range)}`,
 		plural(dataRows.length, 'data row'),
 		skippedReason(skippedRows),
+		end ? endReason(end, mapped) : null,
+		...dropped,
 		columns.some((c) => c.field)
 			? `Mapped ${columns.filter((c) => c.field).map((c) => `${FIELD_LABEL[c.field!]} = column ${colLetter(c.col)}`).join(', ')}`
 			: null,
@@ -308,7 +466,7 @@ export function materialize(
 			id: tableId(sheet.name, headerRows[0] ?? spec.range.top),
 			sheet: sheet.name,
 			headerRows,
-			range: spec.range,
+			range,
 			dataRows,
 			skippedRows,
 			columns,

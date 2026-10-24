@@ -117,8 +117,12 @@ export type ColumnMapping = {
 
 export type SkippedRow = {
 	row: number;
-	/** footer: a trailing totals row, e.g. "Total" in the part column with no identifier beside it. */
-	reason: 'blank' | 'hidden' | 'repeated-header' | 'no-mapped-values' | 'footer';
+	/**
+	 * footer: a trailing totals row, e.g. "Total" in the part column with no identifier beside it.
+	 * below-table: a row under a blank gap after the table's last row, fitting none of its columns (a form or
+	 * notes); it lies outside the table's range and is listed so the user can see what was left out.
+	 */
+	reason: 'blank' | 'hidden' | 'repeated-header' | 'no-mapped-values' | 'footer' | 'below-table';
 };
 
 export type TableCandidate = {
