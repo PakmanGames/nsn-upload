@@ -197,7 +197,7 @@
 		{#if text}
 			<p><span class="font-medium text-slate-700">{text.headline}.</span> {text.body}</p>
 		{/if}
-		{#each tableNotes(table, sheetModels.get(sheet.name)) as line, i (i)}
+		{#each tableNotes(table, sheetModels.get(sheet.name), sheet.tables) as line, i (i)}
 			<p>{line}</p>
 		{/each}
 		{#if sheet.aiTrigger}

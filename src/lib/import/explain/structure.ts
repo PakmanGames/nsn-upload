@@ -94,15 +94,20 @@ function skippedLine(table: TableCandidate): string | null {
 	return `${capitalize(joinList(parts))}, so ${table.skippedRows.length === 1 ? 'it is' : 'they are'} left out.`;
 }
 
-/** What else to know about a table: rows left out inside it, rows of the sheet outside it, missing optional columns. */
-export function tableNotes(table: TableCandidate, model: SheetModel | undefined): string[] {
+/**
+ * What else to know about a table: rows left out inside it, rows of the sheet below every table, missing optional
+ * columns. `sheetTables` are all the tables on the sheet, so rows that belong to a table further down are not
+ * called left out.
+ */
+export function tableNotes(table: TableCandidate, model: SheetModel | undefined, sheetTables: readonly TableCandidate[] = [table]): string[] {
 	const notes: string[] = [];
 	const skipped = skippedLine(table);
 	if (skipped) notes.push(skipped);
-	// Rows below the table that are not already listed as left out of it.
+	// Rows below the lowest table that are not already listed as left out; only that table mentions them.
 	const extent = model?.valueExtent;
-	const last = Math.max(table.range.bottom, ...table.skippedRows.map((skip) => skip.row));
-	if (extent && extent.bottom > last) {
+	const lowest = sheetTables.reduce((low, other) => (other.range.bottom > low.range.bottom ? other : low), table);
+	const last = Math.max(...sheetTables.flatMap((other) => [other.range.bottom, ...other.skippedRows.map((skip) => skip.row)]));
+	if (lowest === table && extent && extent.bottom > last) {
 		const rows = extent.bottom === last + 1 ? `Row ${extent.bottom}` : `Rows ${last + 1}-${extent.bottom}`;
 		notes.push(`${rows} below the table ${extent.bottom === last + 1 ? 'is' : 'are'} not part of it and not imported.`);
 	}

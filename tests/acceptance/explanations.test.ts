@@ -278,7 +278,10 @@ describe('decision templates on real cases', () => {
 			headline: 'Not sure column B holds part numbers',
 			body: 'Its header, "Part Number / Family", only partly names part numbers, and only 67% of its values look like part numbers.'
 		});
-		expect(table(SHIFTED, sheetOf(initial(SHIFTED), initial(SHIFTED).sheets[0].name).name).body).toBe(
+		// E3 reads ShiftedTable as two stacked tables; the first one's NSN column is headed "Part Number".
+		const shifted = initial(SHIFTED);
+		const upper = shifted.sheets[0].tables[0];
+		expect(text(explainDecision(decisionOf(shifted, 'include-table', recordAt(shifted, upper.sheet, upper.dataRows[0])[0].id), shifted)).body).toBe(
 			'It has part numbers in A and NSNs in C. Its header, "Part Number", does not name NSNs, though all of its values are valid NSNs.'
 		);
 	});
@@ -495,9 +498,12 @@ describe('sheets and columns', () => {
 			'Rows 32-33 are blank and row 34 repeats the header, so they are left out.',
 			'There is no description or CAGE code column.'
 		]);
-		const shifted = initial(SHIFTED);
-		const sheet = shifted.sheets[0].name;
-		expect(tableNotes(tableOf(shifted, sheet), sheetModel(SHIFTED, sheet))).toContain('Rows 34-58 below the table are not part of it and not imported.');
+		// Rows that belong to a second table further down are not called left out.
+		const shifted = initial(SHIFTED).sheets[0];
+		expect(shifted.tables.length).toBeGreaterThan(1);
+		for (const table of shifted.tables) {
+			expect(tableNotes(table, sheetModel(SHIFTED, shifted.name), shifted.tables).join(' ')).not.toContain('below the table');
+		}
 	});
 
 	it("explains each column from its header and values, with the structure stage's counts", () => {
