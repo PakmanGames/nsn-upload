@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { InterpretationRequest, SheetAnalysis } from '../model';
+import { readWorkbook } from '../reader';
 import { parseA1 } from '../refs';
 import { makeSheet, makeWorkbook, type CellInput } from '../testing';
 import { buildInterpretationRequest } from './request';
@@ -167,5 +170,28 @@ describe('buildInterpretationRequest', () => {
 
 		expect(sheet.merges).toEqual(['A1:C1']);
 		expect(sheet.cells.filter(([, text]) => text === 'Parts list')).toEqual([['A1', 'Parts list']]);
+	});
+
+	it('keeps the real WOW export to its visible part, NSN, and nomenclature columns', async () => {
+		const fileName = 'WOW NSN list 7-20-26 (2).xlsx';
+		const bytes = readFileSync(resolve('example-excel-uploads', fileName));
+		const model = await readWorkbook(new Uint8Array(bytes).buffer, fileName);
+
+		// Every sheet flagged, so only the builder's own rules keep the very-hidden sheet out.
+		const request = buildInterpretationRequest(
+			model,
+			model.sheets.map((s) => triggered(s.name))
+		);
+
+		expect(request.sheets.map((s) => s.name)).toEqual(['Active Parts']);
+		const [sheet] = request.sheets;
+		expect(sentCols(sheet)).toEqual([4, 5, 6]);
+		expect(sheet.cells.slice(0, 3)).toEqual([
+			['D1', 'Part Number'],
+			['E1', 'NSN'],
+			['F1', 'Nomenclature']
+		]);
+		expect(sentRows(sheet).at(-1)).toBe(180);
+		expect(JSON.stringify(request)).not.toMatch(/Do Not Modify|checksum|wow_part/i);
 	});
 });
