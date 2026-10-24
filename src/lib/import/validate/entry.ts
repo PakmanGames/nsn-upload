@@ -5,9 +5,11 @@
  * fields, and hold records back without mutating what the earlier pipeline stages returned.
  */
 import {
+	FIELDS,
 	PRIMARY_FIELDS,
 	type CandidateRecord,
 	type Field,
+	type Issue,
 	type RecordStatus
 } from '../model';
 import { qualifiedRef } from '../refs';
@@ -56,9 +58,25 @@ export function contentStatus(record: CandidateRecord): RecordStatus {
 		return 'conflict';
 	}
 	const flagged =
-		Object.keys(record.rejected).length > 0 ||
-		record.issues.some((issue) => issue.severity !== 'info');
+		malformed(record).length > 0 || record.issues.some((issue) => issue.severity !== 'info');
 	return flagged ? 'warning' : 'valid';
+}
+
+/**
+ * T4's NSN-vs-NIIN/FSC conflict. decideRows runs before the duplicate checks add their own `conflict`
+ * issues, so every one it sees came from the row itself.
+ */
+export const isIdentifierConflict = (issue: Issue) => issue.code === 'conflict';
+
+/** Rejected fields, except cells an identifier-conflict choice rejected; that decision covers them. */
+export function malformed(record: CandidateRecord): Field[] {
+	const covered = new Set(
+		record.issues.filter(isIdentifierConflict).flatMap((issue) => issue.cells)
+	);
+	return FIELDS.filter((field) => {
+		const rejected = record.rejected[field];
+		return rejected !== undefined && !covered.has(qualifiedRef(record.sheet, rejected.cell));
+	});
 }
 
 /** Still headed for import: in an included table, not held back, and importable on its own. */
@@ -71,6 +89,16 @@ export function isCandidate(entry: Entry): boolean {
 export function hold(entry: Entry, status?: RecordStatus): void {
 	entry.held = true;
 	if (status) entry.status = status;
+}
+
+/**
+ * A conflict the user settled no longer makes the records it approves warnings; its issues stay as
+ * notes. Replaces the issue objects, since the input records share them.
+ */
+export function settle(entry: Entry, settled: (issue: Issue) => boolean): void {
+	entry.record.issues = entry.record.issues.map((issue) =>
+		settled(issue) ? { ...issue, severity: 'info' } : issue
+	);
 }
 
 /** Equality used for duplicates: ignores case, surrounding whitespace, and runs of inner whitespace. */
