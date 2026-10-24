@@ -28,7 +28,7 @@ For how the importer works, read ARCHITECTURE.md instead.
 | Polish | Settled conflicts counted as valid (#26); Rows title count (#27); tooltips only on their own (i) button (#28) | Merged |
 | Row checkbox | Uncheck a row in the Rows preview to leave it out of the import (#30) | Merged |
 
-Wave 1 is merged; `main` passes 605 tests and 13 browser tests.
+Wave 1 and Wave 2 are merged; `main` passes 944 tests and 41 browser tests.
 Wave 2, from the review on 2026-10-24, is below.
 
 ## Wave 2 - review feedback (2026-10-24)
@@ -39,19 +39,19 @@ Four new workbooks came with the feedback and are in `example-excel-uploads/`.
 
 | Task | What | Fixture | State |
 | --- | --- | --- | --- |
-| E1 | Tables without a header row; set up a table by hand ([brief](tasks/E1-headerless-and-manual-tables.md)) | `Just NSNs (1).xlsx` | Not started |
-| E2 | Where a table ends; merged columns; columns without a header ([brief](tasks/E2-table-edges-and-merged-columns.md)) | `Merged Column, FSC + NIIN NSN Tests (1).xlsx` | Not started |
-| E3 | Several tables on one sheet, at any column offset ([brief](tasks/E3-several-tables-per-sheet.md)) | `ShiftedTable.xlsx` | Not started |
-| E4 | Part column chosen by its values; one FSC for several NSNs; headers that only mention a field ([brief](tasks/E4-columns-by-values-and-multi-nsn-cells.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Not started |
-| V1 | The spreadsheet inside the review window, with a focus hook for hover highlighting ([brief](tasks/V1-spreadsheet-view.md)) | all | Not started |
-| V2 | Hovering the review highlights the matching cells (outlined at the end of the V1 brief) | all | After V1 |
-| M1 | Messages a user understands: plain-language explanations, with AI wording when AI assistance is on ([brief](tasks/M1-plain-language-messages.md)) | all | Not started |
-| AI1 | AI assistance on by default; the switch stays and is remembered ([brief](tasks/AI1-ai-on-by-default.md)) | all | Not started |
-| DS1 | Faster decisions: keep the NSN suggested, apply a choice to similar decisions, an Apply button that stays put ([brief](tasks/DS1-faster-decisions.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Not started |
-| L1 | Mark derived values in the saved list ([brief](tasks/L1-derived-labels-after-import.md)) | Statz | Not started |
-| H1 | "Include anyway" for hidden sheets ([brief](tasks/H1-include-hidden-sheet.md)) | synthetic, WOW | Not started |
-| E5 | Tables side by side on one sheet ([brief](tasks/E5-side-by-side-tables.md)) | synthetic | After E3; design only if time runs out |
-| X1 | A library of edge-case workbooks ([brief](tasks/X1-edge-case-workbooks.md)) | new | Not started |
+| E1 | Tables without a header row; set up a table by hand ([brief](tasks/E1-headerless-and-manual-tables.md)) | `Just NSNs (1).xlsx` | Merged (#31) |
+| E2 | Where a table ends; merged columns; columns without a header ([brief](tasks/E2-table-edges-and-merged-columns.md)) | `Merged Column, FSC + NIIN NSN Tests (1).xlsx` | Merged (#32) |
+| E3 | Several tables on one sheet, at any column offset ([brief](tasks/E3-several-tables-per-sheet.md)) | `ShiftedTable.xlsx` | Merged (#34) |
+| E4 | Part column chosen by its values; one FSC for several NSNs; headers that only mention a field ([brief](tasks/E4-columns-by-values-and-multi-nsn-cells.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Merged (#33) |
+| V1 | The spreadsheet inside the review window, with a focus hook for hover highlighting ([brief](tasks/V1-spreadsheet-view.md)) | all | Merged (#36) |
+| V2 | Hovering the review highlights the matching cells (outlined at the end of the V1 brief) | all | Designed, not built |
+| M1 | Messages a user understands: plain-language explanations, with AI wording when AI assistance is on ([brief](tasks/M1-plain-language-messages.md)) | all | Merged (#42) |
+| AI1 | AI assistance on by default; the switch stays and is remembered ([brief](tasks/AI1-ai-on-by-default.md)) | all | Merged (#35) |
+| DS1 | Faster decisions: keep the NSN suggested, apply a choice to similar decisions, an Apply button that stays put ([brief](tasks/DS1-faster-decisions.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Merged (#38) |
+| L1 | Mark derived values in the saved list ([brief](tasks/L1-derived-labels-after-import.md)) | Statz | Merged (#39) |
+| H1 | "Include anyway" for hidden sheets ([brief](tasks/H1-include-hidden-sheet.md)) | synthetic, WOW | Merged (#40) |
+| E5 | Tables side by side on one sheet ([brief](tasks/E5-side-by-side-tables.md)) | synthetic | Merged (#41) |
+| X1 | A library of edge-case workbooks ([brief](tasks/X1-edge-case-workbooks.md)) | new | Merged (#37) |
 
 All Wave 2 tasks run in parallel, except E5 (after E3).
 **The submission is due at about 16:30 on 2026-10-24.** Work not merged by then is described as designed in `ARCHITECTURE.md` (Wave 2 section), so the design counts even where the code is not in.
