@@ -1020,7 +1020,10 @@ describe('FSC / NIIN mismatch', () => {
 			relatedRecords: ['Sheet1@1:r38', 'Sheet1@1:r39'],
 			cells: ['Sheet1!C37', 'Sheet1!C38', 'Sheet1!C39']
 		});
-		expect(r37.issues[0].message).toContain('NIIN 011066157 also appears under FSC 5220');
+		expect(r38.issues[0].message).toBe(
+			'NIIN 011066157 (one catalog item) appears with 3 FSCs in this upload: 5210 (row 37), 5220 (this row), 6685 (row 39). An item has one FSC at a time, so at most one of these NSNs is current; the others are probably outdated or mistyped. All are imported; verify before use.'
+		);
+		expect(r37.issues[0].message).toContain(': 5210 (this row), 5220 (row 38), 6685 (row 39).');
 		expect(r40).toMatchObject({ status: 'valid', issues: [] });
 		expect(analysis.decisions.map((d) => d.kind)).toEqual(['include-table']);
 		expect(analysis.summary).toMatchObject({ warnings: 3, valid: 1, toImport: 4 });
