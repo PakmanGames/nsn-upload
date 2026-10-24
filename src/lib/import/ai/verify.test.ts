@@ -269,15 +269,21 @@ describe('verifyInterpretation, tables without a header row', () => {
 		);
 	});
 
+	it('accepts a part column too when it is the one column whose values look like part numbers (E4)', () => {
+		const result = verifyList({ ...headerless, columns: [...headerless.columns, { field: 'part', col: 2, headerText: '' }] });
+
+		expect(result.rejected).toEqual([]);
+		expect(materialize).toHaveBeenCalledWith(
+			list,
+			{ headerRows: [], range: { top: 1, left: 1, bottom: 5, right: 2 }, columns: { 1: 'nsn', 2: 'part' } },
+			'ai'
+		);
+	});
+
 	it.each([
 		[
 			{ columns: [{ field: 'nsn', col: 2, headerText: '' }] },
 			'Column B (nsn) has no header row, and its values alone are not enough to map it (0 of 5 values are valid NSNs)'
-		],
-		[
-			// Part numbers have no strict format, so values alone never map a part column.
-			{ columns: [...headerless.columns, { field: 'part', col: 2, headerText: '' }] },
-			'Column B (part) has no header row, and its values alone are not enough to map it (5 of 5 values are plausible part numbers)'
 		],
 		[{ columns: [{ field: 'nsn', col: 1, headerText: 'NSN' }] }, 'Column A header is "", but the AI read "NSN"']
 	] as Array<[Partial<InterpretationTable>, string]>)('rejects %o', (change, reason) => {

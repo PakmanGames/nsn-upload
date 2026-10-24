@@ -53,7 +53,7 @@ test('Just NSNs: the found table and the same table set up by hand import the sa
 	await expect(page.getByText(`of ${demoMappings.length + imported} mappings`)).toBeVisible();
 });
 
-/** A stock list whose headers the importer does not know, below a title: no table is found. */
+/** A stock list whose headers the importer does not know, below a title, and too short to map by values: no table. */
 async function vendorStock(): Promise<Buffer> {
 	const workbook = new ExcelJS.Workbook();
 	const sheet = workbook.addWorksheet('Vendor stock');
@@ -62,8 +62,7 @@ async function vendorStock(): Promise<Buffer> {
 		[],
 		['Item', 'Stock No.', 'Item name', 'Qty on hand'],
 		['SE5826', '5305-01-658-2565', 'Screw, machine', 12],
-		['RC 620', '5305-01-669-8021', 'Screw, assembly', 4],
-		['NASM21083', null, 'Nut, self-locking', 100]
+		['RC 620', '5305-01-669-8021', 'Screw, assembly', 4]
 	]);
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
@@ -93,8 +92,8 @@ test('a sheet with no table is set up by hand from the summary, with its header 
 	await setup.getByRole('combobox', { name: 'Column C (Item name) maps to' }).selectOption('description');
 	await use.click();
 
-	await expect(importButton(dialog, 3)).toBeEnabled();
+	await expect(importButton(dialog, 2)).toBeEnabled();
 	await expect(dialog.getByText('We could not find a table on this sheet.')).toHaveCount(0);
 	const columns = await openSection(dialog, 'columns');
-	await expect(columns).toContainText('header row 3 · 3 data rows');
+	await expect(columns).toContainText('header row 3 · 2 data rows');
 });

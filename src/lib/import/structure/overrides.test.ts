@@ -106,8 +106,8 @@ describe('materializeTable', () => {
 
 describe('tables set up by hand', () => {
 	const nsns = ['5305-01-658-2565', '5305-01-669-8021', '5340-01-102-4535', '3020-01-660-9619'];
-	// A header detection does not know ("Item", "Stock"), above part numbers and too few NSNs to map by value.
-	const stock = makeSheet('Stock', [['Item', 'Stock', 'Qty'], ['SE5826', nsns[0], 4], ['RC 620', 'pending', 2], ['UTU44013', null, 10]]);
+	// A header detection does not know ("Item", "Stock"), above too few part numbers and NSNs to map by value.
+	const stock = makeSheet('Stock', [['Item', 'Stock', 'Qty'], ['SE5826', nsns[0], 4], [null, 'pending', 2], ['UTU44013', null, 10]]);
 	const list = makeSheet('List', nsns.map((nsn) => [nsn]));
 	const workbook = makeWorkbook('stock.xlsx', [stock, list]);
 	const manual = (sheet: string, spec: TableSpec): Overrides => ({ manualTables: [{ ...spec, sheet }] });
