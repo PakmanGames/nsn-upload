@@ -13,10 +13,11 @@ import {
 	describeValueOnlyAlternative,
 	evaluateColumns,
 	FIELD_LABEL,
-	headerText,
 	isPrimary,
+	readHeader,
 	tierOf,
-	type ColumnEvidence
+	type ColumnEvidence,
+	type ColumnHeader
 } from './columns';
 import { matchHeader, normalizeHeader } from './header';
 
@@ -53,6 +54,19 @@ export function formatRows(rows: readonly number[], max = 6): string {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** "header on row 2", "header on rows 1-2 (two-row header)", or "no header row". */
+export function headerRowsPhrase(headerRows: readonly number[]): string {
+	if (headerRows.length === 0) return 'no header row';
+	if (headerRows.length === 1) return `header on row ${headerRows[0]}`;
+	const twoRow = headerRows.length === 2 && headerRows[1] === headerRows[0] + 1 ? ' (two-row header)' : '';
+	return `header on rows ${formatRows(headerRows)}${twoRow}`;
+}
+
+/** Labels a sum rather than an item; matched against the whole normalized cell text. */
+const FOOTER_LABELS = new Set(['total', 'totals', 'subtotal', 'sub total', 'grand total', 'sum']);
+const IDENTIFIER_FIELDS: readonly Field[] = ['part', 'nsn', 'niin', 'cage', 'fsc'];
 
 /**
  * A later row repeats the header when, in most compared columns, its text equals the header text or names
@@ -69,20 +83,54 @@ function repeatsHeader(sheet: SheetModel, row: number, compared: ReadonlyArray<{
 	return hits * 2 > compared.length;
 }
 
+type RowKey = { col: number; key: string };
+
+/** A repeat of a multi-row header is the same block of rows: each row matches its header row in most cells. */
+function repeatsHeaderBlock(sheet: SheetModel, row: number, block: readonly RowKey[][], bottom: number): boolean {
+	return block.every((keys, i) => {
+		if (row + i > bottom || keys.length === 0) return false;
+		const hits = keys.filter(({ col, key }) => normalizeHeader(sheet.cell(row + i, col).text) === key);
+		return hits.length * 2 > keys.length;
+	});
+}
+
+/** A totals line ("Total" in the part column, no identifier beside it) labels a sum; it is not a record. */
+function isFooter(sheet: SheetModel, row: number, mapped: ReadonlyMap<number, Field>): boolean {
+	let labeled = false;
+	for (const [col, field] of mapped) {
+		if (!IDENTIFIER_FIELDS.includes(field)) continue;
+		const cell = sheet.cell(row, col);
+		if (cell.kind === 'empty' || cell.mergedFrom) continue;
+		if (cell.kind !== 'text' || !FOOTER_LABELS.has(normalizeHeader(cell.text))) return false;
+		labeled = true;
+	}
+	return labeled;
+}
+
 function classifyRows(
 	sheet: SheetModel,
 	spec: TableSpec,
-	headers: ReadonlyMap<number, string>,
+	headers: ReadonlyMap<number, ColumnHeader>,
 	mapped: ReadonlyMap<number, Field>
 ): { dataRows: number[]; skippedRows: SkippedRow[] } {
 	const cols = [...headers.keys()];
-	const visibleHeaders = cols.filter((c) => !sheet.hiddenCols.has(c) && headers.get(c));
+	const visibleHeaders = cols.filter((c) => !sheet.hiddenCols.has(c) && headers.get(c)!.text);
 	const mappedHeaders = visibleHeaders.filter((c) => mapped.has(c));
 	const compared = (mappedHeaders.length > 0 ? mappedHeaders : visibleHeaders).map((col) => ({
 		col,
-		key: normalizeHeader(headers.get(col)!),
+		key: normalizeHeader(headers.get(col)!.text),
 		field: mapped.get(col) ?? null
 	}));
+	const headerRows = [...spec.headerRows].sort((a, b) => a - b);
+	const block: RowKey[][] =
+		headerRows.length > 1
+			? headerRows.map((h) =>
+					cols
+						.filter((col) => !sheet.hiddenCols.has(col) && !sheet.cell(h, col).mergedFrom)
+						.map((col) => ({ col, key: normalizeHeader(sheet.cell(h, col).text) }))
+						.filter(({ key }) => key)
+				)
+			: [];
 	const mappedCols = [...mapped.keys()];
 	// Covered merge cells copy their master, so only master cells count as values of their own.
 	const hasValue = (row: number, col: number) => {
@@ -97,10 +145,18 @@ function classifyRows(
 	for (let row = start; row <= spec.range.bottom; row++) {
 		if (sheet.hiddenRows.has(row)) skippedRows.push({ row, reason: 'hidden' });
 		else if (!cols.some((c) => hasValue(row, c))) skippedRows.push({ row, reason: 'blank' });
-		else if (compared.length > 0 && repeatsHeader(sheet, row, compared)) skippedRows.push({ row, reason: 'repeated-header' });
+		else if (block.length > 0 && repeatsHeaderBlock(sheet, row, block, spec.range.bottom)) {
+			for (let i = 0; i < block.length; i++) skippedRows.push({ row: row + i, reason: 'repeated-header' });
+			row += block.length - 1;
+		} else if (compared.length > 0 && repeatsHeader(sheet, row, compared)) skippedRows.push({ row, reason: 'repeated-header' });
 		else if (!mappedCols.some((c) => hasValue(row, c))) skippedRows.push({ row, reason: 'no-mapped-values' });
 		else dataRows.push(row);
 	}
+	// Only trailing rows can be footers; a "Total" between blocks is left to the record checks.
+	while (dataRows.length > 0 && isFooter(sheet, dataRows.at(-1)!, mapped)) {
+		skippedRows.push({ row: dataRows.pop()!, reason: 'footer' });
+	}
+	skippedRows.sort((a, b) => a.row - b.row);
 	return { dataRows, skippedRows };
 }
 
@@ -108,7 +164,8 @@ const SKIP_LABEL: Record<SkippedRow['reason'], [string, string]> = {
 	blank: ['blank row', 'blank rows'],
 	hidden: ['hidden row', 'hidden rows'],
 	'repeated-header': ['repeated header row', 'repeated header rows'],
-	'no-mapped-values': ['row with values only in unmapped columns', 'rows with values only in unmapped columns']
+	'no-mapped-values': ['row with values only in unmapped columns', 'rows with values only in unmapped columns'],
+	footer: ['footer row', 'footer rows']
 };
 
 function skippedReason(skipped: readonly SkippedRow[]): string | null {
@@ -149,8 +206,8 @@ export function materialize(
 ): MaterializedTable {
 	const headerRows = [...spec.headerRows].sort((a, b) => a - b);
 	const { left, right } = spec.range;
-	const headers = new Map<number, string>();
-	for (let col = left; col <= right; col++) headers.set(col, headerText(sheet, headerRows, col));
+	const headers = new Map<number, ColumnHeader>();
+	for (let col = left; col <= right; col++) headers.set(col, readHeader(sheet, headerRows, col));
 	const mapped = new Map<number, Field>();
 	for (const [col, field] of Object.entries(spec.columns)) {
 		if (headers.has(Number(col))) mapped.set(Number(col), field);
@@ -236,7 +293,7 @@ export function materialize(
 	});
 
 	const reasons = [
-		`${headerRows.length === 0 ? 'No header row' : `Header on row${headerRows.length > 1 ? 's' : ''} ${formatRows(headerRows)}`}; table ${rangeToA1(spec.range)}`,
+		`${capitalize(headerRowsPhrase(headerRows))}; table ${rangeToA1(spec.range)}`,
 		plural(dataRows.length, 'data row'),
 		skippedReason(skippedRows),
 		columns.some((c) => c.field)

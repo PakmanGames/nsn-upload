@@ -93,14 +93,40 @@ export function confidenceFor(field: Field, header: HeaderMatch | null, tally: T
 	return { passed, rate, confidence };
 }
 
-/** Header text across header rows, joined with a space; a vertically merged header is not repeated. */
-export function headerText(sheet: SheetModel, headerRows: number[], col: number): string {
-	const parts: string[] = [];
-	for (const row of headerRows) {
+export type ColumnHeader = {
+	/** Header text as shown: the header rows' texts joined with a space. */
+	text: string;
+	/** Text matched against the vocabulary: the joined text, or the first row's text when that matches better. */
+	label: string;
+	/** Texts that mark a data cell as a header echo: the joined text and each header row's own text. */
+	echoes: string[];
+};
+
+/** A lone hyphen, dash, or minus sign: an empty cell typed by hand. */
+export const DASH_ONLY = /^[-\u2010-\u2015\u2212]$/;
+
+/** Strength of the best match, then how many fields are named; higher is better. */
+function matchQuality(text: string): number {
+	const matches = matchHeader(text);
+	const best = matches.some((m) => m.strength === 'strong') ? 2 : matches.length > 0 ? 1 : 0;
+	return best * 10 + matches.length;
+}
+
+/**
+ * A column's header across the header rows. Joining keeps `Part` + `Number` together; a hint row such as
+ * `(13 digits)` would make the joined text a weak match, so the first row's text is matched when it is better.
+ * A vertically merged header is not repeated, and a lone `-` counts as empty.
+ */
+export function readHeader(sheet: SheetModel, headerRows: readonly number[], col: number): ColumnHeader {
+	const read = (row: number) => {
 		const text = sheet.cell(row, col).text.trim();
-		if (text && parts.at(-1) !== text) parts.push(text);
-	}
-	return parts.join(' ');
+		return DASH_ONLY.test(text) ? '' : text;
+	};
+	const texts = headerRows.map(read).filter(Boolean);
+	const text = texts.filter((t, i) => t !== texts[i - 1]).join(' ');
+	const first = headerRows.length > 0 ? read(headerRows[0]) : '';
+	const label = first !== text && matchQuality(first) > matchQuality(text) ? first : text;
+	return { text, label, echoes: [...new Set([text, ...texts])] };
 }
 
 type EvaluateOptions = {
@@ -116,22 +142,22 @@ type EvaluateOptions = {
 /** Tallies every column over the given rows. One pass per row; each cell is checked only for plausible fields. */
 export function evaluateColumns(
 	sheet: SheetModel,
-	headers: ReadonlyMap<number, string>,
+	headers: ReadonlyMap<number, ColumnHeader>,
 	rows: readonly number[],
 	options: EvaluateOptions = {}
 ): ColumnEvidence[] {
 	const plans = [...headers].map(([col, header]) => {
-		const matches = new Map(matchHeader(header).map((m) => [m.field, m]));
+		const matches = new Map(matchHeader(header.label).map((m) => [m.field, m]));
 		const fields = new Set<Field>([...ALWAYS_CHECKED, ...matches.keys()]);
 		const mappedField = options.mapped?.get(col);
 		if (mappedField) fields.add(mappedField);
 		const tallies = new Map([...fields].map((f) => [f, { checked: 0, pass: 0, repaired: 0, repairedLong: 0 } as Tally]));
 		const strongFields = new Set([...matches.values()].filter((m) => m.strength === 'strong').map((m) => m.field));
-		const echo = options.skipHeaderEcho && header ? { key: normalizeHeader(header), strongFields } : null;
+		const echo = options.skipHeaderEcho && header.text ? { keys: new Set(header.echoes.map(normalizeHeader)), strongFields } : null;
 		return { col, header, matches, tallies, echo };
 	});
-	const isEcho = (echo: { key: string; strongFields: Set<Field> }, text: string) =>
-		normalizeHeader(text) === echo.key ||
+	const isEcho = (echo: { keys: Set<string>; strongFields: Set<Field> }, text: string) =>
+		echo.keys.has(normalizeHeader(text)) ||
 		matchHeader(text).some((m) => m.strength === 'strong' && echo.strongFields.has(m.field));
 
 	for (const row of rows) {
@@ -170,12 +196,12 @@ export function evaluateColumns(
 		const valueOnlyAlternatives: Field[] =
 			!part.header &&
 			!strict &&
-			!hasModifier(header) &&
+			!hasModifier(header.label) &&
 			part.tally.checked >= VALUE_ONLY_MIN_VALUES &&
 			partLike / part.tally.checked >= HIGH_RATE
 				? ['part']
 				: [];
-		return { col, header, hidden: sheet.hiddenCols.has(col), fields, valueOnlyAlternatives };
+		return { col, header: header.text, hidden: sheet.hiddenCols.has(col), fields, valueOnlyAlternatives };
 	});
 }
 
