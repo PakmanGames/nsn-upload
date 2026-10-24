@@ -1,33 +1,10 @@
-import type {
-	InterpretationRequest,
-	SheetAnalysis,
-	VerificationResult,
-	WorkbookInterpretation,
-	WorkbookInterpreter,
-	WorkbookModel
-} from '../model';
-
-export function buildInterpretationRequest(
-	model: WorkbookModel,
-	sheets: SheetAnalysis[]
-): InterpretationRequest {
-	throw new Error('T6: not implemented');
-}
-
-export function verifyInterpretation(
-	model: WorkbookModel,
-	request: InterpretationRequest,
-	interpretation: WorkbookInterpretation
-): VerificationResult {
-	throw new Error('T6: not implemented');
-}
-
-export function createHttpInterpreter(fetchImpl?: typeof fetch): WorkbookInterpreter {
-	throw new Error('T6: not implemented');
-}
-
-export async function getAiAvailability(
-	fetchImpl?: typeof fetch
-): Promise<{ available: boolean; reason?: string }> {
-	throw new Error('T6: not implemented');
-}
+/**
+ * Browser entry point of the AI boundary: build a bounded sample, send it to `/api/interpret`,
+ * and verify the proposal against the full workbook. The OpenRouter provider is server-only and
+ * deliberately not exported here.
+ */
+export { buildInterpretationRequest } from './request';
+export { verifyInterpretation } from './verify';
+export { createHttpInterpreter, getAiAvailability, InterpretationError } from './client';
+export { MockInterpreter, mockInterpretation, adversarialTables } from './mock';
+export { AI_LIMITS, AI_MIN_CONFIDENCE, type AiAvailability } from './schema';
