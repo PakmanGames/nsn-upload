@@ -21,14 +21,15 @@ const BADGE: Record<SheetStatus, string> = {
 	hidden: 'Hidden - ignored'
 };
 
-/** Summary chips after the "<rows> rows → <records> records" one, as "<count> <label>". */
-const CHIPS: Array<[keyof ImportSummary, string]> = [
-	['valid', 'valid'],
-	['warnings', 'warnings'],
-	['invalid', 'invalid'],
-	['duplicates', 'duplicates'],
-	['conflicts', 'conflicts'],
-	['splitRecords', 'split']
+/** Summary chips by count; only counts above zero get a chip. Without a count the pattern matches any chip of that kind. */
+const CHIPS: Array<[keyof ImportSummary, (count?: number) => RegExp]> = [
+	['valid', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} valid$`)],
+	['warnings', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} warnings?$`)],
+	['invalid', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} invalid$`)],
+	['duplicates', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} duplicates?$`)],
+	['conflicts', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} in conflict$`)],
+	// "2 split from D136" when every split record comes from one cell.
+	['splitRecords', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} split\b`)]
 ];
 
 type SavedRow = Partial<Record<'part' | 'description' | 'nsn' | 'niin' | 'cage', string>>;
@@ -83,30 +84,48 @@ function importButton(dialog: Locator, count?: number): Locator {
 	return dialog.getByRole('button', { name: new RegExp(`^Import ${label}\\b`) });
 }
 
-function sheetCard(dialog: Locator, name: string): Locator {
-	return dialog
-		.getByRole('region', { name: /^Sheets/ })
-		.getByRole('listitem')
-		.filter({ has: dialog.page().getByText(name, { exact: true }) });
+type SectionId = 'sheets' | 'columns' | 'rows' | 'auto' | 'ai';
+
+/** A collapsible section of the review window (Sheets, Columns, Rows, Applied automatically, AI assistance). */
+function section(dialog: Locator, id: SectionId): Locator {
+	return dialog.locator(`details#section-${id}`);
+}
+
+/** Opens a section, and the folded lists inside it (sheets with nothing to import, hidden sheets). */
+async function openSection(dialog: Locator, id: SectionId): Promise<Locator> {
+	const details = section(dialog, id);
+	if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open))) await details.locator('summary').first().click();
+	for (const fold of await details.locator('details:not([open]) > summary').all()) await fold.click();
+	return details;
+}
+
+async function sheetCard(dialog: Locator, name: string): Promise<Locator> {
+	const sheets = await openSection(dialog, 'sheets');
+	return sheets.getByRole('listitem').filter({ has: dialog.page().getByText(name, { exact: true }) });
 }
 
 async function expectSummary(dialog: Locator, summary: Partial<ImportSummary>) {
-	const chips = dialog.getByRole('list', { name: 'Summary' });
-	// Source rows and records differ when a cell splits into several records (WOW: 179 rows, 180 records).
+	// The one-line summary carries rows, records, and pending decisions; the chips carry the status counts.
+	const sentence = dialog.locator('#import-summary');
 	const { sourceRows, candidates } = summary;
 	if (sourceRows !== undefined && candidates !== undefined) {
-		const name = `${sourceRows} rows → ${candidates} records`;
-		await expect(chips.getByRole('button', { name, exact: true })).toBeVisible();
+		// Source rows and records differ when a cell splits into several records (WOW: 179 rows, 180 records).
+		await expect(sentence).toContainText(
+			sourceRows === candidates ? `${sourceRows} rows ·` : `${sourceRows} rows → ${candidates} records`
+		);
 	}
-	for (const [key, label] of CHIPS) {
+	const chips = dialog.getByRole('list', { name: 'Summary' });
+	for (const [key, pattern] of CHIPS) {
 		const value = summary[key];
 		if (value === undefined) continue;
-		await expect(chips.getByRole('button', { name: `${value} ${label}`, exact: true })).toBeVisible();
+		if (value === 0) await expect(chips.getByRole('button', { name: pattern() })).toHaveCount(0);
+		else await expect(chips.getByRole('button', { name: pattern(value) })).toBeVisible();
 	}
 	const pending = summary.pendingDecisions;
 	if (pending !== undefined) {
-		const name = `${pending} pending decision${pending === 1 ? '' : 's'}`;
-		await expect(chips.getByRole('link', { name, exact: true })).toBeVisible();
+		await expect(sentence).toContainText(
+			pending ? `${pending} ${pending === 1 ? 'decision needs' : 'decisions need'} you` : 'nothing needs you'
+		);
 	}
 	if (summary.toImport !== undefined) await expect(importButton(dialog, summary.toImport)).toBeVisible();
 }
@@ -129,7 +148,7 @@ for (const fixture of FIXTURES) {
 		const dialog = await upload(page, `${FIXTURE_DIR}${fixture.file}`);
 
 		for (const sheet of fixture.sheets) {
-			await expect(sheetCard(dialog, sheet.name), sheet.name).toContainText(BADGE[sheet.status]);
+			await expect(await sheetCard(dialog, sheet.name), sheet.name).toContainText(BADGE[sheet.status]);
 		}
 		await expectSummary(dialog, fixture.initial);
 		if (fixture.initial.toImport === 0) await expect(importButton(dialog, 0)).toBeDisabled();
@@ -170,8 +189,10 @@ async function stockExport(): Promise<Buffer> {
 test('AI assistance sends nothing until turned on, then shows the mock proposal with an AI badge', async ({ page }) => {
 	const posts = recordAiPosts(page);
 	const dialog = await upload(page, { name: 'stock-export.xlsx', mimeType: XLSX_TYPE, buffer: await stockExport() });
-	const card = sheetCard(dialog, 'Stock');
-	const ai = dialog.getByRole('region', { name: 'AI assistance' });
+	const card = await sheetCard(dialog, 'Stock');
+	// AI assistance opens by itself when a sheet could use it.
+	const ai = section(dialog, 'ai');
+	await expect(ai).toHaveAttribute('open', '');
 
 	await expect(card).toContainText(BADGE['needs-review']);
 	await expect(card.getByText('AI', { exact: true })).toHaveCount(0);
@@ -184,10 +205,8 @@ test('AI assistance sends nothing until turned on, then shows the mock proposal 
 	expect(posts).toHaveLength(1);
 
 	// The mock's confidence is below the auto-apply threshold, so its table waits for the user, marked as AI.
-	const tableDecision = dialog
-		.getByRole('region', { name: /^Needs you/ })
-		.getByRole('listitem')
-		.filter({ hasText: 'Tables' });
+	const tableDecision = dialog.getByRole('region', { name: /^Needs your decision/ });
+	await expect(tableDecision).toContainText('Table needs review');
 	await expect(tableDecision.getByText('AI', { exact: true })).toBeVisible();
 	await expect(importButton(dialog, 0)).toBeDisabled();
 });
