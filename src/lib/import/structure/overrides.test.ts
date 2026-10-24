@@ -91,7 +91,7 @@ describe('materializeTable', () => {
 		expect(table.skippedRows).toEqual([{ row: 5, reason: 'no-mapped-values' }]);
 		expect(table.columns[0]).toMatchObject({ header: 'Part Number', field: 'part', confidence: 'high' });
 		expect(table.columns[1]).toMatchObject({ header: 'Stock Number', field: 'nsn', confidence: 'low', valuePassRate: 0.5 });
-		expect(table.columns[1].reasons).toEqual(["Header 'Stock Number' does not name NSN", '1 of 2 values are valid NSNs', 'Values do not support NSN']);
+		expect(table.columns[1].reasons).toEqual(["Header 'Stock Number' does not name NSN", '1 of 2 values are valid NSNs', 'Values alone cannot confirm NSN']);
 		expect(table.reasons.at(-1)).toBe("Needs review: NSN column B 'Stock Number' is low confidence");
 	});
 

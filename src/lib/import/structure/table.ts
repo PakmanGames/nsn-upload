@@ -395,7 +395,9 @@ export function materialize(
 		const byUser = user.set.get(column.col) === field;
 		const reasons = [...shared(column.col), ...describeEvidence(column, e)];
 		if (byUser) reasons.unshift('Set by user');
-		else if (!e.confidence) reasons.push(`Values do not support ${FIELD_LABEL[field]}`);
+		// Without a header naming the field, values that all pass can still fall short of the value-only rule (a column
+		// of plausible part numbers, for one), so "do not support" would contradict the evidence listed above it.
+		else if (!e.confidence) reasons.push(e.header ? `Values do not support ${FIELD_LABEL[field]}` : `Values alone cannot confirm ${FIELD_LABEL[field]}`);
 		return {
 			col: column.col,
 			header: column.header,
