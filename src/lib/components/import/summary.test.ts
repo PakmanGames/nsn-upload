@@ -130,6 +130,9 @@ describe('R4 and R5 section summaries', () => {
 		const [table] = analysis.sheets[0].tables;
 		expect(partColumnChoices(table).map((column) => column.header)).toEqual(['Item', 'Drawing']);
 		expect(columnsOpenByDefault(analysis)).toBe(true);
+		// The rows still import, but the open choice is not "nothing needs you".
+		expect(summarySentence(analysis)).toBe('1 of 1 sheet has an importable table · 4 rows · pick the part number column');
+		expect(summaryParts(analysis).done).toBe(false);
 
 		// Picking one maps it, which ends the choice.
 		const picked = analyze(tie, [], { columns: { [table.id]: { 1: 'part' } } });
