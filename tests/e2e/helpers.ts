@@ -36,6 +36,8 @@ export async function openSection(dialog: Locator, id: SectionId): Promise<Locat
 	const details = section(dialog, id);
 	const isOpen = await details.evaluate((element) => (element as HTMLDetailsElement).open);
 	if (!isOpen) await details.locator('summary').first().click();
-	for (const fold of await details.locator('details:not([open]) > summary').all()) await fold.click();
+	// Opening a fold drops it from the closed set, so always open the first closed one until none is left.
+	const closed = details.locator('details:not([open]) > summary');
+	while ((await closed.count()) > 0) await closed.first().click();
 	return details;
 }
