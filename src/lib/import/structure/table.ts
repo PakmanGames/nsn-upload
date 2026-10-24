@@ -64,6 +64,10 @@ export function headerRowsPhrase(headerRows: readonly number[]): string {
 	return `header on rows ${formatRows(headerRows)}${twoRow}`;
 }
 
+/** Labels a sum rather than an item; matched against the whole normalized cell text. */
+const FOOTER_LABELS = new Set(['total', 'totals', 'subtotal', 'sub total', 'grand total', 'sum']);
+const IDENTIFIER_FIELDS: readonly Field[] = ['part', 'nsn', 'niin', 'cage', 'fsc'];
+
 /**
  * A later row repeats the header when, in most compared columns, its text equals the header text or names
  * the same field (so `Part No.` repeating a `P/N` header still counts).
@@ -88,6 +92,19 @@ function repeatsHeaderBlock(sheet: SheetModel, row: number, block: readonly RowK
 		const hits = keys.filter(({ col, key }) => normalizeHeader(sheet.cell(row + i, col).text) === key);
 		return hits.length * 2 > keys.length;
 	});
+}
+
+/** A totals line ("Total" in the part column, no identifier beside it) labels a sum; it is not a record. */
+function isFooter(sheet: SheetModel, row: number, mapped: ReadonlyMap<number, Field>): boolean {
+	let labeled = false;
+	for (const [col, field] of mapped) {
+		if (!IDENTIFIER_FIELDS.includes(field)) continue;
+		const cell = sheet.cell(row, col);
+		if (cell.kind === 'empty' || cell.mergedFrom) continue;
+		if (cell.kind !== 'text' || !FOOTER_LABELS.has(normalizeHeader(cell.text))) return false;
+		labeled = true;
+	}
+	return labeled;
 }
 
 function classifyRows(
@@ -135,6 +152,11 @@ function classifyRows(
 		else if (!mappedCols.some((c) => hasValue(row, c))) skippedRows.push({ row, reason: 'no-mapped-values' });
 		else dataRows.push(row);
 	}
+	// Only trailing rows can be footers; a "Total" between blocks is left to the record checks.
+	while (dataRows.length > 0 && isFooter(sheet, dataRows.at(-1)!, mapped)) {
+		skippedRows.push({ row: dataRows.pop()!, reason: 'footer' });
+	}
+	skippedRows.sort((a, b) => a.row - b.row);
 	return { dataRows, skippedRows };
 }
 
@@ -142,7 +164,8 @@ const SKIP_LABEL: Record<SkippedRow['reason'], [string, string]> = {
 	blank: ['blank row', 'blank rows'],
 	hidden: ['hidden row', 'hidden rows'],
 	'repeated-header': ['repeated header row', 'repeated header rows'],
-	'no-mapped-values': ['row with values only in unmapped columns', 'rows with values only in unmapped columns']
+	'no-mapped-values': ['row with values only in unmapped columns', 'rows with values only in unmapped columns'],
+	footer: ['footer row', 'footer rows']
 };
 
 function skippedReason(skipped: readonly SkippedRow[]): string | null {

@@ -129,12 +129,10 @@ describe('messy unseen workbooks', () => {
 			}
 		]);
 
-		// Should: a footer that only labels a sum ("Total" in the part column, nothing in NSN or Description) is not
-		// a part record, so row 6 is skipped, the part column stays high confidence, and 4 valid records import.
-		// Today row 6 imports as part "Total" with a plausibility warning (a known gap, design note §11), and it also
-		// drags the part column to 4 of 5 plausible values, medium confidence, so every real row gets a
-		// low-confidence-mapping warning. Finding for T3.
-		it.fails('does not import the totals row as a part', () => {
+		// A footer that only labels a sum ("Total" in the part column, nothing in NSN or Description) is not a part
+		// record: row 6 is skipped as a footer and left out of the pass rates, so the part column stays high
+		// confidence and 4 valid records import.
+		it('does not import the totals row as a part', () => {
 			const part = tableOf(workbook.analysis, 'Order').columns.find((column) => column.field === 'part');
 			expect(part?.confidence).toBe('high');
 			expect(recordAt(workbook.analysis, 'Order', 6).filter((record) => record.approved)).toEqual([]);

@@ -113,7 +113,8 @@ export type ColumnMapping = {
 
 export type SkippedRow = {
 	row: number;
-	reason: 'blank' | 'hidden' | 'repeated-header' | 'no-mapped-values';
+	/** footer: a trailing totals row, e.g. "Total" in the part column with no identifier beside it. */
+	reason: 'blank' | 'hidden' | 'repeated-header' | 'no-mapped-values' | 'footer';
 };
 
 export type TableCandidate = {

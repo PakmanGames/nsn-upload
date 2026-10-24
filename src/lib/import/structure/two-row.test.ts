@@ -147,3 +147,25 @@ describe('repeated header candidates', () => {
 	});
 });
 
+describe('footer rows', () => {
+	it('skips a trailing totals row as a footer and leaves it out of the pass rates', () => {
+		const { table, records } = run([
+			['Part Number', 'NSN', 'Description', 'Qty'],
+			...DATA.map(([part, nsn, , description], i) => [part, nsn, description, i + 1]),
+			['Total', null, null, { kind: 'number', text: '10', raw: 10, formula: 'SUM(D2:D5)' }]
+		]);
+
+		expect(table.skippedRows).toEqual([{ row: 6, reason: 'footer' }]);
+		expect(table.dataRows).toEqual([2, 3, 4, 5]);
+		expect(table.columns[0]).toMatchObject({ field: 'part', confidence: 'high', valuePassRate: 1 });
+		expect(table.reasons).toContain('Skipped 1 footer row (6)');
+		expect(records).toHaveLength(4);
+	});
+
+	it('keeps a last row that has an identifier as data even when its part says Total', () => {
+		const { table } = run([['Part Number', 'NSN'], ...DATA.map(([part, nsn]) => [part, nsn]), ['Total', '5305-01-111-3333']]);
+
+		expect(table.dataRows).toEqual([2, 3, 4, 5, 6]);
+		expect(table.skippedRows).toEqual([]);
+	});
+});
