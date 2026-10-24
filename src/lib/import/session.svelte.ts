@@ -63,6 +63,9 @@ export const pipelineEngine: ImportEngine = {
 	}
 };
 
+/** Decisions one option was applied to at once ("Also apply ... to the 11 other rows"). */
+export type DecisionGroup = { ids: string[]; option: string };
+
 export type AiRun = {
 	status: 'running' | 'done' | 'error';
 	/** Names of the sheets sent for interpretation. */
@@ -105,6 +108,11 @@ export class ImportSession {
 	imported = $state.raw<ImportPlan | null>(null);
 	/** Cells the spreadsheet should bring into view and highlight; null shows nothing extra. */
 	focus = $state.raw<SheetFocus | null>(null);
+	/**
+	 * Decisions applied together by chooseMany, so the review window can show and revert each set as one.
+	 * A decision belongs to the last set it was applied with; one changed on its own keeps its place here.
+	 */
+	decisionGroups = $state.raw<DecisionGroup[]>([]);
 
 	aiEnabled = $state(false);
 	/** Null until checked, and it is only checked once the user has AI assistance on. */
@@ -166,6 +174,7 @@ export class ImportSession {
 		this.analysis = null;
 		this.imported = null;
 		this.focus = null;
+		this.decisionGroups = [];
 		this.aiRun = null;
 	}
 
@@ -208,6 +217,14 @@ export class ImportSession {
 		this.#apply({ ...this.overrides, decisions: { ...this.overrides.decisions, [decisionId]: option } });
 	}
 
+	/** Applies one option to several decisions in a single re-analysis, and remembers them as a group. */
+	chooseMany(decisionIds: string[], option: string) {
+		const decisions = { ...this.overrides.decisions };
+		for (const id of decisionIds) decisions[id] = option;
+		this.decisionGroups = [...this.#ungroup(decisionIds), { ids: decisionIds, option }];
+		this.#apply({ ...this.overrides, decisions });
+	}
+
 	/** Unchecking a row in the preview keeps that record out of the import; checking it again brings it back. */
 	setRecordExcluded(recordId: string, excluded: boolean) {
 		const ids = new Set(this.overrides.excludedRecords);
@@ -220,6 +237,14 @@ export class ImportSession {
 	resetDecision(decisionId: string) {
 		const { [decisionId]: _, ...rest } = this.overrides.decisions ?? {};
 		this.#apply({ ...this.overrides, decisions: rest });
+	}
+
+	/** resetDecision for several decisions in a single re-analysis, e.g. reverting a group; they leave their groups. */
+	resetDecisions(decisionIds: string[]) {
+		const drop = new Set(decisionIds);
+		const rest = Object.entries(this.overrides.decisions ?? {}).filter(([id]) => !drop.has(id));
+		this.decisionGroups = this.#ungroup(decisionIds);
+		this.#apply({ ...this.overrides, decisions: Object.fromEntries(rest) });
 	}
 
 	acceptAllSuggestions() {
@@ -259,6 +284,14 @@ export class ImportSession {
 		onImport(plan);
 		this.imported = plan;
 		this.phase = 'done';
+	}
+
+	/** The groups without these decisions; a group left with one decision is no group. */
+	#ungroup(decisionIds: string[]): DecisionGroup[] {
+		const drop = new Set(decisionIds);
+		return this.decisionGroups
+			.map((group) => ({ ...group, ids: group.ids.filter((id) => !drop.has(id)) }))
+			.filter((group) => group.ids.length > 1);
 	}
 
 	#apply(overrides: Overrides) {

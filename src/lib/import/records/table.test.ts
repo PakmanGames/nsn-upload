@@ -383,15 +383,18 @@ describe('identifier conflict decisions', () => {
 		decisions: { [decisionId('resolve-identifier-conflict', `${TABLE_ID}:r2`)]: choice }
 	});
 
-	it('keeps the NSN with prefer-nsn, rejecting the cells that disagree and deriving the NIIN', () => {
+	it('keeps the NSN with prefer-nsn, rejecting the cells that disagree and deriving the NIIN and FSC', () => {
 		const [record] = build(sheetOf(HEADER, { 2: ROW }), FIELDS, choose('prefer-nsn'));
 
 		expect(record.fields.nsn?.value).toBe('5305016582565');
 		expect(record.fields.niin).toMatchObject({
 			value: '016582565',
-			provenance: { origin: 'derived', derivedFrom: ['B2'] }
+			provenance: { origin: 'derived', transforms: ['derive-niin-from-nsn'], derivedFrom: ['B2'] }
 		});
-		expect(record.fields.fsc).toBeUndefined();
+		expect(record.fields.fsc).toMatchObject({
+			value: '5305',
+			provenance: { origin: 'derived', transforms: ['derive-fsc-from-nsn'], derivedFrom: ['B2'] }
+		});
 		expect(record.rejected).toEqual({
 			niin: { original: '016698021', cell: 'C2' },
 			fsc: { original: '5310', cell: 'D2' }
@@ -413,6 +416,23 @@ describe('identifier conflict decisions', () => {
 			}
 		]);
 		expect(record).toMatchObject({ status: 'warning', approved: true });
+	});
+
+	it('derives no FSC with prefer-nsn when the FSC cell agrees with the NSN', () => {
+		const row = ['MS51957-3', '5305-01-658-2565', '016698021', '5305', 'Screw, machine', '0bwz1'];
+		const [record] = build(sheetOf(HEADER, { 2: row }), FIELDS, choose('prefer-nsn'));
+
+		expect(record.fields.fsc).toMatchObject({ value: '5305', provenance: { origin: 'source', cell: 'D2' } });
+		expect(record.rejected).toEqual({ niin: { original: '016698021', cell: 'C2' } });
+	});
+
+	it('never derives an FSC over a malformed FSC cell', () => {
+		const row = ['MS51957-3', '5305-01-658-2565', '016698021', '53X5', 'Screw, machine', '0bwz1'];
+		const [record] = build(sheetOf(HEADER, { 2: row }), FIELDS, choose('prefer-nsn'));
+
+		expect(record.fields.fsc).toBeUndefined();
+		expect(record.rejected.fsc).toEqual({ original: '53X5', cell: 'D2' });
+		expect(record.fields.niin).toMatchObject({ value: '016582565', provenance: { origin: 'derived' } });
 	});
 
 	it('keeps the NIIN and FSC with prefer-niin-fsc, deriving the NSN from them', () => {

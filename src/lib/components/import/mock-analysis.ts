@@ -1163,8 +1163,8 @@ export function buildMockAnalysis(overrides: Overrides = {}, fileName = FILE): W
 				recordIds: [record.id],
 				cells: [at(XREF.sheet, 'B5'), at(XREF.sheet, 'G5')],
 				options: options(['prefer-nsn', 'Keep the NSN'], ['prefer-niin-fsc', 'Keep the NIIN and FSC'], ['exclude-row', 'Exclude the row']),
-				suggested: 'exclude-row',
-				reason: `NSN 5305016582566 in ${at(XREF.sheet, 'B5')} does not match NIIN 016582565 in ${at(XREF.sheet, 'G5')}`
+				suggested: 'prefer-nsn',
+				reason: `NSN 5305016582566 in ${at(XREF.sheet, 'B5')} does not match NIIN 016582565 in ${at(XREF.sheet, 'G5')}. Keeping the NSN is suggested: its NIIN and FSC are worked out from it, and the cells that disagree stay listed on the row.`
 			},
 			(chosen) => {
 				if (chosen !== 'prefer-nsn' && chosen !== 'prefer-niin-fsc') return;

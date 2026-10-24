@@ -38,11 +38,16 @@ test.describe('decision stage', () => {
 		{
 			title: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P · NSN 5305-01-658-2565',
 			suggested: 'Use NSN Cross-Reference row 3',
+			spoken: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P · NSN 5305-01-658-2565, same part on two sheets',
 			// Not the suggestion, so "Review my choices" can show it is the choice that comes back preselected.
 			pick: 'Use Part Number Intake row 4'
 		},
-		{ title: 'SE5826 · NSN 5305-01-669-8021', suggested: 'Use NSN Cross-Reference row 4' },
-		{ title: 'Search Log (A2:I5) · 3 rows', suggested: 'Exclude table' }
+		{
+			title: 'SE5826 · NSN 5305-01-669-8021',
+			suggested: 'Use NSN Cross-Reference row 4',
+			spoken: 'SE5826 · NSN 5305-01-669-8021, same part on two sheets'
+		},
+		{ title: 'Search Log (A2:I5) · 3 rows', suggested: 'Exclude table', spoken: 'Search Log (A2:I5) · 3 rows, table needs review' }
 	];
 
 	test('Apply and continue moves to the next decision; "Review my choices" brings choices back', async ({ page }) => {
@@ -51,18 +56,22 @@ test.describe('decision stage', () => {
 		for (const [i, step] of steps.entries()) {
 			const stage = dialog.getByRole('region', { name: `Needs your decision · ${i + 1} of ${steps.length}` });
 			const heading = stage.getByRole('heading', { level: 3 });
+			const apply = stage.getByRole('button', { name: 'Apply and continue' });
 			await expect(heading).toHaveText(step.title);
-			// After Apply, focus lands on the next decision, so keyboard and screen-reader users follow along.
-			if (i > 0) await expect(heading).toBeFocused();
+			// After Apply, focus stays on the button so Enter applies the next one, and the next decision is announced.
+			if (i > 0) {
+				await expect(apply).toBeFocused();
+				await expect(dialog.locator('p[aria-live="polite"]')).toHaveText(`Decision ${i + 1} of ${steps.length}: ${step.spoken}`);
+			}
 			await expect(stage.getByRole('radio', { name: step.suggested })).toBeChecked();
 			if (step.pick) await stage.getByRole('radio', { name: step.pick }).check();
-			await stage.getByRole('button', { name: 'Apply and continue' }).click();
+			await apply.click();
 		}
 
 		const done = dialog.getByRole('region', { name: `All ${steps.length} decisions made` });
 		await expect(done.getByRole('heading')).toBeFocused();
 		for (const step of steps) {
-			await expect(done.getByRole('listitem').filter({ hasText: step.title })).toHaveText(
+			await expect(done.getByRole('listitem').filter({ hasText: step.title })).toContainText(
 				`${step.title}: ${step.pick ?? step.suggested}`
 			);
 		}

@@ -178,6 +178,7 @@ export type Transform =
 	| 'merge-fill'
 	| 'split-multi-value'
 	| 'derive-niin-from-nsn'
+	| 'derive-fsc-from-nsn'
 	| 'derive-nsn-from-fsc-niin';
 
 export type Provenance = {

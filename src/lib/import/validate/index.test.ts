@@ -594,7 +594,7 @@ describe('row decisions', () => {
 			});
 		}
 
-		it('holds the row back with exclude-row suggested', () => {
+		it('holds the row back with prefer-nsn suggested', () => {
 			const analysis = run(sheets, [contradictory()]);
 
 			const [decision] = decisionsOf(analysis, 'resolve-identifier-conflict');
@@ -602,7 +602,7 @@ describe('row decisions', () => {
 				id,
 				state: 'pending',
 				chosen: null,
-				suggested: 'exclude-row',
+				suggested: 'prefer-nsn',
 				recordIds: ['Parts@1:r4'],
 				cells
 			});
@@ -612,15 +612,26 @@ describe('row decisions', () => {
 				'exclude-row'
 			]);
 			expect(decision.reason).toBe(
-				'NSN 5305016582565 in Parts!C4 does not match NIIN 016698021 in Parts!D4. The file does not say which identifier is right, so excluding the row is suggested.'
+				'NSN 5305016582565 in Parts!C4 does not match NIIN 016698021 in Parts!D4. Keeping the NSN is suggested: its NIIN and FSC are worked out from it, and the cells that disagree stay listed on the row.'
 			);
 			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'pending', approved: false });
 			expect(analysis.summary).toMatchObject({ pendingDecisions: 1, toImport: 0 });
 		});
 
-		it('keeps the row out when the suggestion is accepted', () => {
+		it('imports the row with its NSN when the suggestion is accepted', () => {
 			const pending = run(sheets, [contradictory()]);
-			const analysis = run(sheets, [contradictory()], { decisions: acceptAll(pending) });
+			const analysis = run(sheets, [contradictory('prefer-nsn')], { decisions: acceptAll(pending) });
+
+			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0]).toMatchObject({
+				state: 'user',
+				chosen: 'prefer-nsn'
+			});
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'warning', approved: true });
+			expect(analysis.summary).toMatchObject({ warnings: 1, pendingDecisions: 0, toImport: 1 });
+		});
+
+		it('keeps the row out with exclude-row', () => {
+			const analysis = run(sheets, [contradictory()], { decisions: { [id]: 'exclude-row' } });
 
 			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0]).toMatchObject({
 				state: 'user',
@@ -631,19 +642,20 @@ describe('row decisions', () => {
 		});
 
 		it.each([
-			['prefer-nsn', { part: 'P-1', nsn: '5305016582565', niin: '016582565', derived: ['niin'] }],
-			['prefer-niin-fsc', { part: 'P-1', nsn: '5305016698021', niin: '016698021', derived: ['nsn'] }]
-		] as const)('imports the identifiers the user prefers (%s)', (choice, imported) => {
+			// Keeping the NSN replaces file cells with values worked out from it, so the conflict stays a warning.
+			['prefer-nsn', 'warning', { part: 'P-1', nsn: '5305016582565', niin: '016582565', derived: ['niin'] }],
+			// Keeping the NIIN and FSC settles the conflict into a note.
+			['prefer-niin-fsc', 'valid', { part: 'P-1', nsn: '5305016698021', niin: '016698021', derived: ['nsn'] }]
+		] as const)('imports the identifiers the user prefers (%s)', (choice, status, imported) => {
 			const analysis = run(sheets, [contradictory(choice)], { decisions: { [id]: choice } });
 
 			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0]).toMatchObject({
 				state: 'user',
 				chosen: choice
 			});
-			// The settled conflict and the identifier it rejected leave a note, not a warning.
-			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'valid', approved: true });
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status, approved: true });
 			expect(find(analysis, 'Parts@1:r4').issues).toEqual([
-				expect.objectContaining({ code: 'conflict', severity: 'info' })
+				expect.objectContaining({ code: 'conflict', severity: status === 'valid' ? 'info' : 'warning' })
 			]);
 			// The rejected identifier belongs to this decision, not to an import-valid-portion one.
 			expect(decisionsOf(analysis, 'import-valid-portion')).toEqual([]);
