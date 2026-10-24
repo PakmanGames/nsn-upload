@@ -8,7 +8,7 @@ import ExcelJS from 'exceljs';
 import { demoMappings } from '../../src/lib/demo-data';
 import type { ImportSummary, MappingInput, SheetStatus } from '../../src/lib/import/model';
 import { FIXTURES, pencom, statz, wow } from '../fixtures/expectations';
-import { FIXTURE_DIR, importButton, openSection, recordAiRequests, section, turnAiOff, upload, XLSX_TYPE } from './helpers';
+import { FIXTURE_DIR, importButton, interpretRequests, openSection, recordAiRequests, section, turnAiOff, upload, XLSX_TYPE } from './helpers';
 
 /** What each sheet card's badge says. */
 const BADGE: Record<SheetStatus, string> = {
@@ -204,7 +204,7 @@ test('AI assistance turned off sends nothing; turned on, it shows the mock propo
 	await expect(ai).toContainText('Sent Stock. Accepted 1 table.');
 	await expect(card.getByText('AI', { exact: true })).toBeVisible();
 	// The availability check, then one interpretation.
-	expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+	expect(interpretRequests(requests)).toEqual(['GET', 'POST']);
 
 	// The mock's confidence is below the auto-apply threshold, so its table waits for the user, marked as AI.
 	const tableDecision = dialog.getByRole('region', { name: /^Needs your decision/ });

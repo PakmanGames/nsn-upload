@@ -16,14 +16,21 @@ export async function turnAiOff(page: Page) {
 	await page.addInitScript((key) => localStorage.setItem(key, 'off'), AI_PREFERENCE_KEY);
 }
 
-/** Requests to the AI route, of any method: the availability check (GET) and interpretations (POST). */
-export function recordAiRequests(page: Page): Array<{ method: string }> {
-	const requests: Array<{ method: string }> = [];
+export type AiRequest = { method: string; path: '/api/interpret' | '/api/explain' };
+
+/** Requests to the AI routes: the availability check (GET) and interpretations (POST), and explanations (POST). */
+export function recordAiRequests(page: Page): AiRequest[] {
+	const requests: AiRequest[] = [];
 	page.on('request', (request) => {
-		if (new URL(request.url()).pathname === '/api/interpret') requests.push({ method: request.method() });
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/interpret' || path === '/api/explain') requests.push({ method: request.method(), path });
 	});
 	return requests;
 }
+
+/** Methods of the requests to the interpretation route, in order. */
+export const interpretRequests = (requests: AiRequest[]) =>
+	requests.filter((request) => request.path === '/api/interpret').map((request) => request.method);
 
 /** Opens the Smart Upload window from the mappings page. */
 export async function openSmartUpload(page: Page): Promise<Locator> {

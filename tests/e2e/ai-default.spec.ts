@@ -5,7 +5,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pencom, wow } from '../fixtures/expectations';
-import { AI_PREFERENCE_KEY, FIXTURE_DIR, openSection, recordAiRequests, section, upload } from './helpers';
+import { AI_PREFERENCE_KEY, FIXTURE_DIR, interpretRequests, openSection, recordAiRequests, section, upload } from './helpers';
 
 const NO_KEY = 'AI assistance is not configured on this server (OPENROUTER_API_KEY is not set)';
 
@@ -51,12 +51,14 @@ test('a fresh visitor gets Search Log read by AI without touching the switch, an
 	// The mock's proposal is below the auto-apply threshold, so Search Log still waits for the user, now marked as AI.
 	await expect(dialog.locator('#import-summary')).toContainText('3 decisions need you');
 
-	expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+	expect(interpretRequests(requests)).toEqual(['GET', 'POST']);
+	// M1's explanation requests follow the same default.
+	await expect.poll(() => requests.some((request) => request.path === '/api/explain')).toBe(true);
 	// Only the user's own choice is saved.
 	expect(await savedPreference(page)).toBeNull();
 });
 
-test('a workbook the importer reads by itself sends nothing, and AI assistance says what it would send', async ({ page }) => {
+test('a workbook the importer reads by itself sends no sheet, and AI assistance says what it would send', async ({ page }) => {
 	const requests = recordAiRequests(page);
 	const dialog = await upload(page, `${FIXTURE_DIR}${wow.file}`);
 	const ai = section(dialog, 'ai');
@@ -65,7 +67,7 @@ test('a workbook the importer reads by itself sends nothing, and AI assistance s
 	);
 	await expect(aiNote(dialog)).toHaveText('');
 	// The availability check only; no sheet needed help.
-	expect(requests.map((request) => request.method)).toEqual(['GET']);
+	expect(interpretRequests(requests)).toEqual(['GET']);
 });
 
 test('turning AI off is remembered: after a reload nothing is sent, not even the availability check', async ({ page }) => {
@@ -104,8 +106,8 @@ test('AI can be turned off on the upload screen, before the first file is sent',
 	const ai = section(dialog, 'ai');
 	await expect(ai).toContainText('Could help with Search Log. It is off, so nothing is sent.');
 	expect(await savedPreference(page)).toBe('off');
-	// Only the availability check that opening the window started; no sheet was sent.
-	expect(requests.map((request) => request.method)).toEqual(['GET']);
+	// Only the availability check that opening the window started; nothing was sent.
+	expect(requests).toEqual([{ method: 'GET', path: '/api/interpret' }]);
 });
 
 test('without AI on the server, the switch shows off with the reason and nothing is sent', async ({ page }) => {
@@ -126,7 +128,7 @@ test('without AI on the server, the switch shows off with the reason and nothing
 	await expect(aiNote(dialog)).toHaveText('');
 	await expect(dialog.locator('#import-summary')).toContainText('3 decisions need you');
 
-	expect(requests.map((request) => request.method)).toEqual(['GET']);
+	expect(requests).toEqual([{ method: 'GET', path: '/api/interpret' }]);
 	// Left alone, so the same browser gets AI once the server has a key.
 	expect(await savedPreference(page)).toBeNull();
 });

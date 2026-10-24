@@ -6,9 +6,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { pencom } from '../fixtures/expectations';
-import { FIXTURE_DIR, openSection, upload } from './helpers';
+import { FIXTURE_DIR, openSection, turnAiOff, upload } from './helpers';
 
 const DEMO_DIR = fileURLToPath(new URL('../../docs/demo-workbooks/', import.meta.url));
+
+// These start from the plain wording, so AI assistance (on by default, D23) starts off.
+test.beforeEach(({ page }) => turnAiOff(page));
 
 /** POSTs to the explanation route. */
 function recordExplainPosts(page: Page): string[] {
