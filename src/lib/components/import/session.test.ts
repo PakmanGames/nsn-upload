@@ -317,8 +317,12 @@ describe('ImportSession', () => {
 });
 
 describe('ImportSession explanations', () => {
+	let storage: Storage;
+
 	beforeEach(() => {
 		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(callback));
+		storage = memoryStorage();
+		vi.stubGlobal('localStorage', storage);
 		vi.useFakeTimers();
 	});
 	afterEach(() => {
@@ -353,6 +357,27 @@ describe('ImportSession explanations', () => {
 		expect(engine.explain).not.toHaveBeenCalled();
 		expect(new Set(sources(session))).toEqual(new Set(['rules']));
 		expect(session.explanations.size).toBe(session.analysis!.decisions.length);
+	});
+
+	it('follows AI assistance on by default, and sends nothing once this browser saved "off"', async () => {
+		const open = async (engine: ImportEngine) => {
+			const session = new ImportSession(engine);
+			session.initAi();
+			const loading = session.load(xlsx(), []);
+			await vi.runAllTimersAsync();
+			await loading;
+			await vi.runAllTimersAsync();
+			return session;
+		};
+		const byDefault = explainingEngine();
+		await open(byDefault);
+		expect(byDefault.explain).toHaveBeenCalledTimes(1);
+
+		storage.setItem(aiPreferenceKey, 'off');
+		const off = explainingEngine();
+		const session = await open(off);
+		expect(off.explain).not.toHaveBeenCalled();
+		expect(new Set(sources(session))).toEqual(new Set(['rules']));
 	});
 
 	it('sends one bounded request once AI is on, pending decisions first, and shows the checked wording', async () => {
