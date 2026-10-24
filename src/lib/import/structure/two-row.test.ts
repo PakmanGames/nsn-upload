@@ -124,3 +124,26 @@ describe('two-row headers', () => {
 	});
 });
 
+describe('repeated header candidates', () => {
+	it('keeps the first of two identical headers even when the first block has a malformed value', () => {
+		const { table } = run([
+			['Part Number', 'NSN'],
+			['BRK-1001', '5305-01-658-2565'],
+			['BRK-1002', '5305-01-669-8021'],
+			['GRD-3001', '5340-01-111-2222'],
+			['HUB-6001', '12663107'],
+			[],
+			['Part Number', 'NSN'],
+			['CAR-4001', '3020-00-722-3633'],
+			['HUB-5001', '5340-00-235-4398']
+		]);
+
+		expect(table.headerRows).toEqual([1]);
+		expect(table.dataRows).toEqual([2, 3, 4, 5, 8, 9]);
+		expect(table.skippedRows).toEqual([
+			{ row: 6, reason: 'blank' },
+			{ row: 7, reason: 'repeated-header' }
+		]);
+	});
+});
+

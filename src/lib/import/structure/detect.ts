@@ -117,6 +117,12 @@ function repeatsHeader(sheet: SheetModel, row: number, keys: readonly HeaderKey[
 	return hits.length * 2 > compared.length;
 }
 
+/** The same labels as an earlier header, cell for cell: the header repeated, never a rival to it. */
+function sameLabels(sheet: SheetModel, row: number, keys: readonly HeaderKey[]): boolean {
+	const hits = keys.filter(({ col, key }) => normalizeHeader(sheet.cell(row, col).text) === key);
+	return hits.length * 2 > keys.length && hits.length >= Math.min(2, keys.length);
+}
+
 /**
  * Whether the row below a header candidate finishes its labels. Every cell must be short label text that
  * fails the strict NSN / NIIN / FSC / CAGE checks and is not a plausible part number (bracketed hints may hold
@@ -195,12 +201,15 @@ function tryHeader(sheet: SheetModel, rows: number[], extent: CellRange, sheetSp
 	return { rows, span, keys, columns, assigned, score, hasPrimary: [...assigned.values()].some((e) => isPrimary(e.field)) };
 }
 
-/** Scores every header candidate once; a row that continues the header above is not a candidate of its own. */
+/**
+ * Scores every header candidate once. A candidate that repeats an earlier one's labels is that header again
+ * (Statz's row 34), so it never competes: otherwise one malformed value above it would hand it the table.
+ */
 function headerTrials(sheet: SheetModel, extent: CellRange, sheetSpan: Span): Trial[] {
 	const candidates = headerCandidates(sheet, extent, sheetSpan);
 	const trials: Trial[] = [];
 	for (const row of candidates) {
-		if (trials.some((t) => t.rows.includes(row))) continue;
+		if (trials.some((t) => t.rows.includes(row) || sameLabels(sheet, row, t.keys))) continue;
 		if (!continuesHeader(sheet, row, extent, sheetSpan)) {
 			trials.push(tryHeader(sheet, [row], extent, sheetSpan));
 			continue;

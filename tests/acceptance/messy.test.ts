@@ -371,10 +371,10 @@ describe('messy unseen workbooks', () => {
 			}
 		]);
 
-		// Should: row 1 is the header, row 7 is skipped as a repeated header (§1), all 6 parts import, and row 5's
-		// NSN is rejected while its part imports. Today the one malformed NSN lowers row 1's score, so the repeated
-		// header on row 7 is chosen and rows 2-5 are dropped with only a reason line. Finding for T3.
-		it.fails('keeps the first header and imports both blocks', () => {
+		// Row 1 is the header, row 7 is skipped as a repeated header (§1), all 6 parts import, and row 5's NSN is
+		// rejected while its part imports. Row 7 repeats row 1's labels, so it never competes with row 1 as a
+		// header, however much the malformed NSN lowers row 1's score.
+		it('keeps the first header and imports both blocks', () => {
 			const table = tableOf(workbook.analysis, 'Parts');
 			expect(table.headerRows).toEqual([1]);
 			expect(table.dataRows).toEqual([2, 3, 4, 5, 8, 9]);
