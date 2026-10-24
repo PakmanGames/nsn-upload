@@ -94,7 +94,11 @@
 {#snippet header(column: ColumnMapping, sheet: string)}
 	{@const hidden = model?.sheets.find((candidate) => candidate.name === sheet)?.hiddenCols.has(column.col) ?? false}
 	<span class="font-mono text-xs text-slate-500">{colLetter(column.col)}</span>
-	<span class="text-slate-700 [overflow-wrap:anywhere]">"{column.header || 'no header'}"</span>
+	{#if column.header}
+		<span class="text-slate-700 [overflow-wrap:anywhere]">"{column.header}"</span>
+	{:else}
+		<span class="text-slate-500">(no header)</span>
+	{/if}
 	{#if hidden}
 		<EyeOff size={13} class="inline shrink-0 text-slate-400" />
 		<span class="sr-only">(hidden column)</span>

@@ -27,6 +27,7 @@
 	import Section from './Section.svelte';
 	import SheetsPanel from './SheetsPanel.svelte';
 	import { CHIP_STYLE, FIELD_LABEL, plural, type RecordFilter } from './labels';
+	import { skippedGroups } from './skipped';
 	import {
 		activeRecords,
 		aiOpenByDefault,
@@ -486,6 +487,7 @@
 								<PreviewPanel
 									records={activeRecords(analysis)}
 									held={heldBackGroups(analysis)}
+									skipped={skippedGroups(analysis, session.model)}
 									sheetNames={analysis.sheets.filter((sheet) => sheet.tables.some((table) => !heldTables.has(table.id))).map((sheet) => sheet.name)}
 									bind:filter
 									bind:scope={previewScope}
