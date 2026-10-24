@@ -1,9 +1,9 @@
 /**
- * Sheet classification: hidden, no table, or the sheet's one table with user remaps and AI proposals applied.
+ * Sheet classification: hidden, no table, or the sheet's tables with user remaps and AI proposals applied.
  */
 import type { Field, Overrides, SheetAnalysis, SheetModel, TableCandidate, TableSpec } from '../model';
 import { rangeToA1 } from '../refs';
-import { detectTable, MAX_COLUMNS } from './detect';
+import { detectTables, MAX_COLUMNS } from './detect';
 import { headerRowsPhrase, materialize, tableId, type MaterializedTable, type UserColumns } from './table';
 import { checkValue } from './values';
 
@@ -113,8 +113,8 @@ export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnal
 		return { ...base, status: tables[0].status, reasons, tables, aiTrigger: null };
 	}
 
-	const detection = detectTable(sheet);
-	if (!detection.spec) {
+	const detection = detectTables(sheet);
+	if (detection.tables.length === 0) {
 		return {
 			...base,
 			status: 'no-table',
@@ -124,11 +124,25 @@ export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnal
 		};
 	}
 
-	const id = tableId(sheet.name, detection.spec);
-	const { spec, user } = applyUserColumns(detection.spec, overrides.columns?.[id]);
-	const { table, competition }: MaterializedTable = materialize(sheet, spec, 'deterministic', user);
-	// A table without a header row was found by its values alone, so the AI has nothing left to decide.
-	const settled = table.status === 'ready' || table.headerRows.length === 0;
-	const aiTrigger = settled ? null : (competition[0] ?? identifierTrigger(sheet, 'the table needs review'));
-	return { ...base, status: table.status, reasons: [...tableSummary(table), ...detection.reasons], tables: [table], aiTrigger };
+	// Each table is its own unit: its own remaps, decision, and rows. The sheet is ready when one of them is.
+	const found = detection.tables.map(({ spec: detected, reasons: notes }) => {
+		const id = tableId(sheet.name, detected);
+		const { spec, user } = applyUserColumns(detected, overrides.columns?.[id]);
+		const { table, competition }: MaterializedTable = materialize(sheet, spec, 'deterministic', user);
+		const reasons = [...tableSummary(table), ...notes];
+		// How detection found the table goes with the table, ahead of its status, which stays the last reason.
+		table.reasons.splice(-1, 0, ...notes);
+		return { table, competition, reasons };
+	});
+	const tables = found.map(({ table }) => table);
+	const status = tables.some((table) => table.status === 'ready') ? 'ready' : 'needs-review';
+	// The AI proposes one table per sheet, replacing detection there, so it is only offered when no table is ready.
+	// A table without a header row was found by its values alone, so the AI has nothing left to decide either.
+	const settled = status === 'ready' || tables.some((table) => table.headerRows.length === 0);
+	const aiTrigger = settled
+		? null
+		: (found.flatMap(({ competition }) => competition)[0] ??
+			identifierTrigger(sheet, tables.length > 1 ? 'none of its tables is ready' : 'the table needs review'));
+	// A note about the whole sheet, such as the column limit, comes with every band; it is listed once.
+	return { ...base, status, reasons: [...new Set(found.flatMap(({ reasons }) => reasons))], tables, aiTrigger };
 }

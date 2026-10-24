@@ -4,6 +4,9 @@
  * Every header-like row near the top is tried; each is scored by the mapping its columns would get from
  * header text and a sample of the values below it. Title rows lose because they map nothing. A header may
  * continue on the row directly below it (`Part` over `Number`); then both rows are the header.
+ *
+ * A sheet may hold several tables stacked on top of each other, each at its own columns. The sheet is split
+ * into bands of rows, each ending where another table starts, and each band is detected on its own.
  */
 import { isPlausiblePart } from '../identifiers';
 import type { Cell, CellRange, Field, SheetModel, TableSpec } from '../model';
@@ -31,6 +34,8 @@ const HEADER_SEARCH_ROWS = 30;
 const SAMPLE_ROWS = 200;
 /** Columns analyzed per sheet; a stray value far to the right must not make detection scan millions of cells. */
 export const MAX_COLUMNS = 256;
+/** Tables read per sheet; each one costs a header search, so a sheet of many small tables stays bounded. */
+export const MAX_TABLES = 20;
 /** "Mostly short text": share of a row's cells that must read like header labels. */
 const HEADER_TEXT_SHARE = 0.75;
 const HEADER_TEXT_MAX_LENGTH = 60;
@@ -46,6 +51,16 @@ export type Detection = {
 	/** Null when no header row maps a primary field. */
 	spec: TableSpec | null;
 	/** Why nothing was found, or notes about other header-like regions. */
+	reasons: string[];
+};
+
+/** One band's table, and the row where the next band starts because another table starts there. */
+type BandDetection = Detection & { next: number | null };
+
+export type SheetDetection = {
+	/** Every table on the sheet in row order; they never share rows. Empty when no band maps a primary field. */
+	tables: Array<{ spec: TableSpec; reasons: string[] }>;
+	/** Why no table was found; empty when there is a table. */
 	reasons: string[];
 };
 
@@ -202,11 +217,12 @@ function tryHeader(sheet: SheetModel, rows: number[], extent: CellRange, sheetSp
 	}
 	const headerSpan = { left, right };
 	const keys = headerKeys(sheet, rows[0], headerSpan);
-	// The sample ends where another table starts, so a stacked table does not score against this header.
+	// The sample ends where another table starts, so a stacked table does not score against this header. That
+	// row is read across the sheet: a table shifted left shows only its side columns inside this one's span.
 	const sample: number[] = [];
 	for (let r = rows.at(-1)! + 1; r <= extent.bottom && sample.length < SAMPLE_ROWS; r++) {
 		if (sheet.hiddenRows.has(r) || masterCells(sheet, r, headerSpan).length === 0) continue;
-		if (startsOtherTable(sheet, r, headerSpan, keys)) break;
+		if (startsOtherTable(sheet, r, sheetSpan, keys)) break;
 		sample.push(r);
 	}
 	const span = withUnlabeledColumns(sheet, headerSpan, sample, sheetSpan);
@@ -242,14 +258,33 @@ function headerTrials(sheet: SheetModel, extent: CellRange, sheetSpan: Span): Tr
 	return trials;
 }
 
-/** First row below the table's header that starts another table with a high-confidence primary column. */
+/**
+ * First row below the table's header that starts another table with a high-confidence primary column.
+ * The row is read across the whole sheet, not only the table's columns, so a table shifted left or right
+ * of this one is found too.
+ */
 function nextTable(sheet: SheetModel, trial: Trial, extent: CellRange, sheetSpan: Span): Trial | null {
 	for (let row = trial.rows.at(-1)! + 1; row <= extent.bottom; row++) {
-		if (!startsOtherTable(sheet, row, trial.span, trial.keys)) continue;
+		if (!startsOtherTable(sheet, row, sheetSpan, trial.keys)) continue;
 		const next = tryHeader(sheet, [row], extent, sheetSpan);
 		if ([...next.assigned.values()].some((e) => isPrimary(e.field) && e.confidence === 'high')) return next;
 	}
 	return null;
+}
+
+/**
+ * The band's header and the next table below it. Only candidates above the row where the first mapped
+ * candidate's next table starts compete: a candidate below it heads a later table, so a long table further
+ * down never takes the header from a short one above.
+ */
+function bandHeader(sheet: SheetModel, extent: CellRange, sheetSpan: Span) {
+	const trials = headerTrials(sheet, extent, sheetSpan);
+	const first = trials.find((t) => t.hasPrimary);
+	const firstNext = first ? nextTable(sheet, first, extent, sheetSpan) : null;
+	const competing = firstNext ? trials.filter((t) => t.rows[0] < firstNext.rows[0]) : trials;
+	const best = competing.reduce<Trial | null>((b, t) => (!b || t.score > b.score ? t : b), null);
+	const next = !best?.hasPrimary ? null : best === first ? firstNext : nextTable(sheet, best, extent, sheetSpan);
+	return { trials: competing, best, next };
 }
 
 const rowsLabel = (rows: readonly number[]) => (rows.length > 1 ? `Rows ${rows[0]}-${rows.at(-1)}` : `Row ${rows[0]}`);
@@ -264,19 +299,33 @@ function nearMisses(trial: Trial): string[] {
 		);
 }
 
-export function detectTable(sheet: SheetModel): Detection {
-	const extent = sheet.valueExtent;
-	if (!extent) return { spec: null, reasons: ['Sheet has no values'] };
-	const sheetSpan = { left: extent.left, right: Math.min(extent.right, extent.left + MAX_COLUMNS - 1) };
+/**
+ * The table in one band of rows. When another table starts inside the band, the band ends above it and is
+ * detected again without those rows, so no candidate's sample or mapping reads into the next table.
+ */
+function detectTable(sheet: SheetModel, band: CellRange): BandDetection {
+	const sheetSpan = { left: band.left, right: Math.min(band.right, band.left + MAX_COLUMNS - 1) };
 	const notes =
-		sheetSpan.right < extent.right ? [`Only columns ${colLetter(sheetSpan.left)}-${colLetter(sheetSpan.right)} were analyzed`] : [];
+		sheetSpan.right < band.right ? [`Only columns ${colLetter(sheetSpan.left)}-${colLetter(sheetSpan.right)} were analyzed`] : [];
 
-	const trials = headerTrials(sheet, extent, sheetSpan);
-	const best = trials.reduce<Trial | null>((b, t) => (!b || t.score > b.score ? t : b), null);
+	let extent = band;
+	let found = bandHeader(sheet, extent, sheetSpan);
+	let next: Trial | null = null;
+	// Each pass ends the band above a header below the previous best one, so the band only shrinks.
+	while (found.next) {
+		next = found.next;
+		extent = { ...extent, bottom: next.rows[0] - 1 };
+		found = bandHeader(sheet, extent, sheetSpan);
+	}
+	const { trials, best } = found;
+	const nextRow = next ? next.rows[0] : null;
 	// No header row, or the best one holds NSNs or NIINs and is really the first data row: let the values decide.
 	const headerless = detectHeaderless(sheet, extent, sheetSpan, best?.rows[0]);
-	if (headerless) return { spec: headerless.spec, reasons: [...notes, ...headerless.reasons] };
-	if (!best) return { spec: null, reasons: [...notes, 'No header row found: no row near the top has at least two short text labels'] };
+	if (headerless) return { spec: headerless.spec, reasons: [...notes, ...headerless.reasons], next: nextRow };
+
+	if (!best) {
+		return { spec: null, reasons: [...notes, 'No header row found: no row near the top has at least two short text labels'], next: nextRow };
+	}
 	if (!best.hasPrimary) {
 		const misses = nearMisses(best);
 		return {
@@ -285,7 +334,8 @@ export function detectTable(sheet: SheetModel): Detection {
 				...notes,
 				'No column holds part numbers, NSNs, or NIINs under a matching header',
 				...(misses.length > 0 ? misses : [`${rowsLabel(best.rows)} looks like a header, but none of its columns names Part, NSN, or NIIN`])
-			]
+			],
+			next: nextRow
 		};
 	}
 
@@ -296,19 +346,49 @@ export function detectTable(sheet: SheetModel): Detection {
 		}
 	}
 	let bottom = extent.bottom;
-	const next = nextTable(sheet, best, extent, sheetSpan);
 	if (next) {
-		bottom = next.rows[0] - 1;
-		const fields = [...next.assigned.values()].map((e) => FIELD_LABEL[e.field]);
-		notes.push(
-			`Row ${next.rows[0]} starts another table (${fields.join(', ')}); only one table per sheet is imported, so rows ${next.rows[0]}-${extent.bottom} are not`
-		);
+		// The blank rows between two tables belong to neither.
+		while (bottom > best.rows.at(-1)! && masterCells(sheet, bottom, best.span).length === 0) bottom--;
+		const fields = [...next.assigned].sort(([a], [b]) => a - b).map(([, e]) => FIELD_LABEL[e.field]);
+		notes.push(`Row ${next.rows[0]} starts another table (${fields.join(', ')}), so this table ends at row ${bottom}`);
 	}
 
 	const columns: Record<number, Field> = {};
 	for (const [col, e] of best.assigned) columns[col] = e.field;
 	return {
 		spec: { headerRows: best.rows, range: { top, left: best.span.left, bottom, right: best.span.right }, columns },
-		reasons: notes
+		reasons: notes,
+		next: nextRow
 	};
+}
+
+/**
+ * Every table on the sheet, in row order. The first band starts at the top of the sheet; each next band starts
+ * at the header of the table that ended the one before, and finds its own columns, so a table shifted any
+ * number of columns is read like a sheet of its own. Bands never share rows, so neither do header rows or ids.
+ */
+export function detectTables(sheet: SheetModel): SheetDetection {
+	const extent = sheet.valueExtent;
+	if (!extent) return { tables: [], reasons: ['Sheet has no values'] };
+	const tables: SheetDetection['tables'] = [];
+	// Notes about rows that no table covers go with the table above them, or with the first table found below.
+	const uncovered: string[] = [];
+	for (let top = extent.top; ; ) {
+		const band = detectTable(sheet, { ...extent, top });
+		if (band.spec) {
+			tables.push({ spec: band.spec, reasons: [...uncovered.splice(0), ...band.reasons] });
+		} else if (band.next === null && tables.length === 0 && uncovered.length === 0) {
+			return { tables: [], reasons: band.reasons };
+		} else {
+			const bottom = band.next === null ? extent.bottom : band.next - 1;
+			(tables.at(-1)?.reasons ?? uncovered).push(...band.reasons.map((reason) => `Rows ${top}-${bottom}: ${reason}`));
+		}
+		if (band.next === null) break;
+		if (tables.length === MAX_TABLES) {
+			tables.at(-1)!.reasons.push(`At most ${MAX_TABLES} tables per sheet are read, so rows ${band.next}-${extent.bottom} are not imported`);
+			break;
+		}
+		top = band.next;
+	}
+	return tables.length > 0 ? { tables, reasons: [] } : { tables, reasons: uncovered };
 }

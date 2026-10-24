@@ -245,15 +245,15 @@ describe('detection rules', () => {
 		expect(table.columns[1]).toMatchObject({ field: 'nsn', valuePassRate: 1 });
 	});
 
-	it('stops at a second, different table and says so', () => {
+	it('ends a table above a second, different table and reads that one on its own', () => {
 		const rows: CellInput[][] = [['Part Number', 'NSN'], ['SE5826', nsns(1)[0]], ['RC 620', nsns(1, 1)[0]], [], ['NIIN', 'CAGE'], ['016582565', '0BWZ1']];
 		const [sheet] = analyzeSheets(['Stacked', rows]);
-		const [table] = sheet.tables;
-		expect(table.range).toEqual({ top: 1, left: 1, bottom: 4, right: 2 });
-		expect(table.dataRows).toEqual([2, 3]);
-		expect(sheet.reasons).toContain(
-			'Row 5 starts another table (NIIN, CAGE); only one table per sheet is imported, so rows 5-6 are not'
-		);
+		const [first, second] = sheet.tables;
+		expect(first.range).toEqual({ top: 1, left: 1, bottom: 3, right: 2 });
+		expect(first.dataRows).toEqual([2, 3]);
+		expect(first.reasons).toContain('Row 5 starts another table (NIIN, CAGE), so this table ends at row 3');
+		expect(second).toMatchObject({ id: 'Stacked@5', range: { top: 5, left: 1, bottom: 6, right: 2 }, dataRows: [6], status: 'ready' });
+		expect(mapping(second)).toEqual({ A: 'niin', B: 'cage' });
 	});
 
 	it('treats a part-number cell that repeats the header field as a repeated header', () => {
