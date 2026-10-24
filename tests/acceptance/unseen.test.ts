@@ -216,13 +216,13 @@ describe('unseen workbooks', () => {
 		it('prefer-nsn keeps the NSN, rejects the NIIN cell, and derives the NIIN', () => {
 			const analysis = withChoice('prefer-nsn');
 			const record = singleRecordAt(analysis, 'Catalog', 2);
-			expect(record).toMatchObject({ status: 'warning', approved: true });
+			expect(record).toMatchObject({ status: 'valid', approved: true });
 			expect(record.fields.nsn).toMatchObject({ value: '5305016582565', provenance: { cell: 'B2', origin: 'source' } });
 			expect(record.fields.niin).toMatchObject({ value: '016582565', provenance: { origin: 'derived' } });
 			expect(record.fields.niin?.provenance.derivedFrom).toContain('B2');
 			expect(record.fields.fsc?.value).toBe('5305');
 			expect(record.rejected.niin).toEqual({ original: '016698021', cell: 'D2' });
-			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'warning' }));
+			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'info' }));
 			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016582565', niin: '016582565' });
 			expectSummaryConsistent(analysis);
 			expectTraceable(workbook.model, analysis);
@@ -231,13 +231,13 @@ describe('unseen workbooks', () => {
 		it('prefer-niin-fsc keeps the NIIN and FSC, rejects the NSN cell, and derives the NSN', () => {
 			const analysis = withChoice('prefer-niin-fsc');
 			const record = singleRecordAt(analysis, 'Catalog', 2);
-			expect(record).toMatchObject({ status: 'warning', approved: true });
+			expect(record).toMatchObject({ status: 'valid', approved: true });
 			expect(record.fields.niin).toMatchObject({ value: '016698021', provenance: { cell: 'D2', origin: 'source' } });
 			expect(record.fields.nsn).toMatchObject({ value: '5305016698021', provenance: { origin: 'derived' } });
 			expect(record.fields.nsn?.provenance.transforms).toContain('derive-nsn-from-fsc-niin');
 			expect(record.fields.nsn?.provenance.derivedFrom).toEqual(expect.arrayContaining(['C2', 'D2']));
 			expect(record.rejected.nsn).toEqual({ original: NSN[0], cell: 'B2' });
-			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'warning' }));
+			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'info' }));
 			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016698021', niin: '016698021' });
 			expectSummaryConsistent(analysis);
 			expectTraceable(workbook.model, analysis);

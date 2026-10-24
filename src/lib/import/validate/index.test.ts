@@ -596,7 +596,11 @@ describe('row decisions', () => {
 				state: 'user',
 				chosen: choice
 			});
-			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'warning', approved: true });
+			// The settled conflict and the identifier it rejected leave a note, not a warning.
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'valid', approved: true });
+			expect(find(analysis, 'Parts@1:r4').issues).toEqual([
+				expect.objectContaining({ code: 'conflict', severity: 'info' })
+			]);
 			// The rejected identifier belongs to this decision, not to an import-valid-portion one.
 			expect(decisionsOf(analysis, 'import-valid-portion')).toEqual([]);
 			expect(toImportPlan(analysis)).toEqual({ add: [imported], replace: [] });
@@ -763,20 +767,36 @@ describe('duplicates and conflicts', () => {
 
 			const preferred = find(analysis, 'NSN Cross-Reference@1:r3');
 			expect(preferred).toMatchObject({
+				status: 'valid',
 				approved: true,
 				mergedFrom: ['Part Number Intake@1:r4']
 			});
+			// The settled difference stays on the imported record as a note, not a warning.
+			expect(preferred.issues).toEqual([
+				expect.objectContaining({ code: 'conflict', severity: 'info', field: 'description' })
+			]);
 			expect(preferred.fields.cage!.provenance.sheet).toBe('NSN Cross-Reference');
 			expect(preferred.fields.description!.value).toBe('Screw, Machine');
 			expect(find(analysis, 'Part Number Intake@1:r4')).toMatchObject({
 				status: 'duplicate',
-				approved: false
+				approved: false,
+				issues: [expect.objectContaining({ code: 'conflict', severity: 'warning' })]
 			});
-			expect(analysis.summary).toMatchObject({ conflicts: 0, pendingDecisions: 0, toImport: 1 });
+			expect(analysis.summary).toMatchObject({
+				valid: 1,
+				warnings: 0,
+				conflicts: 0,
+				pendingDecisions: 0,
+				toImport: 1
+			});
 		});
 
 		it('keeps or excludes every record on keep-all and exclude-all', () => {
-			expect(run(sheets, records, { decisions: { [id]: 'keep-all' } }).summary.toImport).toBe(2);
+			const kept = run(sheets, records, { decisions: { [id]: 'keep-all' } });
+			expect(kept.records.map((r) => [r.status, r.approved])).toEqual([
+				['valid', true],
+				['valid', true]
+			]);
 			const excluded = run(sheets, records, { decisions: { [id]: 'exclude-all' } });
 			expect(excluded.records.map((r) => [r.status, r.approved])).toEqual([
 				['conflict', false],
@@ -922,10 +942,10 @@ describe('storage conflicts (saved copy with another description or CAGE)', () =
 		['keep-saved', { status: 'duplicate', approved: false }, { add: [], replace: [] }],
 		[
 			'replace-saved',
-			{ status: 'warning', approved: true },
+			{ status: 'valid', approved: true },
 			{ add: [], replace: [{ id: 'saved-1', input }] }
 		],
-		['keep-both', { status: 'warning', approved: true }, { add: [input], replace: [] }]
+		['keep-both', { status: 'valid', approved: true }, { add: [input], replace: [] }]
 	] as const)('applies %s', (choice, outcome, plan) => {
 		const analysis = run(sheets, records, { existing: [savedCopy], decisions: { [id]: choice } });
 
@@ -934,6 +954,13 @@ describe('storage conflicts (saved copy with another description or CAGE)', () =
 			chosen: choice
 		});
 		expect(find(analysis, 'Parts@1:r3')).toMatchObject(outcome);
+		// Only an approving choice settles the difference into a note.
+		expect(find(analysis, 'Parts@1:r3').issues).toEqual([
+			expect.objectContaining({
+				code: 'duplicate-in-storage',
+				severity: outcome.approved ? 'info' : 'warning'
+			})
+		]);
 		expect(toImportPlan(analysis)).toEqual(plan);
 	});
 
