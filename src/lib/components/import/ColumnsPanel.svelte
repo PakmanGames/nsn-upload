@@ -9,7 +9,7 @@
 	import { colLetter, rangeToA1 } from '$lib/import/refs';
 	import InfoTip from './InfoTip.svelte';
 	import { CONFIDENCE_STYLE, FIELD_LABEL, SKIP_REASON, plural } from './labels';
-	import { partColumnChoices } from './summary';
+	import { partColumnChoices, tableLabel } from './summary';
 
 	type Props = {
 		sheets: SheetAnalysis[];
@@ -121,7 +121,7 @@
 		{@const partChoices = partColumnChoices(table)}
 		<div>
 			<div class="flex flex-wrap items-center gap-2">
-				<h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500">{table.sheet}</h4>
+				<h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500">{tableLabel(table, sheets)}</h4>
 				{#if table.source === 'ai'}
 					<span class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20">
 						<Sparkles size={11} /> Proposed by AI

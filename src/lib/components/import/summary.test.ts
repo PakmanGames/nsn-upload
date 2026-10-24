@@ -9,6 +9,9 @@ import { buildMockAnalysis } from './mock-analysis';
 import {
 	columnsOpenByDefault,
 	columnsSummary,
+	decisionHeading,
+	heldBackGroups,
+	heldBackNote,
 	nothingToImport,
 	partColumnChoices,
 	rowsSummary,
@@ -18,16 +21,18 @@ import {
 	statusChips,
 	summaryParts,
 	summarySentence,
+	tableLabel,
 	worthALook
 } from './summary';
 
 const WOW = 'WOW NSN list 7-20-26 (2).xlsx';
 const STATZ = 'Statz - List of active Geier and Bluhm parts listed on the NSN listings (1).xlsx';
 const PENCOM = 'PENCOM_Government_Procurement_Database (2).xlsx';
+const SHIFTED = 'ShiftedTable.xlsx';
 
 const models = new Map<string, WorkbookModel>();
 beforeAll(async () => {
-	for (const file of [WOW, STATZ, PENCOM]) {
+	for (const file of [WOW, STATZ, PENCOM, SHIFTED]) {
 		const bytes = readFileSync(resolve('example-excel-uploads', file));
 		models.set(file, await readWorkbook(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), file));
 	}
@@ -49,6 +54,13 @@ describe('R1 summary sentence', () => {
 		expect(summarySentence(fixture(WOW))).toBe('1 of 2 sheets has an importable table · 179 rows → 180 records · nothing needs you');
 		expect(summarySentence(fixture(STATZ))).toBe('1 of 1 sheet has an importable table · 54 rows · nothing needs you');
 		expect(summarySentence(fixture(PENCOM))).toBe('2 of 6 sheets have importable tables · 7 rows · 3 decisions need you');
+	});
+
+	it('counts tables when a sheet holds several ready ones', () => {
+		expect(summarySentence(fixture(SHIFTED))).toBe('2 tables on 1 sheet are ready · 54 rows · nothing needs you');
+		const shifted = fixture(SHIFTED);
+		const withHidden = { ...shifted, sheets: [...shifted.sheets, { ...shape(['hidden'], 0, 0).sheets[0], index: 1 }] };
+		expect(summarySentence(withHidden)).toBe('2 tables on 1 of 2 sheets are ready · 54 rows · nothing needs you');
 	});
 
 	it('agrees in number and leaves out records when they match the rows', () => {
@@ -96,6 +108,7 @@ describe('R4 and R5 section summaries', () => {
 	it('summarizes sheets by status, leaving out zero counts', () => {
 		expect(sheetsSummary(fixture(PENCOM).sheets)).toBe('2 ready · 1 needs review · 3 nothing to import');
 		expect(sheetsSummary(fixture(WOW).sheets)).toBe('1 ready · 1 hidden');
+		expect(sheetsSummary(fixture(SHIFTED).sheets)).toBe('2 tables ready');
 	});
 
 	it('lists mapped fields per included table, in column order', () => {
@@ -103,6 +116,18 @@ describe('R4 and R5 section summaries', () => {
 		expect(columnsSummary(fixture(PENCOM))).toBe(
 			'NSN Cross-Reference: NSN, FSC, NIIN, Description, Part number, CAGE · Part Number Intake: Part number, Description, NSN, FSC'
 		);
+		// Tables of one sheet are told apart by their rows, without repeating the sheet name.
+		expect(columnsSummary(fixture(SHIFTED))).toBe('Rows 1-31: Part number, NSN · Rows 34-58: Part number, NSN');
+	});
+
+	it('names a table by its sheet, and by its rows too when the sheet has several', () => {
+		const shifted = fixture(SHIFTED);
+		expect(shifted.sheets[0].tables.map((table) => tableLabel(table, shifted.sheets))).toEqual([
+			'Statz - List of active Geier an, rows 1-31',
+			'Statz - List of active Geier an, rows 34-58'
+		]);
+		const wow = fixture(WOW);
+		expect(tableLabel(wow.sheets[0].tables[0], wow.sheets)).toBe('Active Parts');
 	});
 
 	it('opens Columns only for an uncertain mapping of an included table or a user remap', () => {
@@ -168,6 +193,13 @@ describe('R9 worth a look', () => {
 	it('says nothing for held-back or warning-free files', () => {
 		expect(worthALook(fixture(PENCOM))).toEqual([]);
 		expect(worthALook(fixture(PENCOM, acceptAll(fixture(PENCOM))))).toEqual([]);
+	});
+
+	it('names part numbers Excel stored as dates and imported as shown', () => {
+		expect(worthALook(fixture(SHIFTED))).toContainEqual({
+			title: '14 part numbers were stored as a date',
+			detail: 'rows 43, 46, 47, 48 and 10 more; imported as Excel shows them'
+		});
 	});
 
 	it('shortens long row lists and names numbers stored as numbers', () => {
@@ -256,5 +288,43 @@ describe('nothing to import', () => {
 		const manual = { headerRows: [], range: { top: 1, left: 1, bottom: 4, right: 1 }, columns: { 1: 'nsn' as const } };
 		const setUp = run([cover, ready, empty, list], { manualTables: [{ ...manual, sheet: 'List' }] });
 		expect(setupSheets(setUp.analysis.sheets, setUp.analysis.decisions, setUp.model)).toEqual(['Cover']);
+describe('held-back tables', () => {
+	it('say why and how to include them, on their own line', () => {
+		const pencom = fixture(PENCOM);
+		const [group] = heldBackGroups(pencom);
+		const decision = pencom.decisions.find((d) => d.kind === 'include-table' && d.tableId === group.table.id);
+		expect(group.label).toBe('Search Log');
+		expect(heldBackNote(group.table, decision, group.records.length)).toBe(
+			"Not imported yet: we're not sure column F holds NSNs (2 of 3 values are valid NSNs). Check its columns, then switch it on to import its 3 records."
+		);
+
+		const excluded = fixture(PENCOM, acceptAll(pencom));
+		const left = excluded.decisions.find((d) => d.kind === 'include-table' && d.tableId === group.table.id);
+		expect(heldBackNote(group.table, left, 3)).toBe('Left out of the import. To bring it back, switch it on to import its 3 records.');
+
+		const ready = pencom.decisions.find((d) => d.kind === 'include-table' && d.chosen === 'include')!;
+		const table = pencom.sheets.flatMap((sheet) => sheet.tables).find((t) => t.id === ready.tableId)!;
+		expect(heldBackNote(table, ready, 2)).toBeNull();
+	});
+});
+
+describe('R3 decision headings', () => {
+	it('tells a conflict between two tables of one sheet from one between sheets', () => {
+		const rows = [
+			['Part Number', 'NSN', 'Description'],
+			['BRK-1002', '5305-01-669-8021', 'Screw, assembly'],
+			[],
+			[null, null, null, null, 'P/N', 'NSN', 'Item Name'],
+			[null, null, null, null, 'BRK-1002', '5305-01-669-8021', 'Assembly screw']
+		];
+		const analysis = analyze(makeWorkbook('two.xlsx', [makeSheet('Parts', rows)]), []);
+		const conflict = analysis.decisions.find((d) => d.kind === 'resolve-conflict')!;
+		const records = new Map(analysis.records.map((record) => [record.id, record]));
+		expect(decisionHeading(conflict, records, analysis.sheets).kind).toBe('Same part in two tables');
+
+		const pencom = fixture(PENCOM);
+		const across = pencom.decisions.find((d) => d.kind === 'resolve-conflict')!;
+		const pencomRecords = new Map(pencom.records.map((record) => [record.id, record]));
+		expect(decisionHeading(across, pencomRecords, pencom.sheets).kind).toBe('Same part on two sheets');
 	});
 });

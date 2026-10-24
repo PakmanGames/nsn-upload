@@ -4,12 +4,12 @@
 	import TableProperties from '@lucide/svelte/icons/table-properties';
 	import Undo2 from '@lucide/svelte/icons/undo-2';
 	import { tick } from 'svelte';
-	import type { Decision, SheetAnalysis, TableSpec, WorkbookModel } from '$lib/import/model';
-	import { rangeToA1 } from '$lib/import/refs';
+	import type { Decision, SheetAnalysis, SheetStatus, TableCandidate, TableSpec, WorkbookModel } from '$lib/import/model';
+	import { colLetter, rangeToA1 } from '$lib/import/refs';
 	import Switch from './Switch.svelte';
 	import TableSetup from './TableSetup.svelte';
-	import { SHEET_STATUS, SKIP_REASON, plural } from './labels';
-	import { setupSheets } from './summary';
+	import { SHEET_STATUS, plural } from './labels';
+	import { heldBackNote, setupSheets, tableLabel, tableRows } from './summary';
 
 	type Props = {
 		sheets: SheetAnalysis[];
@@ -72,19 +72,24 @@
 		void focusAction(sheet, 'setup');
 	}
 
-	function details(sheet: SheetAnalysis): string[] {
-		const table = sheet.tables[0];
-		if (!table) return sheet.reasons;
-		const skipped = Object.entries(
-			Object.groupBy(table.skippedRows, (skip) => SKIP_REASON[skip.reason])
-		).map(([reason, rows]) => `Skipped ${plural(rows!.length, 'row')} (${reason}): ${rows!.map((r) => r.row).join(', ')}`);
-		return [...sheet.reasons, ...table.reasons.filter((reason) => !sheet.reasons.includes(reason)), ...skipped];
+	const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+	/** "columns E-K", or "column E" for a one-column table. */
+	const columnsOf = ({ range }: TableCandidate) =>
+		range.left === range.right ? `column ${colLetter(range.left)}` : `columns ${colLetter(range.left)}-${colLetter(range.right)}`;
+
+	/**
+	 * Why a table got its status. A sheet's own reasons describe its one table; on a sheet of several tables they
+	 * cover all of them, so each table lists its own reasons instead. A table's reasons already name its skipped rows.
+	 */
+	function details(sheet: SheetAnalysis, table: TableCandidate): string[] {
+		if (sheet.tables.length > 1) return table.reasons;
+		return [...sheet.reasons, ...table.reasons.filter((reason) => !sheet.reasons.includes(reason))];
 	}
 </script>
 
-{#snippet badge(sheet: SheetAnalysis)}
-	<span class={['inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', SHEET_STATUS[sheet.status].style]}>
-		{SHEET_STATUS[sheet.status].label}
+{#snippet badge(status: SheetStatus)}
+	<span class={['inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', SHEET_STATUS[status].style]}>
+		{SHEET_STATUS[status].label}
 	</span>
 {/snippet}
 
@@ -113,6 +118,85 @@
 	{/if}
 {/snippet}
 
+{#snippet tableLine(sheet: SheetAnalysis, table: TableCandidate, index: number)}
+	{@const several = sheet.tables.length > 1}
+	{@const decision = includeDecisions.get(table.id)}
+	{@const isOpen = expanded[table.id] ?? false}
+	{@const reasonsId = `${uid}-${sheet.index}-${index}`}
+	{@const count = recordCounts.get(table.id) ?? 0}
+	{@const records = plural(count, 'record')}
+	{@const note = heldBackNote(table, decision, count)}
+	<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+		<p class="min-w-0 text-sm">
+			{#if several}
+				<span class="font-medium text-slate-800">{capitalized(tableRows(table))}</span>
+				<span class="text-slate-500">{`· ${columnsOf(table)} · ${records}`}</span>
+			{:else}
+				<span class="font-medium text-slate-900">{sheet.name}</span>
+				<span class="text-slate-500">{`· ${rangeToA1(table.range)} · ${records}`}</span>
+			{/if}
+		</p>
+		<div class="flex items-center gap-2">
+			{#if table.source === 'ai'}
+				<span
+					class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"
+				>
+					<Sparkles size={11} /> AI
+				</span>
+			{:else if table.source === 'user'}
+				<span class="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
+					Set up by you
+				</span>
+			{/if}
+			{@render badge(table.status)}
+			{#if decision}
+				<Switch
+					checked={decision.chosen === 'include'}
+					label={several ? `Include ${tableLabel(table, sheets)}` : `Include ${sheet.name}`}
+					onchange={(include) => onInclude(decision.id, include)}
+				/>
+			{/if}
+		</div>
+	</div>
+	{#if note}
+		<p class="mt-1 text-xs leading-5 text-slate-600">{note}</p>
+	{/if}
+	<div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+		<button
+			type="button"
+			class="flex items-center gap-1 rounded text-xs text-slate-500 transition hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-blue-600"
+			aria-expanded={isOpen}
+			aria-controls={reasonsId}
+			onclick={() => (expanded[table.id] = !isOpen)}
+		>
+			<ChevronRight size={13} class={['transition', isOpen && 'rotate-90']} />
+			Why this classification
+		</button>
+		<!-- A table set up by hand replaces detection on the whole sheet, so a sheet of several tables offers it once. -->
+		{#if !several}
+			{@render setupButton(sheet)}
+		{/if}
+		{#if table.source === 'user'}
+			<button
+				id={`${uid}-remove-${sheet.index}`}
+				type="button"
+				class="flex items-center gap-1 rounded text-xs font-medium text-blue-700 transition hover:text-blue-900 focus-visible:outline-2 focus-visible:outline-blue-600"
+				onclick={() => removeTable(sheet)}
+			>
+				<Undo2 size={13} /> Remove table set up by hand
+			</button>
+		{/if}
+	</div>
+	<ul id={reasonsId} hidden={!isOpen} class="mt-1 list-disc space-y-1 pl-7 text-xs leading-5 text-slate-600">
+		{#each details(sheet, table) as reason, i (i)}
+			<li>{reason}</li>
+		{/each}
+		{#if sheet.aiTrigger}
+			<li class="text-violet-700">AI could help: {sheet.aiTrigger}</li>
+		{/if}
+	</ul>
+{/snippet}
+
 {#snippet fold(label: string, list: SheetAnalysis[], open = false)}
 	<details class="group/fold" {open}>
 		<summary
@@ -126,7 +210,7 @@
 				<li class="py-2">
 					<div class="flex flex-wrap items-center gap-2">
 						<span class="text-sm font-medium text-slate-700">{sheet.name}</span>
-						{@render badge(sheet)}
+						{@render badge(sheet.status)}
 					</div>
 					<ul class="mt-1 list-disc space-y-0.5 pl-5 text-xs leading-5 text-slate-600">
 						{#each sheet.reasons as reason, i (i)}
@@ -144,71 +228,21 @@
 {#if withTables.length}
 	<ul class="divide-y divide-slate-100">
 		{#each withTables as sheet (sheet.name)}
-			{@const table = sheet.tables[0]}
-			{@const decision = table && includeDecisions.get(table.id)}
-			{@const isOpen = expanded[sheet.name] ?? false}
-			{@const reasonsId = `${uid}-${sheet.index}`}
 			<li class="py-2 first:pt-0">
-				<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-					<p class="min-w-0 text-sm">
+				{#if sheet.tables.length === 1}
+					{@render tableLine(sheet, sheet.tables[0], 0)}
+				{:else}
+					<p class="text-sm">
 						<span class="font-medium text-slate-900">{sheet.name}</span>
-						<span class="text-slate-500">
-							{`· ${rangeToA1(table.range)} · ${plural(recordCounts.get(table.id) ?? 0, 'record')}`}
-						</span>
+						<span class="text-slate-500">{`· ${plural(sheet.tables.length, 'table')}`}</span>
 					</p>
-					<div class="flex items-center gap-2">
-						{#if table.source === 'ai'}
-							<span
-								class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"
-							>
-								<Sparkles size={11} /> AI
-							</span>
-						{:else if table.source === 'user'}
-							<span class="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
-								Set up by you
-							</span>
-						{/if}
-						{@render badge(sheet)}
-						{#if decision}
-							<Switch
-								checked={decision.chosen === 'include'}
-								label={`Include ${sheet.name}`}
-								onchange={(include) => onInclude(decision.id, include)}
-							/>
-						{/if}
-					</div>
-				</div>
-				<div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-					<button
-						type="button"
-						class="flex items-center gap-1 rounded text-xs text-slate-500 transition hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-blue-600"
-						aria-expanded={isOpen}
-						aria-controls={reasonsId}
-						onclick={() => (expanded[sheet.name] = !isOpen)}
-					>
-						<ChevronRight size={13} class={['transition', isOpen && 'rotate-90']} />
-						Why this classification
-					</button>
-					{@render setupButton(sheet)}
-					{#if table.source === 'user'}
-						<button
-							id={`${uid}-remove-${sheet.index}`}
-							type="button"
-							class="flex items-center gap-1 rounded text-xs font-medium text-blue-700 transition hover:text-blue-900 focus-visible:outline-2 focus-visible:outline-blue-600"
-							onclick={() => removeTable(sheet)}
-						>
-							<Undo2 size={13} /> Remove table set up by hand
-						</button>
-					{/if}
-				</div>
-				<ul id={reasonsId} hidden={!isOpen} class="mt-1 list-disc space-y-1 pl-7 text-xs leading-5 text-slate-600">
-					{#each details(sheet) as reason, i (i)}
-						<li>{reason}</li>
-					{/each}
-					{#if sheet.aiTrigger}
-						<li class="text-violet-700">AI could help: {sheet.aiTrigger}</li>
-					{/if}
-				</ul>
+					<ul class="mt-2 space-y-3 border-l-2 border-slate-100 pl-3">
+						{#each sheet.tables as table, index (table.id)}
+							<li>{@render tableLine(sheet, table, index)}</li>
+						{/each}
+					</ul>
+					<div class="mt-1.5 empty:hidden">{@render setupButton(sheet)}</div>
+				{/if}
 				{@render setup(sheet)}
 			</li>
 		{/each}
