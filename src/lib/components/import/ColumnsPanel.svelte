@@ -9,6 +9,7 @@
 	import { colLetter, rangeToA1 } from '$lib/import/refs';
 	import InfoTip from './InfoTip.svelte';
 	import { CONFIDENCE_STYLE, FIELD_LABEL, SKIP_REASON, plural } from './labels';
+	import { partColumnChoices } from './summary';
 
 	type Props = {
 		sheets: SheetAnalysis[];
@@ -38,6 +39,14 @@
 			([reason, rows]) => `${plural(rows!.length, 'row')} (${reason})`
 		);
 	const capitalized = (text: string) => text[0].toUpperCase() + text.slice(1);
+
+	/** "Columns A and F both", "Columns A, C and F all". */
+	function choiceSubject(columns: ColumnMapping[]): string {
+		const letters = columns.map((column) => colLetter(column.col));
+		return letters.length === 2
+			? `Columns ${letters[0]} and ${letters[1]} both`
+			: `Columns ${letters.slice(0, -1).join(', ')} and ${letters.at(-1)} all`;
+	}
 </script>
 
 {#snippet picker(table: TableCandidate, column: ColumnMapping)}
@@ -109,6 +118,7 @@
 	{#each tables as table (table.id)}
 		{@const mapped = table.columns.filter((column) => column.field)}
 		{@const unmapped = table.columns.filter((column) => !column.field)}
+		{@const partChoices = partColumnChoices(table)}
 		<div>
 			<div class="flex flex-wrap items-center gap-2">
 				<h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500">{table.sheet}</h4>
@@ -136,6 +146,27 @@
 					<button type="button" class="rounded p-0.5 text-amber-700 hover:bg-amber-100" aria-label="Dismiss" onclick={() => onDismissNotice(table.id)}>
 						<X size={14} />
 					</button>
+				</div>
+			{/if}
+
+			{#if partChoices.length}
+				<!-- Nothing is mapped to Part because the values fit several columns: the user picks, so the table is never stuck. -->
+				<div class="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-950" role="group" aria-label="Choose the part number column">
+					<p>{choiceSubject(partChoices)} look like part numbers, and no header says which one holds them. Pick the one that holds part numbers:</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#each partChoices as column (column.col)}
+							<button
+								type="button"
+								class="inline-flex min-w-0 max-w-full items-center rounded-md border border-blue-300 bg-white px-2.5 py-1.5 text-sm font-medium text-blue-800 shadow-sm transition hover:bg-blue-100"
+								onclick={() => onSetColumn(table, column, 'part')}
+							>
+								<span class="truncate">Use column {colLetter(column.col)}{column.header ? ` "${column.header}"` : ''}</span>
+							</button>
+						{/each}
+					</div>
+					{#if !heldBack.has(table.id)}
+						<p class="mt-2 text-xs text-blue-900">Until you pick one, these rows import without a part number.</p>
+					{/if}
 				</div>
 			{/if}
 
