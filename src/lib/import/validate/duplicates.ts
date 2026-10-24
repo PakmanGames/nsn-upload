@@ -5,7 +5,13 @@
  * Records are grouped by identity key through a Map, so the cost is linear in records plus the size
  * of each identity group, which is small in practice.
  */
-import { FIELDS, type Field, type MappingInput } from '../model';
+import {
+	FIELDS,
+	type CandidateRecord,
+	type Field,
+	type MappingInput,
+	type StoredMapping
+} from '../model';
 import { stripSeparators } from '../identifiers';
 import type { DecisionLog } from './decisions';
 import {
@@ -184,8 +190,12 @@ function fold(target: Entry, others: Entry[]): void {
 	others.forEach((other) => hold(other, 'duplicate'));
 }
 
-/** Records already saved in the browser are skipped unless the user keeps them. */
-export function decideStorage(log: DecisionLog, entries: Entry[], existing: MappingInput[]): void {
+/**
+ * Records already saved in the browser. A saved copy that agrees, or lacks the field, makes the record a
+ * duplicate that is skipped unless the user keeps it. Saved copies that all disagree on description or
+ * CAGE wait for the user, since either side may be the correct one.
+ */
+export function decideStorage(log: DecisionLog, entries: Entry[], existing: StoredMapping[]): void {
 	const saved = groupBy(existing, (input) =>
 		identityKey({
 			part: input.part,
@@ -195,33 +205,92 @@ export function decideStorage(log: DecisionLog, entries: Entry[], existing: Mapp
 	);
 	for (const entry of entries) {
 		if (!isCandidate(entry)) continue;
-		const cage = entry.record.fields.cage?.value;
-		const match = saved
-			.get(recordKey(entry.record))
-			?.some((input) => !cage || !input.cage || loose(input.cage) === loose(cage));
-		if (!match) continue;
-		const { chosen } = log.decide({
-			kind: 'drop-duplicate',
-			subject: entry.record.id,
-			tableId: entry.record.tableId,
-			recordIds: [entry.record.id],
-			cells: identityCells(entry.record),
-			suggested: 'drop',
-			auto: true,
-			reason: `${rowLabel(entry.record)} is already in your saved mappings (${describeIdentity(
-				entry.record
-			)}).`,
-			at: at(entry)
-		});
-		entry.record.issues.push({
-			code: 'duplicate-in-storage',
-			severity: 'warning',
-			message: `Already in your saved mappings (${describeIdentity(entry.record)}).`,
-			cells: identityCells(entry.record)
-		});
-		if (chosen === 'drop') hold(entry, 'duplicate');
+		const matches = saved.get(recordKey(entry.record)) ?? [];
+		if (matches.length === 0) continue;
+		if (matches.some((input) => !conflictsWith(entry.record, input))) {
+			dropSaved(log, entry);
+		} else {
+			resolveStorageConflict(log, entry, matches);
+		}
 	}
 }
+
+function dropSaved(log: DecisionLog, entry: Entry): void {
+	const { chosen } = log.decide({
+		kind: 'drop-duplicate',
+		subject: entry.record.id,
+		tableId: entry.record.tableId,
+		recordIds: [entry.record.id],
+		cells: identityCells(entry.record),
+		suggested: 'drop',
+		auto: true,
+		reason: `${rowLabel(entry.record)} is already in your saved mappings (${describeIdentity(
+			entry.record
+		)}).`,
+		at: at(entry)
+	});
+	entry.record.issues.push({
+		code: 'duplicate-in-storage',
+		severity: 'warning',
+		message: `Already in your saved mappings (${describeIdentity(entry.record)}).`,
+		cells: identityCells(entry.record)
+	});
+	if (chosen === 'drop') hold(entry, 'duplicate');
+}
+
+/** Same identity as saved mappings that all hold another description or CAGE. */
+function resolveStorageConflict(log: DecisionLog, entry: Entry, matches: StoredMapping[]): void {
+	const { record } = entry;
+	const differences = SAVED_FIELDS.flatMap((field) => {
+		const value = record.fields[field]?.value ?? '';
+		const others = matches
+			.map((input) => input[field] ?? '')
+			.filter((other) => differs(value, other));
+		return others.length > 0 ? [{ field, value, saved: [...new Set(others)] }] : [];
+	});
+	const differing = differences.map(({ field }) => field);
+	const labels = joinList(differing.map((field) => FIELD_LABELS[field]));
+	const { chosen } = log.decide({
+		kind: 'resolve-storage-conflict',
+		// replace-saved overwrites the first match, so the choice is tied to that saved record.
+		subject: `${record.id}+saved:${matches[0].id}`,
+		tableId: record.tableId,
+		recordIds: [record.id],
+		existingIds: matches.map((input) => input.id),
+		cells: [...identityCells(record), ...differing.flatMap((field) => fieldCells(record, field))],
+		suggested: 'keep-saved',
+		auto: false,
+		reason: `${rowLabel(record)} has the same ${describeIdentity(record)} as ${
+			matches.length === 1 ? 'a saved mapping' : `${matches.length} saved mappings`
+		} but a different ${labels}. Keeping the saved mapping is suggested.`,
+		at: at(entry)
+	});
+	for (const { field, value, saved } of differences) {
+		record.issues.push({
+			code: 'duplicate-in-storage',
+			severity: 'warning',
+			field,
+			message: `${capitalize(FIELD_LABELS[field])} "${value}" differs from the saved ${joinList(
+				saved.map((other) => `"${other}"`)
+			)}.`,
+			cells: fieldCells(record, field)
+		});
+	}
+	if (chosen === null) hold(entry, 'pending');
+	if (chosen === 'keep-saved') hold(entry, 'duplicate');
+}
+
+/** Saved fields outside the identity key, compared the way in-file duplicates are. */
+const SAVED_FIELDS = ['description', 'cage'] as const;
+
+/** A value missing on either side is compatible, as in an in-file merge. */
+function differs(value: string, other: string): boolean {
+	const [a, b] = [loose(value), loose(other)];
+	return a !== '' && b !== '' && a !== b;
+}
+
+const conflictsWith = (record: CandidateRecord, input: MappingInput) =>
+	SAVED_FIELDS.some((field) => differs(record.fields[field]?.value ?? '', input[field] ?? ''));
 
 /** Fields on which at least two of the records hold different values. */
 function differingFields(entries: Entry[]): Field[] {
