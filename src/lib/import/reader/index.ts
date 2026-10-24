@@ -14,6 +14,7 @@ import {
 	type WorkbookModel
 } from '../model';
 import { toSheetModel } from './sheet';
+import { holdsDeclaredSizes, readCentralDirectory } from './zip';
 
 const VISIBILITY: Record<number, SheetVisibility> = { 0: 'visible', 1: 'hidden', 2: 'veryHidden' };
 
@@ -44,12 +45,23 @@ export async function readWorkbook(
 	// SheetJS parses almost anything, including plain text and random bytes (as a one-sheet CSV), so the
 	// container is checked by signature first.
 	const isOle = startsWith(bytes, OLE_SIGNATURE);
-	if (!isOle && !startsWith(bytes, ZIP_SIGNATURE)) {
-		throw new WorkbookReadError('corrupt', `"${fileName}" is not a valid .xlsx workbook; the file may be damaged.`);
-	}
+	if (!isOle && !startsWith(bytes, ZIP_SIGNATURE)) throw damaged(fileName);
 
 	const XLSX = await import('xlsx');
 	if (isOle) throw oleError(XLSX.CFB, bytes, fileName);
+
+	// Zip-bomb guard. SheetJS trusts whatever sizes the zip's headers declare (see zip.ts), so the declared total is
+	// capped before anything is inflated, and then every entry must hold exactly what it declares.
+	const entries = readCentralDirectory(bytes);
+	if (!entries) throw damaged(fileName);
+	const unzippedBytes = entries.reduce((total, entry) => total + entry.size, 0);
+	if (unzippedBytes > max.maxUncompressedBytes) {
+		throw new WorkbookReadError(
+			'too-large',
+			`"${fileName}" would expand to ${megabytes(unzippedBytes)} when unzipped; the limit is ${megabytes(max.maxUncompressedBytes)}. The file may be damaged or deliberately oversized.`
+		);
+	}
+	if (!(await holdsDeclaredSizes(bytes, entries))) throw damaged(fileName);
 
 	let workbook: WorkBook;
 	try {
@@ -121,7 +133,7 @@ function oleError(cfb: typeof import('xlsx').CFB, bytes: Uint8Array, fileName: s
 	try {
 		encrypted = Boolean(cfb.find(cfb.read(bytes, { type: 'array' }), 'EncryptionInfo'));
 	} catch {
-		return new WorkbookReadError('corrupt', `"${fileName}" is not a valid .xlsx workbook; the file may be damaged.`);
+		return damaged(fileName);
 	}
 	return encrypted
 		? new WorkbookReadError(
@@ -132,6 +144,10 @@ function oleError(cfb: typeof import('xlsx').CFB, bytes: Uint8Array, fileName: s
 				'not-xlsx',
 				`"${fileName}" is not an .xlsx workbook; it looks like an older .xls file. Save it in Excel as "Excel Workbook (.xlsx)" and upload it again.`
 			);
+}
+
+function damaged(fileName: string): WorkbookReadError {
+	return new WorkbookReadError('corrupt', `"${fileName}" is not a valid .xlsx workbook; the file may be damaged.`);
 }
 
 function startsWith(bytes: Uint8Array, signature: number[]): boolean {

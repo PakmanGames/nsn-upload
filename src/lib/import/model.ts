@@ -53,6 +53,8 @@ export type WorkbookModel = { fileName: string; sheets: SheetModel[] };
 
 export type ReadLimits = {
 	maxFileBytes: number;
+	/** Sum of the uncompressed sizes in the zip's central directory: the zip-bomb guard. */
+	maxUncompressedBytes: number;
 	maxSheets: number;
 	maxRowsPerSheet: number;
 	maxCells: number;
@@ -60,6 +62,8 @@ export type ReadLimits = {
 
 export const DEFAULT_READ_LIMITS: ReadLimits = {
 	maxFileBytes: 20 * 1024 * 1024,
+	// A workbook at the 2,000,000-cell limit unzips to about 90 MB; zip bombs expand 100x or more.
+	maxUncompressedBytes: 200 * 1024 * 1024,
 	maxSheets: 50,
 	maxRowsPerSheet: 100_000,
 	maxCells: 2_000_000
