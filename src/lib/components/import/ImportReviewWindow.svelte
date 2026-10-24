@@ -184,7 +184,7 @@
 	function setColumn(table: TableCandidate, column: ColumnMapping, field: Field | null) {
 		const evicted = field && table.columns.find((other) => other.col !== column.col && other.field === field);
 		remapNotices[table.id] = evicted
-			? `Column ${colLetter(evicted.col)} ("${evicted.header}") is no longer mapped: column ${colLetter(column.col)} now maps to ${FIELD_LABEL[field]}.`
+			? `Column ${colLetter(evicted.col)}${evicted.header ? ` ("${evicted.header}")` : ''} is no longer mapped: column ${colLetter(column.col)} now maps to ${FIELD_LABEL[field]}.`
 			: '';
 		session.setColumn(table.id, column.col, field);
 	}
