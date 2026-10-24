@@ -104,7 +104,8 @@ export const SKIP_REASON: Record<SkippedRow['reason'], string> = {
 	hidden: 'hidden',
 	'repeated-header': 'repeated header',
 	'no-mapped-values': 'values only in ignored columns',
-	footer: 'totals or footer row'
+	footer: 'totals or footer row',
+	'below-table': 'below the table'
 };
 
 export const plural = (n: number, noun: string, many = `${noun}s`) => `${n.toLocaleString()} ${n === 1 ? noun : many}`;
