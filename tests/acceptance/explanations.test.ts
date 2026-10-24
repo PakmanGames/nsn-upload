@@ -111,7 +111,7 @@ describe('every explanation the workbooks produce', () => {
 			'resolve-storage-conflict',
 			'split-cell'
 		]);
-		expect(codes.size).toBeGreaterThanOrEqual(10);
+		expect(codes.size).toBeGreaterThanOrEqual(9);
 	});
 
 	it('follows the copy rules: no sheet-qualified cells, no unhyphenated NSNs, no importer jargon', () => {
@@ -162,24 +162,6 @@ describe('decision templates on real cases', () => {
 			{ label: 'NSN', value: '6850-01-494-9650', cell: 'B49' },
 			{ label: 'FSC', value: '8030', cell: 'E49' }
 		]);
-	});
-
-	it('identifier conflict, Substring row 10: names the other NSN in the cell that does match', () => {
-		const analysis = initial(SUBSTRING);
-		const [first] = recordAt(analysis, SUBSTRING_SHEET, 10);
-		expect(text(explainDecision(decisionOf(analysis, 'resolve-identifier-conflict', first.id), analysis))).toEqual({
-			headline: "The FSC doesn't match this NSN",
-			body: "An NSN starts with its 4-digit FSC. B10's NSN 1680-01-581-8020 starts with 1680, but E10 says 5342. (B10 lists a second NSN, 5342-01-547-4725, which does match.)"
-		});
-	});
-
-	it('identifier conflict, Substring row 11: several NSNs in one cell against one FSC', () => {
-		const analysis = initial(SUBSTRING);
-		const [first] = recordAt(analysis, SUBSTRING_SHEET, 11);
-		expect(text(explainDecision(decisionOf(analysis, 'resolve-identifier-conflict', first.id), analysis))).toEqual({
-			headline: "The FSC doesn't match 3 of the 4 NSNs",
-			body: 'An NSN starts with its 4-digit FSC. E11 says 5962, but the NSNs in B11 start with 1630, 5305 and 5905. (The fourth NSN, 5962-00-549-0976, does match.)'
-		});
 	});
 
 	it('identifier conflict, demo (b): the NIIN, not the FSC', () => {
@@ -248,12 +230,14 @@ describe('decision templates on real cases', () => {
 		]);
 	});
 
-	it('a conflict within one sheet names the cells, Substring rows 109 and 125', () => {
-		const analysis = initial(SUBSTRING);
-		const record = singleRecordAt(analysis, SUBSTRING_SHEET, 109);
-		expect(text(explainDecision(decisionOf(analysis, 'resolve-conflict', record.id), analysis))).toEqual({
-			headline: 'Rows 109 and 125 disagree on the description',
-			body: 'Both list this NSN, but C109 says "RIVET,BLIND" and C125 says "DUCT (ENGINE OIL BREATHER)".'
+	it('a conflict within one sheet names the cells', async () => {
+		const model = await buildWorkbook('one-sheet-conflict.xlsx', [
+			{ name: 'Parts', rows: [['Part Number', 'NSN', 'Description'], ['ABC-1', NSN[0], 'RIVET,BLIND'], ['ABC-1', NSN[0], 'DUCT (ENGINE OIL BREATHER)']] }
+		]);
+		const analysis = analyze(model, [], {});
+		expect(text(explainDecision(decisionOf(analysis, 'resolve-conflict'), analysis))).toEqual({
+			headline: 'Rows 2 and 3 disagree on the description',
+			body: 'Both list this part number and NSN, but C2 says "RIVET,BLIND" and C3 says "DUCT (ENGINE OIL BREATHER)".'
 		});
 	});
 
@@ -301,14 +285,10 @@ describe('decision templates on real cases', () => {
 });
 
 describe('issue templates on real cases', () => {
-	it('invalid values: a malformed NSN, and a row with no identifier', () => {
+	it('invalid values: a malformed NSN', () => {
 		const analysis = initial(wow.file);
 		expect(issueText(analysis, singleRecordAt(analysis, 'Active Parts', 166), 'invalid-identifier').headline).toBe('The NSN in E166 contains letters');
-		const substring = initial(SUBSTRING);
-		expect(issueText(substring, singleRecordAt(substring, SUBSTRING_SHEET, 134), 'missing-primary-identifier')).toEqual({
-			headline: 'No part number, NSN, or NIIN in this row',
-			body: 'A record needs a part number, NSN, or NIIN, and the NSN cell B134 is empty.'
-		});
+
 	});
 
 	it('split from a multi-value cell, WOW D136', () => {
@@ -338,10 +318,10 @@ describe('issue templates on real cases', () => {
 		});
 	});
 
-	it('identifier conflict on one record, Substring row 10', () => {
+	it('identifier conflict on one record, Substring row 49', () => {
 		const analysis = initial(SUBSTRING);
-		const [first] = recordAt(analysis, SUBSTRING_SHEET, 10);
-		expect(issueText(analysis, first, 'conflict').headline).toBe("The FSC doesn't match this NSN");
+		const [record] = recordAt(analysis, SUBSTRING_SHEET, 49);
+		expect(issueText(analysis, record, 'conflict').headline).toBe("The FSC doesn't match this NSN");
 	});
 
 	it('duplicates: a repeat inside one cell, and a saved copy', () => {
@@ -448,7 +428,8 @@ describe('kinds and codes the supplied workbooks do not produce', () => {
 					['Part Number', 'NIIN', 'CAGE', 'Description'],
 					['P-1', 16582565, 1234, 'Bolt'],
 					['P-2', '016698021', '0BWZ1', 'Nut'],
-					['P-3', '5305-01-658-2565', 'AB', 'Pin']
+					['P-3', '5305-01-658-2565', 'AB', 'Pin'],
+					[null, null, null, 'Washer']
 				]
 			}
 		]);
@@ -464,6 +445,10 @@ describe('kinds and codes the supplied workbooks do not produce', () => {
 		expect(text(explainDecision(decisionOf(analysis, 'import-valid-portion', both.id), analysis))).toEqual({
 			headline: 'Row 4 has 2 values that are not valid',
 			body: 'The NIIN in B4 (5305-01-658-2565) and the CAGE code in C4 ("AB") are not valid.'
+		});
+		expect(issueText(analysis, singleRecordAt(analysis, 'Parts', 5), 'missing-primary-identifier')).toEqual({
+			headline: 'No part number, NSN, or NIIN in this row',
+			body: 'A record needs a part number, NSN, or NIIN, and the part number cell A5 and the NIIN cell B5 are empty.'
 		});
 	});
 

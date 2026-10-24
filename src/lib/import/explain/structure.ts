@@ -188,7 +188,7 @@ export function explainColumn(column: ColumnMapping, table: TableCandidate, shee
 	}
 	if (column.alternatives.includes('part') && !named.includes('part')) {
 		const part = evidence?.fields.get('part');
-		const count = part ? `${(part.tally.pass + part.tally.repairedLong).toLocaleString()} of ${part.tally.checked.toLocaleString()} values` : 'Its values';
+		const count = part ? `${part.passed.toLocaleString()} of ${part.tally.checked.toLocaleString()} values` : 'Its values';
 		lines.push(`${count} look like part numbers, but the header doesn't say so.`);
 	}
 	const others = column.alternatives.filter((field) => field !== 'part' && !named.includes(field));
