@@ -3,6 +3,7 @@
 Requirements: [`TASK_SPEC.md`](../TASK_SPEC.md).
 Design note (how it works, for reviewers): [`ARCHITECTURE.md`](ARCHITECTURE.md).
 Agent briefs: [`tasks/`](tasks/).
+Parked questions for the product owner: [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 This file is the working plan: scope, task status, decisions, and the backlog.
 For how the importer works, read ARCHITECTURE.md instead.
@@ -14,13 +15,13 @@ For how the importer works, read ARCHITECTURE.md instead.
 | T0 | Shared contracts, test builders, stubs, dependencies | Merged (#1) |
 | T1 | Reader: SheetJS -> `WorkbookModel` | Merged (#4) |
 | T2 | Field normalizers | Merged (#2) |
-| T3 | Table detection, column mapping, sheet status | Merged (#7); follow-up fix for `PN-`-prefixed part values in progress |
+| T3 | Table detection, column mapping, sheet status | Merged (#7); fix for part values that start with a header word merged (#9) |
 | T4 | Candidate records with provenance | Merged (#3) |
 | T5 | Validation, duplicates, conflicts, decisions | Merged (#6) |
 | T6 | AI boundary, OpenRouter route, verifier, mock | Merged (#5) |
-| T7 | Review window UI | Wave 2 in progress (wiring the real pipeline) |
-| T8 | Acceptance suites, E2E, README | Wave 1 merged (#8); wave 2 in progress |
-| F1 | Two new pending decisions ([brief](tasks/F1-decision-followups.md)) | Not started: F1a contract first, then F1b-F1e in parallel |
+| T7 | Review window UI | PR #11 open: verified in a browser; needs a rebase onto the F1a contract. Then F1d plus UI polish |
+| T8 | Acceptance suites, E2E, README | Wave 1 (#8) and wave 2 (#10) merged; wave 3 (E2E, README) not started |
+| F1 | Two new pending decisions ([brief](tasks/F1-decision-followups.md)) | F1a contract merged (#12); F1b (T4), F1c (T5), F1d (T7), F1e (T8) in progress |
 
 ## Scope (5-hour build)
 
@@ -68,6 +69,8 @@ For how the importer works, read ARCHITECTURE.md instead.
 | D15 | The extras below are deferred to the backlog and described in the design note as future work. | Product owner |
 | D16 | Data stops before a clearly different table's header instead of running to the bottom of the sheet; a table whose best primary column is weak is `needs-review`, not `no-table`, so the user can still fix it. | T3, accepted |
 | D17 | Excel error cells (`#N/A`) are rejected values with an `invalid-identifier` issue, not empty cells. | T2, accepted |
+| D18 | The planning docs (`PLAN.md`, `OPEN-DECISIONS.md`, `tasks/`) stay in the submitted repo next to the design note. | Product owner |
+| D19 | A word containing digits makes a header match weak (`PN-4410` is a value), so a header like `Part Number 2` reaches at most medium confidence. | T3 (#9), accepted |
 
 ## Backlog (future ideas)
 

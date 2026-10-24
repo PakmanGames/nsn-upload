@@ -3,9 +3,10 @@
 This is the design note required by `TASK_SPEC.md` ("Deliverables", item 3).
 It describes what is built, why, and what is not supported.
 
-Status: the import pipeline (reader, detection, normalization, records, validation, AI boundary) is merged and tested.
-Still landing: the review window wiring (T7), two extra pending decisions (F1, see section 4), a fix for part numbers that begin with a header word such as `PN-4410` (T3), and E2E tests (T8).
+Status (2026-10-24): the import pipeline (reader, detection, normalization, records, validation, AI boundary) is merged and tested, and the acceptance suites run in `pnpm test`.
+Still landing: the review window (T7, PR #11, already checked in a browser against all three example files), the behavior behind two extra pending decisions (F1: the contract is merged; records and validation are in progress), and the E2E tests and README (T8).
 Sections that describe unmerged work say so.
+Questions waiting on a product decision are in [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## In one minute
 
@@ -41,7 +42,8 @@ A record needs at least one of part, NSN, or NIIN. One part can legitimately hav
   -> structure   analyzeStructure()   find each sheet's table, header row, column mapping, sheet status
   -> records     buildRecords()       one candidate record per data row: normalize, split, derive, provenance
   -> validate    finalizeAnalysis()   duplicates, conflicts, automatic and pending decisions, summary
-  -> review window (user checks, corrects, accepts) -> import into browser storage
+  -> review window (user checks, corrects, accepts)
+  -> toImportPlan()                   add new records; replace saved ones the user chose to overwrite (browser storage)
 
   ai  (optional)  sampled sheet -> /api/interpret -> OpenRouter -> verify -> proposed tables
 ```
@@ -97,6 +99,7 @@ These are also the regression fixtures; the numbers below are asserted by `tests
 Matching is token-based after normalizing case, punctuation, whitespace, and line breaks, so vendor prefixes still match (`PENCOM Part Number`, `G & B P/N`, `Part\nNumber`).
 Modifier words make a match **weak**: `found`, `status`, `date`, `url`, `notes`, `equivalent`, `family`, `matchability`, `do not modify`, `checksum`, `id`, and similar. That is why `NSN Found` and `(Do Not Modify) Part` do not count as strong headers.
 A label longer than 5 words or 40 characters reads as a sentence, not a header.
+A word containing digits also makes a match weak, because it marks a value rather than a label: a part number such as `PN-4410` starts with the header word `pn` and must not be mistaken for a repeated header. As a side effect, a header such as `Part Number 2` is weak, so its column reaches at most medium confidence.
 
 **Table extent.** Data runs from the row below the header down the used area. Inside it, these rows are skipped and listed with a reason: blank rows, hidden rows, repeated header rows (most mapped columns repeat the header text or name the same field), and rows with values only in unmapped columns (PENCOM's template rows 5-7).
 Data stops early only before a clearly different table's header, so a stacked second table is not read through the first table's mapping.
@@ -203,15 +206,19 @@ Issues cite fully qualified cells (`Active Parts!E134`), and the review window s
 
 ## 6. Review window
 
-Status: specified in `docs/tasks/T7-ui.md`, being wired to the real pipeline (T7).
+Status: built (T7, PR #11) and checked in a browser against all three example files; merging after a rebase onto the F1a contract.
 
-- Upload by drag and drop or file picker, with progress states (reading, analyzing) and specific errors (file too large, not `.xlsx`, password-protected, corrupt).
-- Sheets panel: every sheet with its status badge and reasons, and an include toggle per table.
-- Table panel: the detected range and header row, and one mapping control per column with its confidence, evidence, and alternatives.
-- Preview: filter by status (valid, warnings, invalid, duplicates, conflicts, split, pending), search across values and cell references, pagination.
-- Provenance drawer per row; derived values and split rows are labeled.
-- Decisions panel: "Needs you" with the suggested option preselected, "Applied automatically" with undo, and "Accept all suggestions".
-- Import adds only approved records to browser storage and returns to the mappings table.
+Smart Upload opens a full-screen window. The file is read once; every change re-runs the analysis on the kept workbook.
+
+- **Upload:** drag and drop or file picker, `.xlsx` only, with "Reading" and "Analyzing" states and specific errors (file too large, not `.xlsx`, password-protected, corrupt, over a limit).
+- **Header:** file name, sheet and table counts, summary chips (candidates, valid, warnings, invalid, duplicates, conflicts, split, pending decisions; clicking a chip filters the preview), and an import button that always says how many records will import and how many need review, for example "Import 0 records (7 need review)".
+- **Sheets panel:** every sheet with its status badge (Ready, Needs review, No importable table, Hidden - ignored), record count and range, an include switch per table, and "Why this classification" with the reasons.
+- **AI assistance panel:** the opt-in switch, a plain description of what would be sent, and the outcome ("Every sheet was read without help; nothing would be sent").
+- **Column mapping panel:** the table range, header row, data-row and skipped-row counts, the table's reasons, and one row per column with its header, evidence ("127 of 129 values are valid NSNs"), a field picker that includes "Ignore column", and the confidence. Hidden metadata columns show as "Not imported" with the reason.
+- **Preview:** status tabs (all, valid, warnings, invalid, duplicates, conflicts, split, pending), a sheet filter, search across values and cell references, and 100 rows per page. Derived values say "derived from E2"; split rows say "1 of 2 from D136".
+- **Provenance drawer:** for each field, the cell, original text, normalized value, transformations, and origin; rejected values with their issue; and the row's decisions.
+- **Decisions panel:** "Needs you" (pending, the suggested option preselected, plus "Accept all suggestions"), "Your choices" (revertible), and "Applied automatically" (grouped by kind, each with undo). Cross-sheet conflicts are shown side by side with the differing fields highlighted.
+- **Import:** adds only approved records to browser storage, confirms the result ("54 records added to your NSN table"), and returns to the mappings table.
 
 ## 7. AI fallback boundary
 
@@ -223,6 +230,7 @@ Status: specified in `docs/tasks/T7-ui.md`, being wired to the real pipeline (T7
 The request uses a strict JSON schema (`response_format: json_schema`, `strict: true`) and only routes to providers that support it (`require_parameters: true`).
 The default model is `anthropic/claude-opus-5.5`, overridable with `OPENROUTER_MODEL`. The reply is validated with Zod on the server and again in the browser.
 Without a key, the route reports "unavailable" and the toggle is disabled with that reason; everything else works.
+Known issue, being fixed: the review window asks the route whether AI is available as soon as it opens. That request carries no workbook data, but it will move to when the user turns AI on, so nothing at all is sent before then.
 
 **What comes back.** Structure only: sheet name, A1 range, header row numbers, and for each mapped field its column number and the header text the model read, plus a confidence and short reasons. No cell values, so the model cannot invent identifiers.
 
@@ -250,8 +258,9 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 ## 8. Performance and safety
 
 - SheetJS is loaded with a dynamic import when the first file is read, so it is not in the initial page bundle.
-- Detection is linear in rows and columns; duplicates are grouped through hash keys. During development a synthetic sheet of 100,000 rows x 10 columns analyzed in about 1.5 seconds (measured by hand; there is no automated performance test).
-- Analysis runs on the main thread with visible progress states; moving it to a Web Worker is in the backlog (the pipeline is pure, so the move is mechanical).
+- Detection is linear in rows and columns; duplicates are grouped through hash keys.
+- Measured end to end (`readWorkbook` + `analyze`, Node, synthetic 8-column sheets): 10,000 rows in 0.3 s; 50,000 rows (5.5 MB) in 1.4 s, of which 0.8 s is analysis. There is no automated performance test.
+- Analysis runs on the main thread. The window shows "Reading" and "Analyzing" states, but the page is blocked while they run, and every remap re-runs the analysis (0.8 s at 50,000 rows). Moving it to a Web Worker is open decision OD1; the pipeline is pure, so the move is mechanical.
 - Limits, each with a specific error: 20 MB file, 50 sheets, 100,000 rows per sheet, 2,000,000 cells.
 - Files are checked by signature before parsing: random bytes are "corrupt", and an encrypted workbook is reported as password-protected.
 - Only `.xlsx` is accepted. Formulas are never evaluated, macros and external links are never run, and cell text is always rendered as text.
@@ -260,7 +269,7 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 ## 9. Testing
 
 - Unit tests per module (about 420): reader against the 3 real files and synthetic workbooks; normalizers table-driven over every rule above; structure on hand-built sheet shapes and the real files; records, validation, and the AI request builder, verifier, and route.
-- Acceptance suites in `tests/acceptance/` (68 tests): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
+- Acceptance suites in `tests/acceptance/` (68 tests, part of `pnpm test`; 488 tests in total on `main`): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
 - Every expected number for the example files was checked independently against the raw workbooks.
 - Playwright E2E tests per example file (T8, landing) drive the real review window with `AI_PROVIDER=mock`.
 
@@ -277,7 +286,10 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 ## 11. Tradeoffs and unsupported cases
 
 - **One table per sheet.** A second, different table on the same sheet is mentioned in the sheet's reasons but not imported.
-- **Two-row headers are not detected.** The scoring code can join two header rows (an AI proposal or future detection can use it), but detection only proposes single-row headers.
+- **Two-row headers are not detected.** The scoring code can join two header rows (an AI proposal or future detection can use it), but detection only proposes single-row headers (OD3).
+- **Large workbooks block the page** while they are read and analyzed (section 8, OD1).
+- **Derived values are not labeled after import.** The review window labels them; the mappings table does not yet (OD2).
+- **A hidden sheet cannot be included on request** (OD4).
 - **No fill-down of blank cells.** Only explicit merges are filled; a part number written once above several blank rows is not copied down, because that layout is a guess.
 - **Footer or totals rows** that put text in the part column can become candidate records; they carry a plausibility warning.
 - **ISO date cells** (`t="d"`, which Excel does not write in `.xlsx`) are read as numbers.
@@ -289,7 +301,7 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 
 ## 12. Future ideas
 
-Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and owner.
+Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and owner, and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md) for the items waiting on a decision.
 
 - Detect two-row headers (the scoring side already supports them).
 - Reject zip bombs by checking the uncompressed size before parsing.
@@ -322,7 +334,7 @@ Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and ow
 | Duplicates use normalized values; one part, many NSNs is fine | Identity key; per-NSN records | `validate/index.test.ts`, acceptance (Statz) |
 | Cross-sheet duplicates: prefer neither silently, show cells, choose/merge/exclude | Auto-merge compatible; pending conflict otherwise | `validate/index.test.ts`, acceptance (PENCOM) |
 | Provenance for every value | `Provenance` on every field value | `records/table.test.ts`, unseen provenance check |
-| Preview, filters, search, import approved only, recompute without rereading | Review window; `analyze()` re-run with overrides | Review window (T7), E2E (T8) |
+| Preview, filters, search, import approved only, recompute without rereading | Review window; `analyze()` re-run with overrides | `components/import/session.test.ts` (PR #11), E2E (T8) |
 | AI: bounded input, structured output, verified, never invents identifiers, opt-in, no hidden content, works without a key, behind an interface | Section 7 | `ai/request.test.ts`, `ai/verify.test.ts`, `routes/api/interpret/server.test.ts` |
 | Lazy parser, linear scans, limits, no network, no formula execution | Section 8 | `reader/reader.test.ts` (limits, file signatures); performance measured by hand |
 | At least one integration test on a real `.xlsx` | All three fixtures end to end | `tests/acceptance/fixtures.test.ts` |
