@@ -155,6 +155,18 @@ describe('header variants', () => {
 		expect(mapping(sheet.tables[0])).toEqual({ A: 'part', B: 'nsn' });
 	});
 
+	it('maps a part column whose values start with header vocabulary (PN-4410)', () => {
+		const values = ['PN-4410', 'PN-4411', 'PN-4412'];
+		const [pair] = analyzeSheets(['Parts', [['Part Number', 'NSN'], ...values.map((v, i) => [v, `5305-01-658-${2565 + i}`])]]);
+		expect(mapping(pair.tables[0])).toEqual({ A: 'part', B: 'nsn' });
+		expect(pair.tables[0].dataRows).toEqual([2, 3, 4]);
+
+		// With part as the only mapped column, the values must not read as repeated headers either.
+		const [single] = analyzeSheets(['Parts', [['Part Number'], ...values.map((v) => [v])]]);
+		expect(single.status).toBe('ready');
+		expect(single.tables[0]).toMatchObject({ headerRows: [1], dataRows: [2, 3, 4], skippedRows: [] });
+	});
+
 	it('maps none of the header traps to NSN or CAGE', () => {
 		const [sheet] = analyzeSheets([
 			'Traps',

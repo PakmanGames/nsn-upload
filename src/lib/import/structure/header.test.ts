@@ -63,6 +63,16 @@ describe('matchHeader', () => {
 		expect(fieldsOf('Vendor P/N', 'strong')).toEqual(['part']);
 	});
 
+	it.each([
+		['PN-4410', 'part', 'PN-4410'],
+		['NSN 5305-01-658-2565', 'nsn', '5305-01-658-2565'],
+		['Part Number 2', 'part', '2']
+	])('treats %j as a value, so only a weak %s match', (text, field, word) => {
+		expect(matchHeader(text)).toEqual([
+			{ field, strength: 'weak', weakBecause: `contains '${word}', which looks like a value, not a label` }
+		]);
+	});
+
 	it('treats a sentence that mentions a field as weak', () => {
 		const [match] = matchHeader('Fast public discovery of NSN and supplier associations');
 		expect(match).toMatchObject({ field: 'nsn', strength: 'weak', weakBecause: 'reads like a sentence, not a column label' });
