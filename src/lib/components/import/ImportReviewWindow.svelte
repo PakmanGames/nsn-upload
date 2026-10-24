@@ -31,10 +31,12 @@
 	import SheetsPanel from './SheetsPanel.svelte';
 	import SheetView from './sheet-view/SheetView.svelte';
 	import SplitDivider from './sheet-view/SplitDivider.svelte';
+	import Switch from './Switch.svelte';
 	import { CHIP_STYLE, FIELD_LABEL, plural, recordLabel, type RecordFilter } from './labels';
 	import { skippedGroups } from './skipped';
 	import {
 		activeRecords,
+		aiActivity,
 		aiOpenByDefault,
 		aiSummary,
 		columnsOpenByDefault,
@@ -179,6 +181,9 @@
 	const triggeredSheets = $derived(
 		analysis?.sheets.filter((sheet) => sheet.aiTrigger && sheet.status !== 'hidden').map((sheet) => sheet.name) ?? []
 	);
+	/** Sheets the AI is reading right now; their counts change when it answers. */
+	const aiReading = $derived(new Set(session.aiRun?.status === 'running' ? session.aiRun.sheets : []));
+	const aiNote = $derived(aiActivity(session.aiRun));
 	const sectionDefaults = $derived<Record<SectionId, boolean>>({
 		// With no table anywhere, Sheets is where the user can set one up by hand.
 		sheets: analysis ? analysis.sheets.every((sheet) => sheet.tables.length === 0) : false,
@@ -393,9 +398,27 @@
 					{@const nothing = nothingToImport(analysis, session.model, !session.aiEnabled && session.aiAvailability?.available !== false)}
 					<div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
 						<div class="min-w-0">
-							<p id="import-summary" class="text-sm text-slate-700">
-								{`${parts.sheets} · ${parts.rows} · `}<span class={['font-semibold', parts.done ? 'text-emerald-700' : 'text-slate-950']}>{parts.needs}</span>
-							</p>
+							<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+								<p id="import-summary" class="text-sm text-slate-700">
+									{`${parts.sheets} · ${parts.rows} · `}<span class={['font-semibold', parts.done ? 'text-emerald-700' : 'text-slate-950']}>{parts.needs}</span>
+								</p>
+								<!-- Always rendered, so screen readers hear the AI start and finish. Flex, so the pill alone sets
+								     the height and the line does not grow when it appears. -->
+								<p class="flex" role="status">
+									{#if aiNote}
+										<span class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20">
+											{#if aiReading.size}
+												<LoaderCircle size={12} class="animate-spin" />
+											{:else if session.aiRun?.status === 'error'}
+												<CircleAlert size={12} />
+											{:else}
+												<Sparkles size={12} />
+											{/if}
+											{aiNote}
+										</span>
+									{/if}
+								</p>
+							</div>
 							{#if nothing}
 								<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
 									<p class="flex items-start gap-1.5 text-amber-900">
@@ -580,6 +603,7 @@
 									model={session.model}
 									explanations={session.explanations}
 									bind:settingUp
+									{aiReading}
 									onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
 									onSetManualTable={(sheet, spec) => session.setManualTable(sheet, spec)}
 									onRemoveManualTable={(sheet) => session.removeManualTable(sheet)}
@@ -714,8 +738,34 @@
 								</li>
 								<li class="flex gap-2">
 									<CircleCheckBig class="mt-0.5 shrink-0 text-emerald-600" size={16} />
-									<span>You review mappings, duplicates, and conflicts before anything is saved. Nothing leaves this browser.</span>
+									<span>
+										You review mappings, duplicates, and conflicts before anything is saved.
+										{#if session.aiAvailability?.available === false}Nothing leaves this browser.{/if}
+									</span>
 								</li>
+								<!-- AI is on by default (D23), so it can be turned off here, before the first file is sent. -->
+								{#if session.aiAvailability?.available !== false}
+									<li class="flex gap-2">
+										<Sparkles class="mt-0.5 shrink-0 text-violet-600" size={16} />
+										<div class="flex min-w-0 flex-1 items-start justify-between gap-3">
+											<span id="upload-ai-description">
+												{#if session.aiEnabled}
+													AI assistance is on: sheets the importer cannot read are sent to its AI provider as sampled cells. Turn
+													it off to keep everything in this browser.
+												{:else}
+													AI assistance is off, so nothing leaves this browser.
+												{/if}
+											</span>
+											<Switch
+												checked={session.aiEnabled}
+												label="AI assistance"
+												describedby="upload-ai-description"
+												disabled={session.busy}
+												onchange={(enabled) => void session.setAiEnabled(enabled)}
+											/>
+										</div>
+									</li>
+								{/if}
 							</ul>
 						</div>
 

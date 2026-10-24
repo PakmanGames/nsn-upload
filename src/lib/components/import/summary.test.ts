@@ -5,8 +5,11 @@ import { analyze } from '$lib/import/analyze';
 import type { Decision, Overrides, SheetAnalysis, SheetStatus, StoredMapping, WorkbookAnalysis, WorkbookModel } from '$lib/import/model';
 import { readWorkbook } from '$lib/import/reader';
 import { makeSheet, makeWorkbook } from '$lib/import/testing';
+import type { AiRun } from '$lib/import/session.svelte';
 import { buildMockAnalysis } from './mock-analysis';
 import {
+	aiActivity,
+	aiSummary,
 	columnsOpenByDefault,
 	columnsSummary,
 	decisionHeading,
@@ -329,5 +332,45 @@ describe('R3 decision headings', () => {
 		const across = pencom.decisions.find((d) => d.kind === 'resolve-conflict')!;
 		const pencomRecords = new Map(pencom.records.map((record) => [record.id, record]));
 		expect(decisionHeading(across, pencomRecords, pencom.sheets).kind).toBe('Same part on two sheets');
+	});
+});
+
+describe('AI assistance lines', () => {
+	const table = buildMockAnalysis().sheets.flatMap((sheet) => sheet.tables)[0];
+	const run = (status: AiRun['status'], tables = 0, rejected = 0): AiRun => ({
+		status,
+		sheets: ['Search Log'],
+		result:
+			status === 'done'
+				? { tables: Array(tables).fill(table), rejected: Array(rejected).fill({ sheetName: 'Search Log', range: 'A1:B2', reason: 'x' }) }
+				: null,
+		error: status === 'error' ? 'Could not reach the AI provider' : null
+	});
+	const on = { enabled: true, availability: { available: true }, triggered: [] };
+
+	it('says what is sent and to whom while AI is on, and what it did once it ran', () => {
+		expect(aiSummary({ ...on, run: null })).toBe('On · sheets the importer cannot read are sent to the AI provider as sampled cells');
+		expect(aiSummary({ ...on, availability: null, run: null })).toBe('On · checking the AI service…');
+		expect(aiSummary({ ...on, run: run('running') })).toBe('On · reading Search Log…');
+		expect(aiSummary({ ...on, run: run('done', 1, 1) })).toBe('On · sent Search Log; accepted 1 table, rejected 1');
+		expect(aiSummary({ ...on, run: run('error') })).toBe('On · the AI request failed');
+	});
+
+	it('says why it is off: the user turned it off, or the server has no AI', () => {
+		const off = { enabled: false, availability: null, run: null };
+		expect(aiSummary({ ...off, triggered: ['Search Log'] })).toBe('Off · could help with Search Log');
+		expect(aiSummary({ ...off, triggered: [] })).toBe('Off · every sheet was read without help');
+		expect(aiSummary({ ...off, availability: { available: false, reason: 'No key' }, triggered: ['Search Log'] })).toBe('Unavailable · No key');
+	});
+
+	it('announces in the summary bar while AI reads a sheet, and what it found once done', () => {
+		expect(aiActivity(null)).toBeNull();
+		expect(aiActivity(run('running'))).toBe('AI is reading Search Log…');
+		expect(aiActivity({ ...run('running'), sheets: ['Stock', 'Notes'] })).toBe('AI is reading Stock and Notes…');
+		expect(aiActivity(run('done', 1))).toBe('AI read Search Log: found 1 table');
+		expect(aiActivity(run('done', 0, 1))).toBe('AI read Search Log: no table found');
+		expect(aiActivity(run('error'))).toBe('AI could not read Search Log');
+		// Sampling left nothing to send, so nothing was read.
+		expect(aiActivity({ ...run('done'), sheets: [] })).toBeNull();
 	});
 });

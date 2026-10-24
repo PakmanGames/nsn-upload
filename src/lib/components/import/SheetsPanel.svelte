@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import TableProperties from '@lucide/svelte/icons/table-properties';
 	import Undo2 from '@lucide/svelte/icons/undo-2';
@@ -22,6 +23,8 @@
 		model: WorkbookModel | null;
 		/** Wording of each decision by id; a table's include decision says why it is ready or needs review. */
 		explanations: Map<string, Explanation>;
+		/** Names of the sheets the AI is reading right now. */
+		aiReading: Set<string>;
 		onInclude: (decisionId: string, include: boolean) => void;
 		onSetManualTable: (sheet: string, spec: TableSpec) => void;
 		onRemoveManualTable: (sheet: string) => void;
@@ -33,6 +36,7 @@
 		sheets,
 		decisions,
 		recordCounts,
+		aiReading,
 		model,
 		explanations,
 		onInclude,
@@ -143,6 +147,10 @@
 			{/if}
 		</p>
 		<div class="flex items-center gap-2">
+			<!-- The AI reads the whole sheet, so a sheet of several tables says so once, on its heading. -->
+			{#if !several && aiReading.has(sheet.name)}
+				{@render reading()}
+			{/if}
 			{#if table.source === 'ai'}
 				<span
 					class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"
@@ -207,13 +215,21 @@
 	</div>
 {/snippet}
 
+{#snippet reading()}
+	<span class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20">
+		<LoaderCircle size={11} class="animate-spin" /> AI is reading…
+	</span>
+{/snippet}
+
 {#snippet fold(label: string, list: SheetAnalysis[], open = false)}
 	<details class="group/fold" {open}>
 		<summary
-			class="flex cursor-pointer list-none items-center gap-1.5 rounded py-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
+			class="flex cursor-pointer list-none flex-wrap items-center gap-1.5 rounded py-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
 		>
 			<ChevronRight size={14} class="transition group-open/fold:rotate-90" />
 			{label}
+			<!-- A folded sheet the AI is reading still says so while the fold is closed. -->
+			{#if list.some((sheet) => aiReading.has(sheet.name))}{@render reading()}{/if}
 		</summary>
 		<ul class="ml-5 divide-y divide-slate-100">
 			{#each list as sheet (sheet.name)}
@@ -221,6 +237,7 @@
 				<li class="py-2">
 					<div class="flex flex-wrap items-center gap-2">
 						<span class="text-sm font-medium text-slate-700">{sheet.name}</span>
+						{#if aiReading.has(sheet.name)}{@render reading()}{/if}
 						{@render badge(sheet.status)}
 					</div>
 					<p class="mt-1 text-xs font-medium leading-5 text-slate-700">{plain.headline}</p>
@@ -246,6 +263,7 @@
 					<p class="text-sm">
 						<span class="font-medium text-slate-900">{sheet.name}</span>
 						<span class="text-slate-500">{`· ${plural(sheet.tables.length, 'table')}`}</span>
+						{#if aiReading.has(sheet.name)}{@render reading()}{/if}
 					</p>
 					<ul class="mt-2 space-y-3 border-l-2 border-slate-100 pl-3">
 						{#each sheet.tables as table, index (table.id)}

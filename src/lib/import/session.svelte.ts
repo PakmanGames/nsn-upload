@@ -107,7 +107,8 @@ export type ExplainRun = {
 	sent: number;
 };
 
-const aiPreferenceKey = 'nsn-upload-interview-task:ai-assistance';
+/** This browser's AI choice: 'on' or 'off' once the user used the switch, absent until then. */
+export const aiPreferenceKey = 'nsn-upload-interview-task:ai-assistance';
 
 /** The overrides without the column choices stored for one table. */
 function withoutColumns(overrides: Overrides, id: string): Overrides {
@@ -139,8 +140,9 @@ export class ImportSession {
 	 */
 	decisionGroups = $state.raw<DecisionGroup[]>([]);
 
+	/** On by default once initAi() runs, unless this browser saved "off" (D23). */
 	aiEnabled = $state(false);
-	/** Null until checked, and it is only checked once the user has AI assistance on. */
+	/** Null until checked, and it is only checked while AI assistance is on. */
 	aiAvailability = $state.raw<AiAvailability | null>(null);
 	aiRun = $state.raw<AiRun | null>(null);
 	explainRun = $state.raw<ExplainRun | null>(null);
@@ -198,11 +200,14 @@ export class ImportSession {
 		this.#engine = engine;
 	}
 
-	/** Restores the saved AI preference once. Browser only, and no request unless the preference is on. */
+	/**
+	 * Turns AI assistance on unless this browser saved "off" (D23), once, in the browser only.
+	 * The default is not saved, so the preference only ever holds the user's own choice; a saved "off" sends nothing.
+	 */
 	initAi() {
 		if (!browser || this.#aiRestored) return;
 		this.#aiRestored = true;
-		if (localStorage.getItem(aiPreferenceKey) === 'on') void this.setAiEnabled(true);
+		if (localStorage.getItem(aiPreferenceKey) !== 'off') void this.#switchAi(true);
 	}
 
 	async load(file: File, existing: StoredMapping[]) {
@@ -327,14 +332,27 @@ export class ImportSession {
 		this.#apply({ ...this.overrides, decisions });
 	}
 
+	/** The switch: remembers the choice in this browser, then turns AI assistance on or off. */
 	async setAiEnabled(enabled: boolean) {
-		this.aiEnabled = enabled;
 		if (browser) localStorage.setItem(aiPreferenceKey, enabled ? 'on' : 'off');
+		await this.#switchAi(enabled);
+	}
+
+	/** Sends the waiting sheets again after a failed AI request. */
+	retryAi() {
+		if (this.aiRun?.status !== 'error') return;
+		this.aiRun = null;
+		void this.#interpretIfNeeded();
+	}
+
+	async #switchAi(enabled: boolean) {
+		this.aiEnabled = enabled;
 		if (enabled) {
-			// The availability check is a request too, so it waits until the user turns AI on (no transmission before).
+			// The availability check is a request too, so a browser that turned AI off never makes it.
 			this.#aiChecked ??= this.#engine.aiAvailability();
 			this.aiAvailability = await this.#aiChecked;
-			// Unavailable: the switch goes back off and shows the reason; the saved preference stays as the user set it.
+			// Unavailable: the switch shows off with the reason. The saved preference is left alone,
+			// so the same browser gets AI again once the server has a key.
 			if (!this.aiAvailability.available) this.aiEnabled = false;
 			else {
 				// A request that failed earlier gets one more try now that the user turned AI on again.
@@ -439,7 +457,7 @@ export class ImportSession {
 		}
 	}
 
-	/** Sends sheets with an aiTrigger once per file, and only while the user has AI assistance on. */
+	/** Sends sheets with an aiTrigger once per file, and only while AI assistance is on. */
 	async #interpretIfNeeded() {
 		const { model, analysis } = this;
 		if (!this.aiEnabled || !this.aiAvailability?.available || !model || !analysis || this.aiRun) return;
