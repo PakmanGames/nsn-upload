@@ -186,6 +186,54 @@ async function stockExport(): Promise<Buffer> {
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+/** A visible parts sheet and a hidden one holding 3 more parts (D26). */
+async function withHiddenArchive(): Promise<Buffer> {
+	const workbook = new ExcelJS.Workbook();
+	workbook.addWorksheet('Parts').addRows([
+		['Part Number', 'NSN', 'Description'],
+		['LIV-1', '5305-01-658-2565', 'Screw, machine'],
+		['LIV-2', '5305-01-669-8021', 'Screw, assembly']
+	]);
+	workbook.addWorksheet('Archive', { state: 'hidden' }).addRows([
+		['Part Number', 'NSN', 'Description'],
+		['ARC-1', '5340-01-102-4535', 'Bracket'],
+		['ARC-2', '3020-01-660-9619', 'Sprocket'],
+		['ARC-3', '2530-00-967-3346', 'Hub']
+	]);
+	return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+test('"Include anyway" brings a hidden sheet in, held back until its suggestion is accepted', async ({ page }) => {
+	const requests = recordAiRequests(page);
+	const dialog = await upload(page, { name: 'with-archive.xlsx', mimeType: XLSX_TYPE, buffer: await withHiddenArchive() });
+	await expect(await sheetCard(dialog, 'Archive')).toContainText(BADGE.hidden);
+	await expectSummary(dialog, { pendingDecisions: 0, toImport: 2 });
+
+	await (await sheetCard(dialog, 'Archive')).getByRole('button', { name: 'Include Archive anyway' }).click();
+	const archive = await sheetCard(dialog, 'Archive');
+	await expect(archive).toContainText('3 records');
+	await expect(archive).toContainText('hidden in Excel');
+	await expect(archive.getByRole('switch', { name: 'Include Archive' })).not.toBeChecked();
+	await expectSummary(dialog, { pendingDecisions: 1, toImport: 2 });
+	await expect(dialog.getByRole('region', { name: /^Needs your decision/ })).toContainText(
+		'This sheet is hidden in Excel; you asked to include it.'
+	);
+
+	await dialog.getByRole('button', { name: 'Accept all suggestions' }).click();
+	await expectSummary(dialog, { pendingDecisions: 0, toImport: 5 });
+
+	// "Hide again" takes the sheet back out, and the count follows.
+	await archive.getByRole('button', { name: 'Hide Archive again' }).click();
+	await expect(await sheetCard(dialog, 'Archive')).toContainText(BADGE.hidden);
+	await expectSummary(dialog, { toImport: 2 });
+	await (await sheetCard(dialog, 'Archive')).getByRole('button', { name: 'Include Archive anyway' }).click();
+	await expectSummary(dialog, { toImport: 5 });
+
+	await importButton(dialog, 5).click();
+	await expect(dialog.getByRole('heading', { name: '5 records added to your NSN table' })).toBeVisible();
+	expect(requests, 'hidden sheets never go to the AI').toEqual([]);
+});
+
 test('AI assistance turned off sends nothing; turned on, it shows the mock proposal with an AI badge', async ({ page }) => {
 	await turnAiOff(page);
 	const requests = recordAiRequests(page);

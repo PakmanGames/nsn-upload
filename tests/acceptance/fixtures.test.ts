@@ -244,6 +244,16 @@ describe('fixture acceptance', () => {
 			expect(add).toHaveLength(analysis.summary.toImport);
 			for (const input of add) expect(input.derived, input.part).toEqual(input.nsn ? ['niin'] : undefined);
 		});
+
+		it('analyzes hiddenSheet when included anyway, without touching Active Parts (D26)', () => {
+			const included = analyze(model, [], { includedHiddenSheets: ['hiddenSheet'] });
+			const hidden = included.sheets.find((sheet) => sheet.name === 'hiddenSheet')!;
+			expect(hidden.status).not.toBe('hidden');
+			expect(hidden.aiTrigger).toBeNull();
+			expect(included.records.filter((record) => record.sheet === SHEET)).toHaveLength(wow.sheets[0].table!.records);
+			expectTraceable(model, included);
+			expectSummaryConsistent(included);
+		});
 	});
 
 	describe(statz.file, () => {
