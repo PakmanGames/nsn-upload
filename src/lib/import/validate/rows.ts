@@ -31,7 +31,11 @@ import {
 	type TableState
 } from './entry';
 
-/** Ready tables are included automatically; needs-review tables wait for the user, suggested exclude. */
+/**
+ * Ready tables are included automatically. Needs-review tables wait for the user, suggested exclude (D5),
+ * except a table without a header row whose values identify it: that one is suggested include.
+ * A table the user set up by hand is included without a decision, because the user just chose it.
+ */
 export function decideTables(
 	log: DecisionLog,
 	sheets: SheetAnalysis[],
@@ -40,16 +44,21 @@ export function decideTables(
 	const states = new Map<string, TableState>();
 	for (const sheet of sheets) {
 		for (const table of sheet.tables) {
+			if (table.source === 'user') {
+				states.set(table.id, 'included');
+				continue;
+			}
 			const ready = table.status === 'ready';
+			const byValues = !ready && valuesIdentify(table);
 			const { chosen } = log.decide({
 				kind: 'include-table',
 				subject: table.id,
 				tableId: table.id,
 				recordIds: recordIds.get(table.id) ?? [],
 				cells: [],
-				suggested: ready ? 'include' : 'exclude',
+				suggested: ready || byValues ? 'include' : 'exclude',
 				auto: ready,
-				reason: tableReason(table),
+				reason: byValues ? valuesReason(table) : tableReason(table),
 				at: [sheet.index, table.range.top]
 			});
 			states.set(
@@ -63,14 +72,54 @@ export function decideTables(
 
 const CONFIDENCE_RANK: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
 
+/** The pass rate a column needs to be mapped by its values alone (structure/columns.ts). */
+const VALUES_DECIDE_RATE = 0.95;
+
+const VALUE_NOUN: Partial<Record<Field, [one: string, many: string]>> = {
+	part: ['a plausible part number', 'plausible part numbers'],
+	nsn: ['a valid NSN', 'valid NSNs'],
+	niin: ['a valid NIIN', 'valid NIINs']
+};
+
+function primaryColumns(table: TableCandidate): Array<ColumnMapping & { field: Field }> {
+	return table.columns.filter(
+		(column): column is ColumnMapping & { field: Field } =>
+			column.field !== null && PRIMARY_FIELDS.includes(column.field)
+	);
+}
+
+/**
+ * A table without a header row was found by its values alone, so values that pass are all the evidence
+ * there can be: it is held back like any needs-review table, but including it is the likely answer.
+ */
+function valuesIdentify(table: TableCandidate): boolean {
+	const primary = primaryColumns(table);
+	return (
+		table.headerRows.length === 0 &&
+		primary.length > 0 &&
+		primary.every((column) => (column.valuePassRate ?? 0) >= VALUES_DECIDE_RATE)
+	);
+}
+
+/** E.g. "Table on Sheet1 (A1:A99) has no header row, but every value in column A is a valid NSN, ...". */
+function valuesReason(table: TableCandidate): string {
+	const kind = table.source === 'ai' ? 'AI-proposed table' : 'Table';
+	const evidence = primaryColumns(table).map(({ col, field, valuePassRate }) => {
+		const [one, many] = VALUE_NOUN[field]!;
+		return valuePassRate === 1
+			? `every value in column ${colLetter(col)} is ${one}`
+			: `${Math.floor(valuePassRate! * 100)}% of the values in column ${colLetter(col)} are ${many}`;
+	});
+	return `${kind} on ${table.sheet} (${rangeToA1(table.range)}) has no header row, but ${joinList(
+		evidence
+	)}, so including it is suggested.`;
+}
+
 /** One line: the mapping panel already shows the full evidence for every column. */
 function tableReason(table: TableCandidate): string {
 	const kind = table.source === 'ai' ? 'AI-proposed table' : 'Table';
 	const what = `${kind} on ${table.sheet} (${rangeToA1(table.range)})`;
-	const primary = table.columns.filter(
-		(column): column is ColumnMapping & { field: Field } =>
-			column.field !== null && PRIMARY_FIELDS.includes(column.field)
-	);
+	const primary = primaryColumns(table);
 	if (primary.length === 0) return `${what} has no primary column mapped.`;
 	// Strict comparison keeps the leftmost column on a tie.
 	const weakest = primary.reduce((a, b) =>

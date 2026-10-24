@@ -9,6 +9,7 @@
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Rows3 from '@lucide/svelte/icons/rows-3';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import TableProperties from '@lucide/svelte/icons/table-properties';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Upload from '@lucide/svelte/icons/upload';
 	import WandSparkles from '@lucide/svelte/icons/wand-sparkles';
@@ -36,12 +37,14 @@
 		columnsSummary,
 		heldBackGroups,
 		heldBackTables,
+		nothingToImport,
 		rowsSummary,
 		rowsTitle,
 		sheetsSummary,
 		statusChips,
 		summaryParts,
-		worthALook
+		worthALook,
+		type NextStep
 	} from './summary';
 
 	type Props = {
@@ -70,6 +73,8 @@
 	let sectionOpen = $state<Partial<Record<SectionId, boolean>>>({});
 	/** Decisions that needed the user at some point; once chosen they stay with the decision stage, not "Applied automatically". */
 	const seenPending = new SvelteSet<string>();
+	/** The sheet whose table is being set up by hand, shared with Sheets so the summary can open the setup. */
+	let settingUp = $state<string | null>(null);
 	let isDragActive = $state(false);
 	let fileInput = $state<HTMLInputElement>();
 	let drawerOpener: HTMLElement | null = null;
@@ -121,7 +126,8 @@
 		analysis?.sheets.filter((sheet) => sheet.aiTrigger && sheet.status !== 'hidden').map((sheet) => sheet.name) ?? []
 	);
 	const sectionDefaults = $derived<Record<SectionId, boolean>>({
-		sheets: false,
+		// With no table anywhere, Sheets is where the user can set one up by hand.
+		sheets: analysis ? analysis.sheets.every((sheet) => sheet.tables.length === 0) : false,
 		columns: analysis ? columnsOpenByDefault(analysis) : false,
 		rows: false,
 		auto: false,
@@ -150,6 +156,7 @@
 		drawerRecordId = null;
 		remapNotices = {};
 		sectionOpen = {};
+		settingUp = null;
 		seenPending.clear();
 	}
 
@@ -184,7 +191,7 @@
 	function setColumn(table: TableCandidate, column: ColumnMapping, field: Field | null) {
 		const evicted = field && table.columns.find((other) => other.col !== column.col && other.field === field);
 		remapNotices[table.id] = evicted
-			? `Column ${colLetter(evicted.col)} ("${evicted.header}") is no longer mapped: column ${colLetter(column.col)} now maps to ${FIELD_LABEL[field]}.`
+			? `Column ${colLetter(evicted.col)}${evicted.header ? ` ("${evicted.header}")` : ''} is no longer mapped: column ${colLetter(column.col)} now maps to ${FIELD_LABEL[field]}.`
 			: '';
 		session.setColumn(table.id, column.col, field);
 	}
@@ -196,6 +203,25 @@
 		sectionOpen.rows = true;
 		await tick();
 		document.getElementById('section-rows')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
+
+	/** The next steps the summary offers when nothing will import. */
+	const NEXT_STEP: Record<NextStep, { label: string; icon: typeof Sparkles }> = {
+		'set-up': { label: 'Set up a table by hand', icon: TableProperties },
+		ai: { label: 'Turn on AI assistance', icon: Sparkles },
+		sheets: { label: 'Review sheets', icon: Layers },
+		rows: { label: 'Show rows', icon: Rows3 }
+	};
+
+	async function takeStep(step: NextStep, setupSheet: string | null) {
+		if (step === 'rows') return showRows('all');
+		const section = step === 'ai' ? 'ai' : 'sheets';
+		sectionOpen[section] = true;
+		// The setup form takes focus when it opens, which brings it into view.
+		if (step === 'set-up') settingUp = setupSheet;
+		if (step === 'ai') void session.setAiEnabled(true);
+		await tick();
+		if (step !== 'set-up') document.getElementById(`section-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	}
 
 	function toggleAll() {
@@ -296,11 +322,31 @@
 				{#if reviewing && analysis}
 					{@const parts = summaryParts(analysis)}
 					{@const chips = statusChips(analysis)}
+					{@const nothing = nothingToImport(analysis, session.model, !session.aiEnabled && session.aiAvailability?.available !== false)}
 					<div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
 						<div class="min-w-0">
 							<p id="import-summary" class="text-sm text-slate-700">
-								{`${parts.sheets} · ${parts.rows} · `}<span class={['font-semibold', parts.pending ? 'text-slate-950' : 'text-emerald-700']}>{parts.needs}</span>
+								{`${parts.sheets} · ${parts.rows} · `}<span class={['font-semibold', parts.done ? 'text-emerald-700' : 'text-slate-950']}>{parts.needs}</span>
 							</p>
+							{#if nothing}
+								<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+									<p class="flex items-start gap-1.5 text-amber-900">
+										<CircleAlert size={15} class="mt-0.5 shrink-0" />
+										{nothing.reason}.
+									</p>
+									{#each nothing.steps as step (step)}
+										{@const { label, icon: Icon } = NEXT_STEP[step]}
+										<button
+											type="button"
+											class="inline-flex items-center gap-1 rounded font-medium text-blue-700 transition hover:text-blue-900 focus-visible:outline-2 focus-visible:outline-blue-600"
+											onclick={() => takeStep(step, nothing.setupSheet)}
+										>
+											<Icon size={15} />
+											{label}
+										</button>
+									{/each}
+								</div>
+							{/if}
 							{#if chips.length}
 								<ul class="mt-2 flex flex-wrap gap-1.5" aria-label="Summary">
 									{#each chips as chip (chip.tone)}
@@ -452,7 +498,11 @@
 									sheets={analysis.sheets}
 									decisions={analysis.decisions}
 									{recordCounts}
+									model={session.model}
+									bind:settingUp
 									onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
+									onSetManualTable={(sheet, spec) => session.setManualTable(sheet, spec)}
+									onRemoveManualTable={(sheet) => session.removeManualTable(sheet)}
 								/>
 							</Section>
 							<Section

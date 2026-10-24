@@ -22,6 +22,7 @@ import {
 	type FieldEvidence
 } from './columns';
 import { matchHeader, normalizeHeader } from './header';
+import { detectHeaderless } from './headerless';
 import { checkValue } from './values';
 
 /** Non-empty rows from the top of the value extent in which a header is looked for. */
@@ -272,6 +273,9 @@ export function detectTable(sheet: SheetModel): Detection {
 
 	const trials = headerTrials(sheet, extent, sheetSpan);
 	const best = trials.reduce<Trial | null>((b, t) => (!b || t.score > b.score ? t : b), null);
+	// No header row, or the best one holds NSNs or NIINs and is really the first data row: let the values decide.
+	const headerless = detectHeaderless(sheet, extent, sheetSpan, best?.rows[0]);
+	if (headerless) return { spec: headerless.spec, reasons: [...notes, ...headerless.reasons] };
 	if (!best) return { spec: null, reasons: [...notes, 'No header row found: no row near the top has at least two short text labels'] };
 	if (!best.hasPrimary) {
 		const misses = nearMisses(best);

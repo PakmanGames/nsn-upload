@@ -378,7 +378,7 @@ function mappingIssues(ctx: TableContext, row: number, fields: CandidateRecord['
 		code: 'low-confidence-mapping',
 		severity: 'warning',
 		field: c.field,
-		message: `${LABEL[c.field]} column ${colLetter(c.col)} ("${c.header}") was mapped with ${c.confidence} confidence`,
+		message: `${LABEL[c.field]} column ${colLetter(c.col)}${c.header ? ` ("${c.header}")` : ''} was mapped with ${c.confidence} confidence`,
 		cells: [at(c.col)]
 	}));
 	if (!PRIMARY_FIELDS.some((f) => fields[f])) {

@@ -216,7 +216,8 @@ describe('detection rules', () => {
 	});
 
 	it('sets an AI trigger when identifiers appear outside any table', () => {
-		const [sheet] = analyzeSheets(['Notes', [['Research notes'], ...nsns(3).map((n) => [`Found ${n} on the listing`, n])]]);
+		// One NSN per column: no column holds enough of them to be a table without a header row.
+		const [sheet] = analyzeSheets(['Notes', [['Research notes'], ...nsns(3).map((n, i) => ['Found on the listing', ...Array(i).fill(null), n])]]);
 		expect(sheet.status).toBe('no-table');
 		expect(sheet.aiTrigger).toBe('3 cells look like NSNs or NIINs, but no table was recognized');
 	});

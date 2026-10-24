@@ -44,7 +44,7 @@ describe('column overrides', () => {
 });
 
 describe('AI tables', () => {
-	// No header row at all: every row holds an identifier, so detection finds nothing to anchor on.
+	// No header row at all: detection finds the table from its NSN values alone, and an AI table still replaces it.
 	const notes = makeSheet('Notes', [
 		['Screw', '5305-01-658-2565'],
 		['Screw, Assembly', '5305-01-669-8021'],
@@ -55,8 +55,8 @@ describe('AI tables', () => {
 
 	it('replaces deterministic detection on its sheet and is not offered to the AI again', () => {
 		const [before] = analyzeStructure(workbook, {});
-		expect(before.status).toBe('no-table');
-		expect(before.aiTrigger).toBe('3 cells look like NSNs or NIINs, but no table was recognized');
+		expect(before).toMatchObject({ status: 'needs-review', aiTrigger: null });
+		expect(before.tables[0]).toMatchObject({ id: 'Notes@1', headerRows: [], source: 'deterministic' });
 
 		const table = materializeTable(notes, spec, 'ai');
 		const [after] = analyzeStructure(workbook, { aiTables: [table] });
@@ -91,7 +91,7 @@ describe('materializeTable', () => {
 		expect(table.skippedRows).toEqual([{ row: 5, reason: 'no-mapped-values' }]);
 		expect(table.columns[0]).toMatchObject({ header: 'Part Number', field: 'part', confidence: 'high' });
 		expect(table.columns[1]).toMatchObject({ header: 'Stock Number', field: 'nsn', confidence: 'low', valuePassRate: 0.5 });
-		expect(table.columns[1].reasons).toEqual(["Header 'Stock Number' does not name NSN", '1 of 2 values are valid NSNs', 'Values do not support NSN']);
+		expect(table.columns[1].reasons).toEqual(["Header 'Stock Number' does not name NSN", '1 of 2 values are valid NSNs', 'Values alone cannot confirm NSN']);
 		expect(table.reasons.at(-1)).toBe("Needs review: NSN column B 'Stock Number' is low confidence");
 	});
 
@@ -101,5 +101,56 @@ describe('materializeTable', () => {
 
 		expect(table.columns.map((c) => c.field)).toEqual([null, 'part']);
 		expect(table.status).toBe('ready');
+	});
+});
+
+describe('tables set up by hand', () => {
+	const nsns = ['5305-01-658-2565', '5305-01-669-8021', '5340-01-102-4535', '3020-01-660-9619'];
+	// A header detection does not know ("Item", "Stock"), above part numbers and too few NSNs to map by value.
+	const stock = makeSheet('Stock', [['Item', 'Stock', 'Qty'], ['SE5826', nsns[0], 4], ['RC 620', 'pending', 2], ['UTU44013', null, 10]]);
+	const list = makeSheet('List', nsns.map((nsn) => [nsn]));
+	const workbook = makeWorkbook('stock.xlsx', [stock, list]);
+	const manual = (sheet: string, spec: TableSpec): Overrides => ({ manualTables: [{ ...spec, sheet }] });
+	const stockSpec: TableSpec = { headerRows: [1], range: { top: 1, left: 1, bottom: 4, right: 3 }, columns: { 1: 'part', 2: 'nsn' } };
+	const listSpec: TableSpec = { headerRows: [], range: { top: 1, left: 1, bottom: 4, right: 1 }, columns: { 1: 'nsn' } };
+
+	it('materializes a table with a header row on a sheet where none was found, with the usual rules', () => {
+		expect(analyzeStructure(workbook, {})[0]).toMatchObject({ status: 'no-table', tables: [] });
+
+		const [sheet] = analyzeStructure(workbook, manual('Stock', stockSpec));
+		const [table] = sheet.tables;
+		expect(sheet).toMatchObject({ status: 'needs-review', aiTrigger: null });
+		expect(sheet.reasons[0]).toBe('Table set up by you');
+		expect(table).toMatchObject({ id: 'Stock@1', source: 'user', headerRows: [1], dataRows: [2, 3, 4] });
+		// Confidence still comes from the header and the values: neither "Item" nor "Stock" names its field.
+		expect(table.columns[1]).toMatchObject({ field: 'nsn', confidence: 'low', overridden: false });
+		expect(table.columns[1].reasons).toContain('1 of 2 values are valid NSNs');
+		expect(table.columns[2]).toMatchObject({ field: null });
+	});
+
+	it('materializes a table without a header row under the id of its first data row', () => {
+		const [, sheet] = analyzeStructure(workbook, manual('List', listSpec));
+		expect(sheet.tables[0]).toMatchObject({ id: 'List@1', source: 'user', headerRows: [], dataRows: [1, 2, 3, 4] });
+		expect(sheet.tables[0].columns[0]).toMatchObject({ field: 'nsn', confidence: 'medium' });
+	});
+
+	it('applies the user’s later column changes to it', () => {
+		const overrides: Overrides = { ...manual('Stock', stockSpec), columns: { 'Stock@1': { 2: null } } };
+		const [table] = analyzeStructure(workbook, overrides)[0].tables;
+		expect(table.columns[1]).toMatchObject({ field: null, overridden: true, reasons: ['Excluded by user'] });
+		expect(table.columns[0].field).toBe('part');
+	});
+
+	it('wins over an AI table on the same sheet', () => {
+		const ai = materializeTable(list, { ...listSpec, columns: { 1: 'niin' } }, 'ai');
+		const [, sheet] = analyzeStructure(workbook, { aiTables: [ai], ...manual('List', listSpec) });
+		expect(sheet.tables).toHaveLength(1);
+		expect(sheet.tables[0]).toMatchObject({ source: 'user', columns: [expect.objectContaining({ field: 'nsn' })] });
+	});
+
+	it('gives the sheet back to detection once removed', () => {
+		const detected = analyzeStructure(workbook, {});
+		expect(analyzeStructure(workbook, { manualTables: [] })).toEqual(detected);
+		expect(detected[1].tables[0]).toMatchObject({ id: 'List@1', source: 'deterministic' });
 	});
 });

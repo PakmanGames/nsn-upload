@@ -207,6 +207,45 @@ describe('table inclusion', () => {
 		expect(analysis.summary).toMatchObject({ tablesIncluded: 2, pendingDecisions: 0, toImport: 2 });
 	});
 
+	describe('a table without a header row', () => {
+		const headerless = (rate: number): SheetAnalysis => {
+			const base = sheet('List', 0, 'needs-review', [{ ...column('nsn', '', 'medium'), valuePassRate: rate }]);
+			return { ...base, tables: [{ ...base.tables[0], headerRows: [] }] };
+		};
+		const listRecords = [record('List', 1, { nsn: '5305016582565' })];
+
+		it('is held back, but including it is suggested when its values identify it', () => {
+			const [decision] = decisionsOf(run([headerless(1)], listRecords), 'include-table');
+			expect(decision).toMatchObject({ state: 'pending', chosen: null, suggested: 'include' });
+			expect(decision.reason).toBe(
+				'Table on List (A1:F200) has no header row, but every value in column C is a valid NSN, so including it is suggested.'
+			);
+
+			const accepted = run([headerless(1)], listRecords, { decisions: { [decision.id]: decision.suggested } });
+			expect(accepted.summary).toMatchObject({ tablesIncluded: 1, toImport: 1 });
+		});
+
+		it('gives the share of valid values when some fail', () => {
+			const [decision] = decisionsOf(run([headerless(0.97)], listRecords), 'include-table');
+			expect(decision.reason).toContain('97% of the values in column C are valid NSNs');
+		});
+
+		it('is suggested exclude when a primary column falls short of the value-only rule', () => {
+			const [decision] = decisionsOf(run([headerless(0.9)], listRecords), 'include-table');
+			expect(decision).toMatchObject({ state: 'pending', suggested: 'exclude' });
+		});
+	});
+
+	it('includes a table the user set up by hand without a decision', () => {
+		const base = sheet('Stock', 0, 'needs-review');
+		const userSheet = { ...base, tables: [{ ...base.tables[0], source: 'user' as const }] };
+		const analysis = run([userSheet], [record('Stock', 2, { part: 'A-1', nsn: '5305016582565' })]);
+
+		expect(decisionsOf(analysis, 'include-table')).toEqual([]);
+		expect(find(analysis, 'Stock@1:r2')).toMatchObject({ status: 'valid', approved: true });
+		expect(analysis.summary).toMatchObject({ tablesIncluded: 1, pendingDecisions: 0, toImport: 1 });
+	});
+
 	it('leaves excluded tables out of duplicate checks and summary counts', () => {
 		const analysis = run(
 			[sheet('A', 0), sheet('B', 1)],

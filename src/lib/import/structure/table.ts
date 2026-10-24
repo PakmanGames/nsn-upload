@@ -37,9 +37,12 @@ export type MaterializedTable = {
 
 const OPTIONAL_FIELDS: readonly Field[] = ['description', 'cage'];
 
-/** `${sheet}@${firstHeaderRow}`; a headerless table uses the first row of its range. */
-export function tableId(sheet: string, firstHeaderRow: number): string {
-	return `${sheet}@${firstHeaderRow}`;
+/**
+ * `${sheet}@${first header row}`; a table without a header row uses the first row of its range, its first data
+ * row. Neither depends on the column mapping, so the id survives remaps.
+ */
+export function tableId(sheet: string, spec: Pick<TableSpec, 'headerRows' | 'range'>): string {
+	return `${sheet}@${spec.headerRows.length > 0 ? Math.min(...spec.headerRows) : spec.range.top}`;
 }
 
 /** "3", "3-5", "3-5, 9, 12-14", capped so a reason stays one readable line. */
@@ -392,7 +395,9 @@ export function materialize(
 		const byUser = user.set.get(column.col) === field;
 		const reasons = [...shared(column.col), ...describeEvidence(column, e)];
 		if (byUser) reasons.unshift('Set by user');
-		else if (!e.confidence) reasons.push(`Values do not support ${FIELD_LABEL[field]}`);
+		// Without a header naming the field, values that all pass can still fall short of the value-only rule (a column
+		// of plausible part numbers, for one), so "do not support" would contradict the evidence listed above it.
+		else if (!e.confidence) reasons.push(e.header ? `Values do not support ${FIELD_LABEL[field]}` : `Values alone cannot confirm ${FIELD_LABEL[field]}`);
 		return {
 			col: column.col,
 			header: column.header,
@@ -463,7 +468,7 @@ export function materialize(
 
 	return {
 		table: {
-			id: tableId(sheet.name, headerRows[0] ?? spec.range.top),
+			id: tableId(sheet.name, spec),
 			sheet: sheet.name,
 			headerRows,
 			range,

@@ -21,6 +21,7 @@ import {
 } from '../model';
 import { colLetter, parseA1, parseRange, rangeToA1 } from '../refs';
 import { materializeTable } from '../structure';
+import { unsupportedByValues } from '../structure/headerless';
 import { AI_MIN_CONFIDENCE } from './schema';
 
 export function verifyInterpretation(
@@ -70,14 +71,14 @@ function checkProposal(
 	if (!extent || !contains(extent, range))
 		return `Range ${proposal.range} is outside the sheet's values (${extent ? rangeToA1(extent) : 'empty sheet'})`;
 
+	// No header rows means a table without a header row, which starts at the top of its range.
 	const headerRows = [...new Set(proposal.headerRows)].sort((a, b) => a - b);
-	if (headerRows.length === 0) return 'No header row given';
 	for (const row of headerRows) {
 		if (row < range.top || row > range.bottom)
 			return `Header row ${row} is outside the range ${proposal.range}`;
 		if (sheet.hiddenRows.has(row)) return `Header row ${row} is hidden`;
 	}
-	if (headerRows[headerRows.length - 1] === range.bottom)
+	if (headerRows.at(-1) === range.bottom)
 		return `Range ${proposal.range} has no rows below the header`;
 
 	if (proposal.columns.length === 0) return 'No columns mapped';
@@ -97,6 +98,7 @@ function checkProposal(
 		if (otherCol !== undefined)
 			return `Field ${field} is mapped to both column ${colLetter(otherCol)} and column ${colLetter(col)}`;
 		// Off-by-one headers are the typical model mistake; the header text it quotes exposes them.
+		// Without a header row the real header is empty, so the model must quote nothing.
 		const actual = headerRows.map((row) => sheet.cell(row, col).text).join(' ');
 		if (normalizeHeader(actual) !== normalizeHeader(headerText))
 			return `${column} header is ${quote(actual)}, but the AI read ${quote(headerText)}`;
@@ -105,6 +107,11 @@ function checkProposal(
 	}
 	if (!PRIMARY_FIELDS.some((field) => colByField.has(field)))
 		return 'No part, NSN, or NIIN column mapped';
+	// Without a header, values are the only evidence: each column must pass the rule detection maps by.
+	if (headerRows.length === 0) {
+		const unsupported = unsupportedByValues(sheet, range, fieldByCol);
+		if (unsupported) return unsupported;
+	}
 
 	return { sheet, spec: { headerRows, range, columns: Object.fromEntries(fieldByCol) } };
 }

@@ -14,7 +14,8 @@ import type {
 	SheetAnalysis,
 	SheetStatus,
 	TableCandidate,
-	WorkbookAnalysis
+	WorkbookAnalysis,
+	WorkbookModel
 } from '$lib/import/model';
 import { rangeToA1 } from '$lib/import/refs';
 import type { AiAvailability } from '$lib/import/ai';
@@ -41,7 +42,14 @@ export function activeRecords(analysis: WorkbookAnalysis): CandidateRecord[] {
 
 /* ---------- R1 ---------- */
 
-export type SummaryParts = { sheets: string; rows: string; needs: string; pending: number };
+export type SummaryParts = {
+	sheets: string;
+	rows: string;
+	needs: string;
+	pending: number;
+	/** Something will import and nothing waits: the only state the summary shows as done. */
+	done: boolean;
+};
 
 export function summaryParts(analysis: WorkbookAnalysis): SummaryParts {
 	const { summary, sheets } = analysis;
@@ -54,8 +62,13 @@ export function summaryParts(analysis: WorkbookAnalysis): SummaryParts {
 		rows:
 			plural(summary.sourceRows, 'row') +
 			(summary.candidates !== summary.sourceRows ? ` → ${plural(summary.candidates, 'record')}` : ''),
-		needs: pending ? `${pending} ${pending === 1 ? 'decision needs' : 'decisions need'} you` : 'nothing needs you',
-		pending
+		needs: pending
+			? `${pending} ${pending === 1 ? 'decision needs' : 'decisions need'} you`
+			: summary.toImport > 0
+				? 'nothing needs you'
+				: 'nothing will import',
+		pending,
+		done: pending === 0 && summary.toImport > 0
 	};
 }
 
@@ -352,4 +365,82 @@ export function decisionHeading(
 		default:
 			return { badge: DECISION_KIND_LABEL[decision.kind], tone: 'review', kind: '', title: where() };
 	}
+}
+
+/* ---------- Nothing to import ---------- */
+
+/**
+ * Sheets where a table can be set up by hand: visible, with values, and without an included or hand-made table.
+ * Held-back tables come first, then sheets with cells that look like NSNs, so the likeliest sheet leads.
+ */
+export function setupSheets(sheets: SheetAnalysis[], decisions: Decision[], model: WorkbookModel | null): string[] {
+	const withValues = new Set(model?.sheets.filter((sheet) => sheet.valueExtent).map((sheet) => sheet.name));
+	const included = new Set(
+		decisions.filter((decision) => decision.kind === 'include-table' && decision.chosen === 'include').map((decision) => decision.tableId)
+	);
+	const open = sheets.filter(
+		(sheet) =>
+			sheet.status !== 'hidden' &&
+			withValues.has(sheet.name) &&
+			sheet.tables.every((table) => table.source !== 'user' && !included.has(table.id))
+	);
+	const rank = (sheet: SheetAnalysis) => (sheet.tables.length > 0 ? 0 : sheet.aiTrigger ? 1 : 2);
+	return open.sort((a, b) => rank(a) - rank(b) || a.index - b.index).map((sheet) => sheet.name);
+}
+
+/** What the summary offers when nothing will import. */
+export type NextStep = 'set-up' | 'ai' | 'sheets' | 'rows';
+
+export type NothingToImport = {
+	/** Why, in one sentence without a final period. */
+	reason: string;
+	steps: NextStep[];
+	/** The sheet "Set up a table by hand" opens, when that step is offered. */
+	setupSheet: string | null;
+};
+
+/**
+ * Why nothing will import, and what the user can do about it; null when something will. The summary never
+ * reads as finished while the Import button would add nothing.
+ */
+export function nothingToImport(analysis: WorkbookAnalysis, model: WorkbookModel | null, canTurnOnAi: boolean): NothingToImport | null {
+	const { summary, sheets, records, decisions } = analysis;
+	if (summary.toImport > 0) return null;
+	const held = heldBackTables(analysis);
+	const tables = sheets.flatMap((sheet) => sheet.tables);
+	const included = tables.filter((table) => !held.has(table.id));
+	const setup = setupSheets(sheets, decisions, model);
+	const steps: NextStep[] = [];
+	// Setting up a table by hand only helps while no table imports; otherwise the rows themselves are the problem.
+	if (included.length === 0 && setup.length > 0) steps.push('set-up');
+	if (canTurnOnAi && sheets.some((sheet) => sheet.aiTrigger)) steps.push('ai');
+	const result = (reason: string, more: NextStep[] = []): NothingToImport => ({
+		reason,
+		steps: [...more, ...steps],
+		setupSheet: steps.includes('set-up') ? setup[0] : null
+	});
+
+	if (summary.pendingDecisions > 0) {
+		return result(`Nothing will import until you make the ${summary.pendingDecisions === 1 ? 'decision' : 'decisions'} below`);
+	}
+	if (tables.length === 0) {
+		const visible = model?.sheets.filter((sheet) => sheet.visibility === 'visible') ?? [];
+		if (visible.length === 0) return result('Every sheet in this workbook is hidden');
+		if (visible.every((sheet) => !sheet.valueExtent)) return result('The visible sheets are empty');
+		return result(visible.length === 1 ? 'We could not find a table on this sheet' : 'We could not find a table on any sheet');
+	}
+	if (included.length === 0) return result(tables.length === 1 ? 'You left the only table out' : 'You left every table out', ['sheets']);
+
+	const ids = new Set(included.map((table) => table.id));
+	const own = records.filter((record) => ids.has(record.tableId));
+	if (own.length === 0) return result(`The ${included.length === 1 ? 'table has' : 'tables have'} no rows to import`, ['rows']);
+	const count = (status: CandidateRecord['status']) => own.filter((record) => record.status === status).length;
+	const leftOut = own.filter((record) => record.status === 'valid' || record.status === 'warning').length;
+	const parts = [
+		count('invalid') && `${count('invalid')} ${count('invalid') === 1 ? 'has' : 'have'} no valid part number, NSN, or NIIN`,
+		count('duplicate') && `${count('duplicate')} ${count('duplicate') === 1 ? 'is a duplicate' : 'are duplicates'}`,
+		count('conflict') && `${count('conflict')} ${count('conflict') === 1 ? 'is' : 'are'} in conflict`,
+		leftOut && `${leftOut} ${leftOut === 1 ? 'was' : 'were'} left out by you`
+	].filter(Boolean);
+	return result(`No record can be imported: ${parts.join('; ')}`, ['rows']);
 }

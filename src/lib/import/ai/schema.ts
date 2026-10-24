@@ -73,17 +73,23 @@ export const workbookInterpretationSchema = z.object({
 			sheetName: z.string().describe('Sheet name exactly as given in the request'),
 			range: z
 				.string()
-				.describe('A1 range from the first header row to the last data row, e.g. "A2:F180"'),
+				.describe(
+					'A1 range from the first header row (the first data row when there is no header row) to the last data row, e.g. "A2:F180"'
+				),
 			headerRows: z
 				.array(z.int().min(1))
-				.describe('1-based row numbers of the header; two adjacent rows if the header spans two'),
+				.describe(
+					'1-based row numbers of the header; two adjacent rows if the header spans two; empty when the table has no header row'
+				),
 			columns: z.array(
 				z.object({
 					field: z.enum(FIELDS),
 					col: z.int().min(1).describe('1-based column number, A = 1'),
 					headerText: z
 						.string()
-						.describe('Header cell text in this column, joined with a space across header rows')
+						.describe(
+							'Header cell text in this column, joined with a space across header rows; empty when the table has no header row'
+						)
 				})
 			),
 			confidence: z.number().min(0).max(1).describe('0 to 1'),

@@ -7,8 +7,13 @@ export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsh
 
 export async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
 	await page.goto('/');
-	await page.getByRole('button', { name: 'Smart Upload' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Smart Upload' });
+	// The button is server-rendered, and a click that lands before hydration does nothing (it happens on a busy
+	// machine), so click until the dialog opens.
+	await expect(async () => {
+		await page.getByRole('button', { name: 'Smart Upload' }).click();
+		await expect(dialog).toBeVisible({ timeout: 1_000 });
+	}).toPass();
 	await dialog.locator('input[type=file]').setInputFiles(file);
 	await expect(importButton(dialog)).toBeVisible();
 	return dialog;

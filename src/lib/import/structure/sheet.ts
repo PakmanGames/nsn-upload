@@ -85,10 +85,26 @@ function aiSheet(sheet: SheetModel, tables: TableCandidate[], overrides: Overrid
 	return { reasons, tables: [table] };
 }
 
+/**
+ * Tables the user set up by hand replace detection and AI on their sheet. They are scored like any other
+ * table, and the user's later column changes apply to them as to a detected table.
+ */
+function manualSheet(sheet: SheetModel, specs: TableSpec[], overrides: Overrides): Pick<SheetAnalysis, 'status' | 'reasons' | 'tables'> {
+	const tables = specs.map((manual) => {
+		const { spec, user } = applyUserColumns(manual, overrides.columns?.[tableId(sheet.name, manual)]);
+		return materialize(sheet, spec, 'user', user).table;
+	});
+	return { status: tables[0].status, reasons: ['Table set up by you', ...tables.flatMap(tableSummary)], tables };
+}
+
 export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnalysis {
 	const base = { name: sheet.name, index: sheet.index };
 	if (sheet.visibility !== 'visible') return { ...base, status: 'hidden', reasons: ['Hidden in workbook'], tables: [], aiTrigger: null };
 	if (!sheet.valueExtent) return { ...base, status: 'no-table', reasons: ['Sheet has no values'], tables: [], aiTrigger: null };
+
+	const manual = (overrides.manualTables ?? []).filter((t) => t.sheet === sheet.name);
+	// The user has said where the table is, so there is nothing left to ask the AI.
+	if (manual.length > 0) return { ...base, ...manualSheet(sheet, manual, overrides), aiTrigger: null };
 
 	const aiTables = (overrides.aiTables ?? []).filter((t) => t.sheet === sheet.name);
 	if (aiTables.length > 0) {
@@ -108,9 +124,11 @@ export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnal
 		};
 	}
 
-	const id = tableId(sheet.name, detection.spec.headerRows[0]);
+	const id = tableId(sheet.name, detection.spec);
 	const { spec, user } = applyUserColumns(detection.spec, overrides.columns?.[id]);
 	const { table, competition }: MaterializedTable = materialize(sheet, spec, 'deterministic', user);
-	const aiTrigger = table.status === 'ready' ? null : (competition[0] ?? identifierTrigger(sheet, 'the table needs review'));
+	// A table without a header row was found by its values alone, so the AI has nothing left to decide.
+	const settled = table.status === 'ready' || table.headerRows.length === 0;
+	const aiTrigger = settled ? null : (competition[0] ?? identifierTrigger(sheet, 'the table needs review'));
 	return { ...base, status: table.status, reasons: [...tableSummary(table), ...detection.reasons], tables: [table], aiTrigger };
 }
