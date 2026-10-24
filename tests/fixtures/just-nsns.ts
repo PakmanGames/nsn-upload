@@ -62,7 +62,8 @@ export const justNsns = {
 		cell: 'A1',
 		original: '1025-00-0425307',
 		copies: [2, 3, 4],
-		imported: { nsn: '1025000425307', niin: '000425307' } satisfies MappingInput
+		// The sheet has no NIIN column, so the saved NIIN is worked out from the NSN and labeled (D25).
+		imported: { nsn: '1025000425307', niin: '000425307', derived: ['niin'] } satisfies MappingInput
 	},
 	/** The same table set up by hand in the review window: "No header row", column A = NSN. */
 	manual: {
