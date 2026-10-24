@@ -63,7 +63,8 @@ describe('PENCOM shape', () => {
 		expect(reference).toMatchObject({ field: 'nsn', confidence: 'medium', valuePassRate: 2 / 3 });
 		expect(reference.reasons).toEqual(["Header 'NSN / Reference' matches NSN", '2 of 3 values are valid NSNs']);
 		expect(table.columns.find((c) => c.header === 'Part Number / Family')).toMatchObject({ field: 'part', confidence: 'low' });
-		expect(log.aiTrigger).toBeNull();
+		// Only 2 identifier-shaped cells, but a table that needs review is always worth an AI look (D23).
+		expect(log.aiTrigger).toBe('A table was found, but it needs review');
 	});
 
 	it('explains why dashboards and notes have no table', () => {
