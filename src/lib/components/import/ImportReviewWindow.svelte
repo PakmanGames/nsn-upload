@@ -607,6 +607,8 @@
 									onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
 									onSetManualTable={(sheet, spec) => session.setManualTable(sheet, spec)}
 									onRemoveManualTable={(sheet) => session.removeManualTable(sheet)}
+									includedHidden={session.overrides.includedHiddenSheets ?? []}
+									onHiddenSheet={(name, included) => session.setHiddenSheetIncluded(name, included)}
 								/>
 							</Section>
 							<Section

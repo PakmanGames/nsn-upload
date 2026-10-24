@@ -324,6 +324,14 @@ export class ImportSession {
 		this.#apply({ ...this.overrides, decisions: Object.fromEntries(rest) });
 	}
 
+	/** "Include anyway" or "Hide again" for a hidden sheet; its tables still wait on an include decision (D26). */
+	setHiddenSheetIncluded(name: string, included: boolean) {
+		const names = new Set(this.overrides.includedHiddenSheets);
+		if (included) names.add(name);
+		else names.delete(name);
+		this.#apply({ ...this.overrides, includedHiddenSheets: [...names] });
+	}
+
 	acceptAllSuggestions() {
 		const pending = this.analysis?.decisions.filter((decision) => decision.state === 'pending') ?? [];
 		if (pending.length === 0) return;
