@@ -168,22 +168,26 @@ export function textWidth(text: string, measure: Measure = estimateWidth): numbe
 /**
  * Column widths for columns 1..count (index 0 unused). The file's own widths are not in the model, so each column
  * is sized from its values: the widest sampled value up to twice the median, so a column of identifiers fits all of
- * them while a stray title or note does not widen the whole column. A table's header cell is a floor, so headers
- * stay readable. Merged cells are left out, since they span columns. Every width is clamped to
+ * them while a stray title or note does not widen the whole column. A table's header cell is a floor, measured
+ * with `measureHeader` since headers are drawn heavier, so headers stay readable. Merged cells are left out, since they span columns. Every width is clamped to
  * [MIN_COL_WIDTH, MAX_COL_WIDTH].
  */
 export function columnWidths(
 	sheet: SheetModel,
 	count: number,
-	{ measure = estimateWidth, headerRows = [] }: { measure?: Measure; headerRows?: number[] } = {}
+	{
+		measure = estimateWidth,
+		measureHeader = measure,
+		headerRows = []
+	}: { measure?: Measure; measureHeader?: Measure; headerRows?: number[] } = {}
 ): number[] {
 	const widths = new Array<number>(count + 1).fill(MIN_COL_WIDTH);
 	const extent = sheet.valueExtent;
 	if (!extent) return widths;
 	const merged = (row: number, col: number) => sheet.merges.some((merge) => contains(merge, row, col));
-	const width = (row: number, col: number) => {
+	const width = (row: number, col: number, by = measure) => {
 		const text = displayText(sheet.cell(row, col));
-		return text && !merged(row, col) ? textWidth(text, measure) : 0;
+		return text && !merged(row, col) ? textWidth(text, by) : 0;
 	};
 	const last = Math.min(extent.bottom, extent.top + SAMPLE_ROWS - 1);
 	for (let col = extent.left; col <= Math.min(extent.right, count); col++) {
@@ -194,7 +198,7 @@ export function columnWidths(
 		}
 		const median = sample.toSorted((a, b) => a - b)[Math.floor(sample.length / 2)] ?? 0;
 		const fit = Math.max(0, ...sample.filter((needed) => needed <= median * 2));
-		const header = Math.max(0, ...headerRows.map((row) => width(row, col)));
+		const header = Math.max(0, ...headerRows.map((row) => width(row, col, measureHeader)));
 		widths[col] = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, fit, header));
 	}
 	return widths;

@@ -58,10 +58,15 @@
 		if (!current.valueExtent) return { tone: 'quiet', text: 'This sheet is empty.' };
 		const sheetTones = tones(current);
 		if (sheetTones.includes('included')) return null;
-		const reason = analysis.sheets.find((sheet) => sheet.name === current.name)?.reasons[0];
-		if (sheetTones.includes('pending')) return { tone: 'waiting', text: 'This table waits for your decision before it imports.', detail: reason };
+		const sheet = analysis.sheets.find((candidate) => candidate.name === current.name);
+		const waiting = overlays.get(current.name)?.tables.find((table) => table.tone === 'pending');
+		if (waiting) {
+			// A table's last reason is its status reason: why it is not ready.
+			const detail = sheet?.tables.find((table) => table.id === waiting.id)?.reasons.at(-1);
+			return { tone: 'waiting', text: 'This table waits for your decision before it imports.', detail };
+		}
 		if (sheetTones.includes('excluded')) return { tone: 'quiet', text: 'This table is left out of the import.' };
-		return { tone: 'quiet', text: 'Nothing on this sheet will be imported.', detail: reason };
+		return { tone: 'quiet', text: 'Nothing on this sheet will be imported.', detail: sheet?.reasons[0] };
 	});
 
 	function pick(sheet: SheetModel) {

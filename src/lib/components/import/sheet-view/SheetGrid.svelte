@@ -72,14 +72,21 @@
 	const lastRow = $derived(Math.max((sheet.valueExtent?.bottom ?? 0) + 20, 100));
 	const lastCol = $derived(Math.max((sheet.valueExtent?.right ?? 0) + 3, 26));
 	/** Measures with the grid's own font, so columns fit their values and spills stop where the text does. */
-	const measure: Measure = (() => {
+	function canvasMeasure(weight: number): Measure {
 		const context = browser ? document.createElement('canvas').getContext('2d') : null;
 		if (!context) return estimateWidth;
-		context.font = `13px ${getComputedStyle(document.documentElement).fontFamily}`;
+		context.font = `${weight} 13px ${getComputedStyle(document.documentElement).fontFamily}`;
 		return (text) => context.measureText(text).width;
-	})();
+	}
+	const measure = canvasMeasure(400);
+	// Header rows are drawn in medium weight (font-medium).
+	const measureHeader = canvasMeasure(500);
 	const widths = $derived(
-		columnWidths(sheet, lastCol, { measure, headerRows: [...new Set(overlay.tables.flatMap((table) => [...table.headerRows]))] })
+		columnWidths(sheet, lastCol, {
+			measure,
+			measureHeader,
+			headerRows: [...new Set(overlay.tables.flatMap((table) => [...table.headerRows]))]
+		})
 	);
 	const rows = $derived(buildAxis(lastRow, sheet.hiddenRows, () => ROW_HEIGHT));
 	const cols = $derived(buildAxis(lastCol, sheet.hiddenCols, (col) => widths[col]));
