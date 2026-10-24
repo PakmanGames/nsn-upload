@@ -121,7 +121,8 @@
 		analysis?.sheets.filter((sheet) => sheet.aiTrigger && sheet.status !== 'hidden').map((sheet) => sheet.name) ?? []
 	);
 	const sectionDefaults = $derived<Record<SectionId, boolean>>({
-		sheets: false,
+		// With no table anywhere, Sheets is where the user can set one up by hand.
+		sheets: analysis ? analysis.sheets.every((sheet) => sheet.tables.length === 0) : false,
 		columns: analysis ? columnsOpenByDefault(analysis) : false,
 		rows: false,
 		auto: false,
@@ -452,7 +453,10 @@
 									sheets={analysis.sheets}
 									decisions={analysis.decisions}
 									{recordCounts}
+									model={session.model}
 									onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
+									onSetManualTable={(sheet, spec) => session.setManualTable(sheet, spec)}
+									onRemoveManualTable={(sheet) => session.removeManualTable(sheet)}
 								/>
 							</Section>
 							<Section

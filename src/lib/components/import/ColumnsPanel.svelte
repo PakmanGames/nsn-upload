@@ -125,7 +125,7 @@
 			</div>
 			<p class="mt-0.5 text-xs text-slate-500">
 				Range <span class="font-mono text-slate-700">{rangeToA1(table.range)}</span>
-				{`· header ${table.headerRows.length > 1 ? 'rows' : 'row'} ${table.headerRows.join(', ')} · ${plural(table.dataRows.length, 'data row')}`}
+				{`· ${table.headerRows.length ? `header ${table.headerRows.length > 1 ? 'rows' : 'row'} ${table.headerRows.join(', ')}` : 'no header row'} · ${plural(table.dataRows.length, 'data row')}`}
 				{#if skipped(table).length}{`· skipped ${skipped(table).join(', ')}`}{/if}
 			</p>
 
