@@ -124,6 +124,52 @@ describe('ImportSession', () => {
 		expect(session.analysis!.decisions.find((decision) => decision.id === id)?.state).toBe('pending');
 	});
 
+	it('applies one option to several decisions in one re-analysis, and remembers them as a group', async () => {
+		const engine = { ...spyEngine(), analyze: vi.fn(mockEngine.analyze) };
+		const session = await loaded(engine);
+		const [first, second] = session.analysis!.decisions.filter((decision) => decision.state === 'pending');
+		const ids = [first.id, second.id];
+		engine.analyze.mockClear();
+
+		session.chooseMany(ids, 'exclude-row');
+		expect(engine.analyze).toHaveBeenCalledTimes(1);
+		expect(session.overrides.decisions).toEqual({ [first.id]: 'exclude-row', [second.id]: 'exclude-row' });
+		expect(session.decisionGroups).toEqual([{ ids, option: 'exclude-row' }]);
+		expect(engine.read).toHaveBeenCalledTimes(1);
+	});
+
+	it('reverts a group in one re-analysis, leaving other choices alone', async () => {
+		const engine = { ...spyEngine(), analyze: vi.fn(mockEngine.analyze) };
+		const session = await loaded(engine);
+		const pending = session.analysis!.decisions.filter((decision) => decision.state === 'pending');
+		const [a, b, c] = pending.map((decision) => decision.id);
+		session.chooseMany([a, b], pending[0].suggested);
+		session.choose(c, pending[2].suggested);
+		engine.analyze.mockClear();
+
+		session.resetDecisions([a, b]);
+		expect(engine.analyze).toHaveBeenCalledTimes(1);
+		expect(session.overrides.decisions).toEqual({ [c]: pending[2].suggested });
+		expect(session.decisionGroups).toEqual([]);
+		for (const id of [a, b]) {
+			expect(session.analysis!.decisions.find((decision) => decision.id === id)?.state).toBe('pending');
+		}
+	});
+
+	it('moves a decision to the group it was last applied with, and drops groups of one', async () => {
+		const session = await loaded();
+		const [a, b, c] = session.analysis!.decisions.filter((decision) => decision.state === 'pending').map((d) => d.id);
+		session.chooseMany([a, b], 'x');
+		session.chooseMany([b, c], 'y');
+		expect(session.decisionGroups).toEqual([{ ids: [b, c], option: 'y' }]);
+
+		session.resetDecisions([c]);
+		expect(session.decisionGroups).toEqual([]);
+		session.chooseMany([a, b], 'x');
+		session.reset();
+		expect(session.decisionGroups).toEqual([]);
+	});
+
 	it('makes no AI request, not even the availability check, until AI assistance is turned on', async () => {
 		const engine = spyEngine();
 		const session = await loaded(engine);
