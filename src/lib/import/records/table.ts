@@ -193,8 +193,9 @@ function buildRowRecords(ctx: TableContext, row: Row): CandidateRecord[] {
 			const value = source.values.length === 1 ? source.values[0] : source.values[index];
 			fields[source.field] = fieldValue(ctx, row.row, source, value);
 		}
+		const rejected = { ...row.rejected };
 		const issues = [...row.issues, ...layoutIssues(ctx, layout, index, total)];
-		issues.push(...checkAndDerive(ctx, fields, row));
+		issues.push(...checkAndDerive(ctx, fields, rejected, row));
 		issues.push(...mappingIssues(ctx, row.row, fields));
 		const pending = layout.kind === 'ambiguous' && layout.chosen === undefined;
 		const status = initialStatus(fields, issues, pending);
@@ -206,7 +207,7 @@ function buildRowRecords(ctx: TableContext, row: Row): CandidateRecord[] {
 			sourceRow: row.row,
 			...(layout.kind === 'split' && { split: { cell: layout.source.ref, index: index + 1, total } }),
 			fields,
-			rejected: { ...row.rejected },
+			rejected,
 			issues,
 			status,
 			approved: !excluded && (status === 'valid' || status === 'warning')
@@ -264,14 +265,19 @@ function layoutIssues(ctx: TableContext, layout: Layout, index: number, total: n
 }
 
 /**
- * Cross-field rules: NSN = FSC + NIIN. Disagreeing source values are a conflict; a missing NIIN or NSN is
- * derived and labeled. A rejected value counts as present, so nothing is derived over a malformed cell.
+ * Cross-field rules: NSN = FSC + NIIN. Disagreeing source values are a conflict until a decision picks a
+ * side; then a missing NIIN or NSN is derived and labeled. A value rejected while reading the row counts
+ * as present, so nothing is derived over a malformed cell, but a value the decision ruled against is
+ * replaced: that is the point of choosing the other side.
  */
-function checkAndDerive(ctx: TableContext, fields: CandidateRecord['fields'], row: Row): Issue[] {
-	const issues: Issue[] = [];
+function checkAndDerive(
+	ctx: TableContext,
+	fields: CandidateRecord['fields'],
+	rejected: CandidateRecord['rejected'],
+	row: Row
+): Issue[] {
+	const issues = resolveConflict(ctx, fields, rejected, row.row);
 	const { nsn, niin, fsc } = fields;
-	if (nsn && niin && niin.value !== nsn.value.slice(4)) issues.push(conflict(ctx, nsn, niin, 'niin'));
-	if (nsn && fsc && fsc.value !== nsn.value.slice(0, 4)) issues.push(conflict(ctx, nsn, fsc, 'fsc'));
 	if (nsn && !niin && !row.rejected.niin) {
 		fields.niin = derived(nsn.value.slice(4), 'derive-niin-from-nsn', [nsn]);
 	}
@@ -279,6 +285,65 @@ function checkAndDerive(ctx: TableContext, fields: CandidateRecord['fields'], ro
 		fields.nsn = derived(fsc.value + niin.value, 'derive-nsn-from-fsc-niin', [niin, fsc]);
 	}
 	return issues;
+}
+
+/**
+ * Applies the row's resolve-identifier-conflict choice to an NSN that disagrees with the row's NIIN or FSC.
+ * The losing cells move to `rejected` with a conflict warning. Undecided, `exclude-row`, and any choice
+ * validate/ does not offer all build the same records: conflict errors, which hold the record as pending.
+ */
+function resolveConflict(
+	ctx: TableContext,
+	fields: CandidateRecord['fields'],
+	rejected: CandidateRecord['rejected'],
+	row: number
+): Issue[] {
+	const { nsn } = fields;
+	if (!nsn) return [];
+	const expected = { niin: nsn.value.slice(4), fsc: nsn.value.slice(0, 4) };
+	const disagreeing = (['niin', 'fsc'] as const).filter((f) => fields[f] && fields[f].value !== expected[f]);
+	if (disagreeing.length === 0) return [];
+	const at = (v: FieldValue) => qualifiedRef(ctx.sheet.name, toA1(v.provenance.row, v.provenance.col));
+	const choice = ctx.overrides.decisions?.[decisionId('resolve-identifier-conflict', `${ctx.table.id}:r${row}`)];
+	if (choice === 'prefer-nsn') {
+		return disagreeing.map((field) => {
+			const other = reject(fields, rejected, field);
+			return {
+				code: 'conflict',
+				severity: 'warning',
+				field,
+				message: `${LABEL[field]} in ${at(other)} disagrees with NSN in ${at(nsn)}; kept the NSN`,
+				cells: [at(other), at(nsn)]
+			};
+		});
+	}
+	if (choice === 'prefer-niin-fsc') {
+		reject(fields, rejected, 'nsn');
+		const others = disagreeing.map((field) => fields[field]!);
+		const names = disagreeing.map((field, i) => `${LABEL[field]} in ${at(others[i])}`);
+		return [
+			{
+				code: 'conflict',
+				severity: 'warning',
+				field: 'nsn',
+				message: `NSN in ${at(nsn)} disagrees with ${joinAnd(names)}; kept the ${joinAnd(disagreeing.map((f) => LABEL[f]))}`,
+				cells: [at(nsn), ...others.map(at)]
+			}
+		];
+	}
+	return disagreeing.map((field) => conflict(ctx, nsn, fields[field]!, field));
+}
+
+/** Moves a value the conflict decision ruled against from `fields` to `rejected`. */
+function reject(
+	fields: CandidateRecord['fields'],
+	rejected: CandidateRecord['rejected'],
+	field: Field
+): FieldValue {
+	const value = fields[field]!;
+	delete fields[field];
+	rejected[field] = { original: value.provenance.original, cell: value.provenance.cell };
+	return value;
 }
 
 /** The first source supplies the cell, column, and original text, so a derived value still points at a real cell. */
@@ -327,12 +392,12 @@ function mappingIssues(ctx: TableContext, row: number, fields: CandidateRecord['
 
 /**
  * Errors only invalidate a record that has no usable identifier left, so a malformed NSN beside a valid part
- * is a warning (its valid portion can import). An NSN that disagrees with its own NIIN or FSC is invalid
- * because neither identifier can be trusted.
+ * is a warning (its valid portion can import). An NSN that disagrees with its own NIIN or FSC is pending
+ * until the user picks which identifier to trust, because nothing in the row says which one is right.
  */
 function initialStatus(fields: CandidateRecord['fields'], issues: Issue[], pending: boolean): RecordStatus {
-	if (issues.some((i) => i.code === 'conflict') || !PRIMARY_FIELDS.some((f) => fields[f])) return 'invalid';
-	if (pending) return 'pending';
+	if (!PRIMARY_FIELDS.some((f) => fields[f])) return 'invalid';
+	if (pending || issues.some((i) => i.code === 'conflict' && i.severity === 'error')) return 'pending';
 	return issues.some((i) => i.severity !== 'info') ? 'warning' : 'valid';
 }
 
