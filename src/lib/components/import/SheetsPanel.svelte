@@ -9,6 +9,7 @@
 	import Switch from './Switch.svelte';
 	import TableSetup from './TableSetup.svelte';
 	import { SHEET_STATUS, SKIP_REASON, plural } from './labels';
+	import { setupSheets } from './summary';
 
 	type Props = {
 		sheets: SheetAnalysis[];
@@ -20,12 +21,21 @@
 		onInclude: (decisionId: string, include: boolean) => void;
 		onSetManualTable: (sheet: string, spec: TableSpec) => void;
 		onRemoveManualTable: (sheet: string) => void;
+		/** The sheet whose table is being set up by hand, one at a time; the summary bar can open it too. */
+		settingUp?: string | null;
 	};
 
-	let { sheets, decisions, recordCounts, model, onInclude, onSetManualTable, onRemoveManualTable }: Props = $props();
+	let {
+		sheets,
+		decisions,
+		recordCounts,
+		model,
+		onInclude,
+		onSetManualTable,
+		onRemoveManualTable,
+		settingUp = $bindable(null)
+	}: Props = $props();
 	let expanded = $state<Record<string, boolean>>({});
-	/** The sheet whose table is being set up by hand; one at a time. */
-	let settingUp = $state<string | null>(null);
 	const uid = $props.id();
 
 	const includeDecisions = $derived(
@@ -39,13 +49,7 @@
 	const nothing = $derived(sheets.filter((sheet) => sheet.status === 'no-table'));
 	const hidden = $derived(sheets.filter((sheet) => sheet.status === 'hidden'));
 	const sheetModels = $derived(new Map(model?.sheets.map((sheet) => [sheet.name, sheet]) ?? []));
-
-	/** Any visible sheet with values and no included table can be set up by hand. */
-	function canSetUp(sheet: SheetAnalysis): boolean {
-		const table = sheet.tables[0];
-		if (table?.source === 'user' || !sheetModels.get(sheet.name)?.valueExtent) return false;
-		return !table || includeDecisions.get(table.id)?.chosen !== 'include';
-	}
+	const canSetUp = $derived(new Set(setupSheets(sheets, decisions, model)));
 
 	async function focusAction(sheet: SheetAnalysis, action: 'setup' | 'remove') {
 		await tick();
@@ -85,7 +89,7 @@
 {/snippet}
 
 {#snippet setupButton(sheet: SheetAnalysis)}
-	{#if canSetUp(sheet) && settingUp !== sheet.name}
+	{#if canSetUp.has(sheet.name) && settingUp !== sheet.name}
 		<button
 			id={`${uid}-setup-${sheet.index}`}
 			type="button"
@@ -211,8 +215,12 @@
 	</ul>
 {/if}
 {#if nothing.length}
-	<!-- Open when no sheet has a table, so setting one up by hand is in plain view. -->
-	{@render fold(`${plural(nothing.length, 'sheet')} with nothing to import`, nothing, withTables.length === 0)}
+	<!-- Open when no sheet has a table, or a table is being set up here, so the setup is in plain view. -->
+	{@render fold(
+		`${plural(nothing.length, 'sheet')} with nothing to import`,
+		nothing,
+		withTables.length === 0 || nothing.some((sheet) => sheet.name === settingUp)
+	)}
 {/if}
 {#if hidden.length}
 	{@render fold(`${hidden.length} hidden ${hidden.length === 1 ? 'sheet' : 'sheets'}, ignored`, hidden)}
