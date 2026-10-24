@@ -189,7 +189,10 @@ export function expectTraceable(model: WorkbookModel, analysis: WorkbookAnalysis
 			const at = parseA1(rejected.cell);
 			const where = `${record.id} rejected ${field}`;
 			expect(at, `${where} cell ${rejected.cell}`).not.toBeNull();
-			if (at) expect(sheet.cell(at.row, at.col).text, where).toBe(rejected.original);
+			if (!at) continue;
+			// An error cell has no text; its rejected original is the error code Excel shows.
+			const cell = sheet.cell(at.row, at.col);
+			expect(cell.kind === 'error' ? cell.raw : cell.text, where).toBe(rejected.original);
 		}
 	}
 }

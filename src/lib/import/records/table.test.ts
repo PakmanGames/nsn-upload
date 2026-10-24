@@ -291,6 +291,14 @@ describe('invalid values', () => {
 		expect(nsnIssue.cells).toEqual([`${SHEET}!E134`, `${SHEET}!D134`]);
 	});
 
+	it('keeps the Excel error code as the original of a rejected error cell', () => {
+		const sheet = sheetOf(['Part', 'NSN'], { 2: ['GRD-3001', { kind: 'error', raw: '#N/A' }] });
+		const [record] = build(sheet, ['part', 'nsn']);
+
+		expect(record.rejected).toEqual({ nsn: { original: '#N/A', cell: 'B2' } });
+		expect(record).toMatchObject({ status: 'warning', approved: true });
+	});
+
 	it('rejects a malformed optional value at field level', () => {
 		const sheet = sheetOf(['Part', 'CAGE'], { 2: ['10931023*92', 'PENCOM'] });
 		const [record] = build(sheet, ['part', 'cage']);
