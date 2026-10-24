@@ -232,3 +232,120 @@ describe('ImportSession', () => {
 		expect(plan.add.length + plan.replace.length).toBe(session.analysis!.summary.toImport);
 	});
 });
+
+describe('ImportSession explanations', () => {
+	beforeEach(() => {
+		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(callback));
+		vi.useFakeTimers();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+	});
+
+	function explainingEngine(explain: ImportEngine['explain'] = mockEngine.explain) {
+		return { ...mockEngine, explain: vi.fn(explain) };
+	}
+
+	async function withAi(engine: ImportEngine) {
+		const session = new ImportSession(engine);
+		const loading = session.load(xlsx(), []);
+		await vi.runAllTimersAsync();
+		await loading;
+		const enabling = session.setAiEnabled(true);
+		await vi.runAllTimersAsync();
+		await enabling;
+		await vi.runAllTimersAsync();
+		return session;
+	}
+
+	const sources = (session: ImportSession) => [...session.explanations.values()].map((explanation) => explanation.source);
+
+	it('sends nothing while AI assistance is off and shows the plain wording', async () => {
+		const engine = explainingEngine();
+		const session = new ImportSession(engine);
+		const loading = session.load(xlsx(), []);
+		await vi.runAllTimersAsync();
+		await loading;
+		expect(engine.explain).not.toHaveBeenCalled();
+		expect(new Set(sources(session))).toEqual(new Set(['rules']));
+		expect(session.explanations.size).toBe(session.analysis!.decisions.length);
+	});
+
+	it('sends one bounded request once AI is on, pending decisions first, and shows the checked wording', async () => {
+		const engine = explainingEngine();
+		const session = await withAi(engine);
+		expect(engine.explain).toHaveBeenCalledTimes(1);
+		const [items] = engine.explain.mock.calls[0];
+		expect(items.length).toBeGreaterThan(0);
+		expect(items.length).toBeLessThanOrEqual(60);
+		const pending = session.analysis!.decisions.filter((decision) => decision.state === 'pending').length;
+		expect(items.slice(0, pending).map((item) => item.id)).toEqual(items.slice(0, pending).map((_, i) => `d${i + 1}`));
+		// Only facts and the plain wording go out: no decision ids, sheet samples, or records.
+		expect(Object.keys(items[0]).sort()).toEqual(['facts', 'id', 'kind', 'options', 'plain']);
+		expect(sources(session)).toContain('ai');
+		expect(session.explainRun).toEqual({ status: 'done', sent: items.length });
+		expect(session.explainStats.ai + session.explainStats.plain).toBe(items.length);
+	});
+
+	it('caches by decision and facts: a re-analysis sends only what changed, and nothing when nothing did', async () => {
+		const engine = explainingEngine();
+		const session = await withAi(engine);
+		const first = engine.explain.mock.calls[0][0].length;
+		session.setRecordExcluded('Sheet1@1:r2', true);
+		await vi.runAllTimersAsync();
+		expect(engine.explain).toHaveBeenCalledTimes(1);
+
+		// A remap rebuilds the table's records, so only the decisions whose facts changed go out again.
+		session.setColumn('Sheet1@1', 2, 'part');
+		await vi.runAllTimersAsync();
+		expect(engine.explain).toHaveBeenCalledTimes(2);
+		expect(engine.explain.mock.calls[1][0].length).toBeGreaterThan(0);
+		expect(engine.explain.mock.calls[1][0].length).toBeLessThan(first);
+	});
+
+	it('turning AI off aborts the request and goes back to the plain wording', async () => {
+		let signal: AbortSignal | undefined;
+		const engine = explainingEngine(async (items, abort) => {
+			signal = abort;
+			return mockEngine.explain(items, abort);
+		});
+		const session = new ImportSession(engine);
+		const loading = session.load(xlsx(), []);
+		await vi.runAllTimersAsync();
+		await loading;
+		const enabling = session.setAiEnabled(true);
+		// Let the availability check and the interpretation finish, and the explanation request start.
+		await vi.advanceTimersByTimeAsync(1600);
+		await enabling;
+		expect(engine.explain).toHaveBeenCalledTimes(1);
+		await session.setAiEnabled(false);
+		expect(signal?.aborted).toBe(true);
+		await vi.runAllTimersAsync();
+		expect(session.explainRun).toBeNull();
+		expect(new Set(sources(session))).toEqual(new Set(['rules']));
+	});
+
+	it('a failed request falls back quietly: plain wording, one note, no retry for this file', async () => {
+		const engine = explainingEngine(async () => {
+			throw new Error('AI service is unreachable');
+		});
+		const session = await withAi(engine);
+		expect(session.explainRun).toEqual({ status: 'failed', sent: engine.explain.mock.calls[0][0].length });
+		expect(new Set(sources(session))).toEqual(new Set(['rules']));
+		session.setColumn('Sheet1@1', 2, 'part');
+		await vi.runAllTimersAsync();
+		expect(engine.explain).toHaveBeenCalledTimes(1);
+	});
+
+	it('a new file starts with an empty cache', async () => {
+		const engine = explainingEngine();
+		const session = await withAi(engine);
+		const loading = session.load(xlsx(), []);
+		await vi.runAllTimersAsync();
+		await loading;
+		await vi.runAllTimersAsync();
+		expect(engine.explain).toHaveBeenCalledTimes(2);
+		expect(engine.explain.mock.calls[1][0].length).toBe(engine.explain.mock.calls[0][0].length);
+	});
+});

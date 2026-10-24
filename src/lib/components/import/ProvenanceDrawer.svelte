@@ -7,9 +7,14 @@
 	import { qualifiedRef } from '$lib/import/refs';
 	import type { SheetFocus } from '$lib/import/session.svelte';
 	import { refsFocus } from './sheet-view/focus';
+	import type { ImportSession } from '$lib/import/session.svelte';
+	import ExplanationText from './ExplanationText.svelte';
+	import TechnicalDetails from './TechnicalDetails.svelte';
 	import { DECISION_KIND_LABEL, FIELD_LABEL, ISSUE_LABEL, RECORD_STATUS, TRANSFORM_LABEL } from './labels';
 
 	type Props = {
+		/** For the plain-language wording of issues and decisions. */
+		session: ImportSession;
 		record: CandidateRecord;
 		fileName: string;
 		decisions: Decision[];
@@ -21,7 +26,7 @@
 		onClose: () => void;
 	};
 
-	let { record, fileName, decisions, describe, onOpenRecord, onFocus, onClose }: Props = $props();
+	let { session, record, fileName, decisions, describe, onOpenRecord, onFocus, onClose }: Props = $props();
 
 	const SEVERITY: Record<Severity, { icon: typeof Info; style: string }> = {
 		error: { icon: CircleAlert, style: 'text-red-600' },
@@ -157,7 +162,7 @@
 								{value.original ? `"${value.original}"` : 'Excel error (no text)'}
 							</p>
 							{#if issueFor(field)}
-								<p class="mt-1 text-xs text-red-800">{issueFor(field)?.message}</p>
+								<p class="mt-1 text-xs text-red-800">{session.issueExplanation(issueFor(field)!, record).body}</p>
 							{/if}
 							<p class="mt-1 text-xs text-slate-500">Never imported.</p>
 						</li>
@@ -176,11 +181,12 @@
 			<ul class="mt-2 space-y-3">
 				{#each record.issues as issue, i (i)}
 					{@const severity = SEVERITY[issue.severity]}
+					{@const text = session.issueExplanation(issue, record)}
 					<li class="flex gap-2.5">
 						<severity.icon size={15} class={['mt-0.5 shrink-0', severity.style]} />
 						<div class="min-w-0 text-sm">
-							<p class="font-medium text-slate-900">{ISSUE_LABEL[issue.code]}</p>
-							<p class="mt-0.5 text-slate-600">{issue.message}</p>
+							<p class="font-medium text-slate-900 [overflow-wrap:anywhere]">{text.headline}</p>
+							<p class="mt-0.5 text-slate-600 [overflow-wrap:anywhere]">{text.body}</p>
 							{#if issue.cells.length}
 								<p class="mt-1 font-mono text-xs text-slate-500">
 									{#each issue.cells as ref, i (i)}{i ? ', ' : ''}{@render cellLink(ref)}{/each}
@@ -195,6 +201,9 @@
 									{/each}
 								</p>
 							{/if}
+							<div class="mt-1">
+								<TechnicalDetails text={`${ISSUE_LABEL[issue.code]}: ${issue.message}`} />
+							</div>
 						</div>
 					</li>
 				{/each}
@@ -206,15 +215,23 @@
 				<h4 id="drawer-decisions" class="text-xs font-semibold uppercase tracking-wide text-slate-500">Decisions</h4>
 				<ul class="mt-2 space-y-2">
 					{#each related as decision (decision.id)}
+						{@const plain = session.plainExplanations.get(decision.id)}
 						<li class="rounded-lg border border-slate-200 p-3 text-sm">
 							<p class="text-xs font-medium text-slate-500">{DECISION_KIND_LABEL[decision.kind]}</p>
-							<p class="mt-0.5 text-slate-700">{decision.reason}</p>
+							<div class="mt-0.5">
+								{#if plain}
+									<ExplanationText {plain} shown={session.explanations.get(decision.id)} reserveMarker={session.aiEnabled} compact />
+								{:else}
+									<p class="text-slate-700">{decision.reason}</p>
+								{/if}
+							</div>
 							<p class="mt-1 text-xs">
 								<span class={decision.state === 'pending' ? 'text-amber-700' : 'text-slate-500'}>
 									{decision.state === 'pending' ? 'Needs you' : decision.state === 'user' ? 'Chosen by you' : 'Applied automatically'}:
 								</span>
 								<span class="font-medium text-slate-800">{chosenLabel(decision)}</span>
 							</p>
+							<div class="mt-1"><TechnicalDetails text={decision.reason} /></div>
 						</li>
 					{/each}
 				</ul>

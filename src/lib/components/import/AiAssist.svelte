@@ -13,6 +13,7 @@
 
 	const availability = $derived(session.aiAvailability);
 	const run = $derived(session.aiRun);
+	const explainRun = $derived(session.explainRun);
 	const triggered = $derived(
 		session.analysis?.sheets.filter((sheet) => sheet.aiTrigger && sheet.status !== 'hidden') ?? []
 	);
@@ -63,9 +64,24 @@
 					{#if !session.aiEnabled}Off by default; nothing is sent until you turn it on.{/if}
 				</p>
 			{:else if session.aiEnabled}
-				<p class="text-slate-500">AI is on, but every sheet was read without help, so nothing was sent.</p>
+				<p class="text-slate-500">AI is on. Every sheet was read without help, so no sheet was sent.</p>
 			{:else}
-				<p class="text-slate-500">Every sheet was read without help; nothing would be sent.</p>
+				<p class="text-slate-500">Every sheet was read without help. Turned on, AI would only reword the explanations of decisions.</p>
+			{/if}
+			{#if session.aiEnabled && availability?.available}
+				{@const stats = session.explainStats}
+				{#if explainRun?.status === 'running'}
+					<p class="flex items-center gap-1.5 text-violet-700">
+						<LoaderCircle size={14} class="animate-spin" /> Rewording {plural(explainRun.sent, 'decision')} in plain language…
+					</p>
+				{:else if explainRun?.status === 'failed'}
+					<!-- Quiet on purpose: the standard wording is complete on its own, so this is a note, not an error. -->
+					<p class="text-slate-500">The AI did not answer for the explanations, so the standard wording is shown.</p>
+				{:else if stats.ai + stats.plain > 0}
+					<p class="text-slate-700">
+						Explained {plural(stats.ai + stats.plain, 'decision')}{#if stats.plain}; {stats.plain} used the standard wording{/if}.
+					</p>
+				{/if}
 			{/if}
 		</div>
 		<Switch
@@ -88,6 +104,7 @@
 	</button>
 	<p id={explanationId} class="mt-1 pl-4 text-xs leading-5 text-slate-600" hidden={!explained}>
 		Sends sampled cells of sheets the importer could not read confidently. The AI proposes structure only; every
-		proposal is checked against the workbook.
+		proposal is checked against the workbook. It also rewords the explanations of decisions from their facts, never
+		from sheet samples; wording that mentions a cell or number not in those facts is not shown.
 	</p>
 </div>

@@ -6,8 +6,10 @@
 	import { tick } from 'svelte';
 	import type { Decision, SheetAnalysis, SheetStatus, TableCandidate, TableSpec, WorkbookModel } from '$lib/import/model';
 	import { colLetter, rangeToA1 } from '$lib/import/refs';
+	import { explainSheetWithoutTable, tableNotes, type Explanation } from '$lib/import/explain';
 	import Switch from './Switch.svelte';
 	import TableSetup from './TableSetup.svelte';
+	import TechnicalDetails from './TechnicalDetails.svelte';
 	import { SHEET_STATUS, plural } from './labels';
 	import { heldBackNote, setupSheets, tableLabel, tableRows } from './summary';
 
@@ -16,8 +18,10 @@
 		decisions: Decision[];
 		/** Candidate records per table id. */
 		recordCounts: Map<string, number>;
-		/** Source workbook, for setting up a table by hand. */
+		/** Source workbook, for setting up a table by hand, what a sheet without a table holds, and what lies outside a table. */
 		model: WorkbookModel | null;
+		/** Wording of each decision by id; a table's include decision says why it is ready or needs review. */
+		explanations: Map<string, Explanation>;
 		onInclude: (decisionId: string, include: boolean) => void;
 		onSetManualTable: (sheet: string, spec: TableSpec) => void;
 		onRemoveManualTable: (sheet: string) => void;
@@ -30,6 +34,7 @@
 		decisions,
 		recordCounts,
 		model,
+		explanations,
 		onInclude,
 		onSetManualTable,
 		onRemoveManualTable,
@@ -126,6 +131,7 @@
 	{@const count = recordCounts.get(table.id) ?? 0}
 	{@const records = plural(count, 'record')}
 	{@const note = heldBackNote(table, decision, count)}
+	{@const text = decision && explanations.get(decision.id)}
 	<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
 		<p class="min-w-0 text-sm">
 			{#if several}
@@ -187,14 +193,18 @@
 			</button>
 		{/if}
 	</div>
-	<ul id={reasonsId} hidden={!isOpen} class="mt-1 list-disc space-y-1 pl-7 text-xs leading-5 text-slate-600">
-		{#each details(sheet, table) as reason, i (i)}
-			<li>{reason}</li>
+	<div id={reasonsId} hidden={!isOpen} class="mt-1 space-y-1 pl-4 text-xs leading-5 text-slate-600">
+		{#if text}
+			<p><span class="font-medium text-slate-700">{text.headline}.</span> {text.body}</p>
+		{/if}
+		{#each tableNotes(table, sheetModels.get(sheet.name)) as line, i (i)}
+			<p>{line}</p>
 		{/each}
 		{#if sheet.aiTrigger}
-			<li class="text-violet-700">AI could help: {sheet.aiTrigger}</li>
+			<p class="text-violet-700">AI could help read this sheet.</p>
 		{/if}
-	</ul>
+		<TechnicalDetails text={[...details(sheet, table), ...(sheet.aiTrigger ? [`AI could help: ${sheet.aiTrigger}`] : [])]} />
+	</div>
 {/snippet}
 
 {#snippet fold(label: string, list: SheetAnalysis[], open = false)}
@@ -207,16 +217,17 @@
 		</summary>
 		<ul class="ml-5 divide-y divide-slate-100">
 			{#each list as sheet (sheet.name)}
+				{@const plain = explainSheetWithoutTable(sheet, sheetModels.get(sheet.name))}
 				<li class="py-2">
 					<div class="flex flex-wrap items-center gap-2">
 						<span class="text-sm font-medium text-slate-700">{sheet.name}</span>
 						{@render badge(sheet.status)}
 					</div>
-					<ul class="mt-1 list-disc space-y-0.5 pl-5 text-xs leading-5 text-slate-600">
-						{#each sheet.reasons as reason, i (i)}
-							<li>{reason}</li>
-						{/each}
-					</ul>
+					<p class="mt-1 text-xs font-medium leading-5 text-slate-700">{plain.headline}</p>
+					{#each plain.lines as line, i (i)}
+						<p class="text-xs leading-5 text-slate-600">{line}</p>
+					{/each}
+					<div class="mt-1"><TechnicalDetails text={sheet.reasons} /></div>
 					<div class="mt-1.5">{@render setupButton(sheet)}</div>
 					{@render setup(sheet)}
 				</li>

@@ -3,7 +3,8 @@
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Minus from '@lucide/svelte/icons/minus';
 	import Search from '@lucide/svelte/icons/search';
-	import type { CandidateRecord, Field, TableCandidate } from '$lib/import/model';
+	import type { Explanation } from '$lib/import/explain';
+	import type { CandidateRecord, Field, Issue, TableCandidate } from '$lib/import/model';
 	import { qualifiedRef } from '$lib/import/refs';
 	import type { SheetFocus } from '$lib/import/session.svelte';
 	import { RECORD_STATUS, SKIP_REASON, plural, type RecordFilter } from './labels';
@@ -30,6 +31,8 @@
 		/** Shows a record's cells in the spreadsheet. */
 		onFocus: (focus: SheetFocus | null) => void;
 		onToggle: (record: CandidateRecord, include: boolean) => void;
+		/** Plain-language wording of an issue, for the status column. */
+		explainIssue: (issue: Issue, record: CandidateRecord) => Explanation;
 	};
 
 	let {
@@ -44,7 +47,8 @@
 		activeRecordId,
 		onOpen,
 		onFocus,
-		onToggle
+		onToggle,
+		explainIssue
 	}: Props = $props();
 
 	const pageSize = 100;
@@ -266,8 +270,9 @@
 							{#if excluded.has(record.id) && !record.approved}
 								<span class="mt-1 block text-xs text-slate-500">Excluded by you</span>
 							{:else if issue}
-								<span class="mt-1 block max-w-44 truncate text-xs text-slate-500" title={issue.message}>
-									{issue.message}
+								{@const text = explainIssue(issue, record)}
+								<span class="mt-1 block max-w-44 truncate text-xs text-slate-500" title={text.body}>
+									{text.headline}
 								</span>
 								{#if record.issues.length > 1}
 									<span class="block text-[11px] text-slate-400">+{record.issues.length - 1} more</span>

@@ -110,3 +110,6 @@ export const SKIP_REASON: Record<SkippedRow['reason'], string> = {
 };
 
 export const plural = (n: number, noun: string, many = `${noun}s`) => `${n.toLocaleString()} ${n === 1 ? noun : many}`;
+
+/** "row 10, first of 2 NSNs in B10"; with `sheet`, prefixed by the sheet name. One helper for every record link. */
+export { recordLabel } from '$lib/import/explain';

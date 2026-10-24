@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CandidateRecord, Decision, Field, StoredMapping } from '$lib/import/model';
-	import { FIELD_LABEL } from './labels';
+	import { FIELD_LABEL, recordLabel } from './labels';
 
 	type Props = {
 		decision: Decision;
@@ -15,8 +15,12 @@
 	const COMPARE: Field[] = ['niin', 'description', 'cage'];
 	type Column = { label: string; values: Partial<Record<Field, string>> };
 
+	// Column headings: records on one sheet are told apart by row, records on several also by sheet. A saved
+	// record has no sheet, so the file's side names its own.
 	const describe = (record: CandidateRecord) =>
-		`${record.sheet} row ${record.sourceRow}${record.split ? ` (${record.split.index}/${record.split.total})` : ''}`;
+		recordLabel(record, {
+			sheet: decision.kind === 'resolve-storage-conflict' || new Set(own.map((other) => other.sheet)).size > 1
+		});
 	const valuesOf = (record: CandidateRecord): Column['values'] =>
 		Object.fromEntries(Object.entries(record.fields).map(([field, value]) => [field, value.value]));
 	/** Same comparison the validation stage uses: case and whitespace do not make values differ. */

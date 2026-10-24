@@ -28,6 +28,8 @@ import {
 	type VerificationResult,
 	type WorkbookAnalysis
 } from '$lib/import/model';
+import { mockExplanations } from '$lib/import/ai/explain-mock';
+import { verifyExplanations } from '$lib/import/ai/explain-verify';
 import { qualifiedRef, toA1 } from '$lib/import/refs';
 import type { ImportEngine } from '$lib/import/session.svelte';
 
@@ -1327,5 +1329,9 @@ export const mockEngine: ImportEngine = {
 	async interpret(_model, _sheets, signal) {
 		await delay(1500, signal);
 		return { sent: ['Search Log'], result: MOCK_AI_RESULT };
+	},
+	async explain(items, signal) {
+		await delay(800, signal);
+		return verifyExplanations(items, mockExplanations({ items }));
 	}
 };

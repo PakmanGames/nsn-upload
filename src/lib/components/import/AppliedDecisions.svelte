@@ -4,7 +4,9 @@
 	import Undo2 from '@lucide/svelte/icons/undo-2';
 	import type { CandidateRecord, Decision, DecisionKind } from '$lib/import/model';
 	import type { ImportSession } from '$lib/import/session.svelte';
-	import { DECISION_KIND_LABEL, plural } from './labels';
+	import ExplanationText from './ExplanationText.svelte';
+	import TechnicalDetails from './TechnicalDetails.svelte';
+	import { DECISION_KIND_LABEL, plural, recordLabel } from './labels';
 
 	type Props = {
 		session: ImportSession;
@@ -32,24 +34,34 @@
 
 	const label = (decision: Decision) =>
 		decision.options.find((option) => option.id === decision.chosen)?.label ?? decision.chosen ?? '';
-	const describe = (id: string) => {
-		const record = records.get(id);
-		return record ? `${record.sheet} row ${record.sourceRow}${record.split ? ` (${record.split.index}/${record.split.total})` : ''}` : id;
-	};
+	const recordsOf = (decision: Decision) => decision.recordIds.flatMap((id) => records.get(id) ?? []);
 </script>
 
+<!-- Nothing above an item names its sheet, so its links (or its table line) do. -->
 {#snippet recordLinks(decision: Decision)}
 	{#if decision.kind === 'include-table'}
-		<p class="mt-1 text-xs text-slate-500">{plural(decision.recordIds.length, 'record')}</p>
+		{@const sheet = recordsOf(decision)[0]?.sheet}
+		<p class="mt-1 text-xs text-slate-500">{sheet ? `${sheet} · ` : ''}{plural(decision.recordIds.length, 'record')}</p>
 	{:else if decision.recordIds.length}
 		<p class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-			{#each decision.recordIds as id (id)}
-				<button type="button" class="text-blue-700 hover:text-blue-900 hover:underline" onclick={() => onOpenRecord(id)}>
-					{describe(id)}
+			{#each recordsOf(decision) as record (record.id)}
+				<button type="button" class="text-blue-700 hover:text-blue-900 hover:underline" onclick={() => onOpenRecord(record.id)}>
+					{recordLabel(record, { sheet: true })}
 				</button>
 			{/each}
 		</p>
 	{/if}
+{/snippet}
+
+{#snippet explanation(decision: Decision)}
+	{@const plain = session.plainExplanations.get(decision.id)}
+	<div class="mt-0.5">
+		{#if plain}
+			<ExplanationText {plain} shown={session.explanations.get(decision.id)} reserveMarker={session.aiEnabled} compact />
+		{/if}
+	</div>
+	{@render recordLinks(decision)}
+	<div class="mt-1"><TechnicalDetails text={decision.reason} /></div>
 {/snippet}
 
 <div class="space-y-3">
@@ -60,10 +72,8 @@
 				{#each changed as decision (decision.id)}
 					<li class="flex items-start justify-between gap-3 px-3 py-2.5">
 						<div class="min-w-0">
-							<p class="text-xs font-medium text-slate-500">{DECISION_KIND_LABEL[decision.kind]}</p>
-							<p class="text-sm text-slate-800">{label(decision)}</p>
-							<p class="mt-0.5 line-clamp-3 break-words text-xs text-slate-500" title={decision.reason}>{decision.reason}</p>
-							{@render recordLinks(decision)}
+							<p class="text-xs font-medium text-slate-500">{DECISION_KIND_LABEL[decision.kind]} · {label(decision)}</p>
+							{@render explanation(decision)}
 						</div>
 						<button
 							type="button"
@@ -103,9 +113,8 @@
 						{@const others = decision.options.filter((option) => option.id !== decision.chosen)}
 						<li class="flex items-start justify-between gap-3 px-3 py-2.5">
 							<div class="min-w-0">
-								<p class="text-sm text-slate-800">{label(decision)}</p>
-								<p class="mt-0.5 line-clamp-3 break-words text-xs text-slate-500" title={decision.reason}>{decision.reason}</p>
-								{@render recordLinks(decision)}
+								<p class="text-xs font-medium text-slate-500">{label(decision)}</p>
+								{@render explanation(decision)}
 							</div>
 							{#if others.length === 1}
 								<button
