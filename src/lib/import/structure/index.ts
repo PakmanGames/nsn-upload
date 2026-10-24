@@ -1,3 +1,7 @@
+/**
+ * Structure stage: finds each sheet's table, maps its columns to fields, and classifies the sheet.
+ * See docs/ARCHITECTURE.md, "Structure detection and mapping".
+ */
 import type {
 	Overrides,
 	SheetAnalysis,
@@ -6,15 +10,20 @@ import type {
 	TableSpec,
 	WorkbookModel
 } from '../model';
+import { analyzeSheet } from './sheet';
+import { materialize } from './table';
+
+export { normalizeHeader } from './header';
 
 export function analyzeStructure(model: WorkbookModel, overrides: Overrides): SheetAnalysis[] {
-	throw new Error('T3: not implemented');
+	return model.sheets.map((sheet) => analyzeSheet(sheet, overrides));
 }
 
+/** Scores a table shape from detection, the user, or the AI with the same rules. */
 export function materializeTable(
 	sheet: SheetModel,
 	spec: TableSpec,
 	source: TableCandidate['source']
 ): TableCandidate {
-	throw new Error('T3: not implemented');
+	return materialize(sheet, spec, source).table;
 }
