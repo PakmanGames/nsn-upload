@@ -8,6 +8,7 @@
  */
 import type {
 	CandidateRecord,
+	ColumnMapping,
 	Decision,
 	Field,
 	Issue,
@@ -47,7 +48,10 @@ export type SummaryParts = {
 	rows: string;
 	needs: string;
 	pending: number;
-	/** Something will import and nothing waits: the only state the summary shows as done. */
+	/**
+	 * Something will import and nothing waits (no pending decision, no Part column to pick): the only state the
+	 * summary shows as done.
+	 */
 	done: boolean;
 };
 
@@ -56,6 +60,8 @@ export function summaryParts(analysis: WorkbookAnalysis): SummaryParts {
 	const ready = sheets.filter((sheet) => sheet.status === 'ready').length;
 	const total = sheets.length;
 	const pending = summary.pendingDecisions;
+	const held = heldBackTables(analysis);
+	const choosing = sheets.some((sheet) => sheet.tables.some((table) => !held.has(table.id) && partColumnChoices(table).length > 0));
 	return {
 		// The verb follows the nearer noun: "1 of 2 sheets has", "0 of 1 sheet has", "2 of 6 sheets have".
 		sheets: `${ready} of ${plural(total, 'sheet')} ${ready === 1 || total === 1 ? 'has an importable table' : 'have importable tables'}`,
@@ -64,11 +70,13 @@ export function summaryParts(analysis: WorkbookAnalysis): SummaryParts {
 			(summary.candidates !== summary.sourceRows ? ` → ${plural(summary.candidates, 'record')}` : ''),
 		needs: pending
 			? `${pending} ${pending === 1 ? 'decision needs' : 'decisions need'} you`
-			: summary.toImport > 0
-				? 'nothing needs you'
-				: 'nothing will import',
+			: summary.toImport === 0
+				? 'nothing will import'
+				: choosing
+					? 'pick the part number column'
+					: 'nothing needs you',
 		pending,
-		done: pending === 0 && summary.toImport > 0
+		done: pending === 0 && !choosing && summary.toImport > 0
 	};
 }
 
@@ -164,7 +172,21 @@ export function columnsSummary(analysis: WorkbookAnalysis): string {
 	return tables.map((table) => `${table.sheet}: ${mappedFields(table).join(', ')}`).join(' · ');
 }
 
-/** Open the Columns section only when a mapping deserves a look: an uncertain mapped column or a user remap. */
+/**
+ * Columns the user should choose between for Part: no column is mapped to Part, and two or more could be
+ * (their values look like part numbers, but no header says which one holds them). One candidate alone stays a
+ * suggestion in its field picker.
+ */
+export function partColumnChoices(table: TableCandidate): ColumnMapping[] {
+	if (table.columns.some((column) => column.field === 'part')) return [];
+	const choices = table.columns.filter((column) => !column.field && !column.overridden && column.alternatives.includes('part'));
+	return choices.length > 1 ? choices : [];
+}
+
+/**
+ * Open the Columns section only when a mapping deserves a look: an uncertain mapped column, a Part column the
+ * user should pick, or a user remap.
+ */
 export function columnsOpenByDefault(analysis: WorkbookAnalysis): boolean {
 	const held = heldBackTables(analysis);
 	return analysis.sheets
@@ -172,7 +194,8 @@ export function columnsOpenByDefault(analysis: WorkbookAnalysis): boolean {
 		.some(
 			(table) =>
 				table.columns.some((column) => column.overridden) ||
-				(!held.has(table.id) && table.columns.some((column) => column.field && column.confidence !== 'high'))
+				(!held.has(table.id) &&
+					(table.columns.some((column) => column.field && column.confidence !== 'high') || partColumnChoices(table).length > 0))
 		);
 }
 

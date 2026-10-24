@@ -5,7 +5,7 @@
  * predicts how many of its records will import.
  */
 import type { Cell, Field } from '../model';
-import { isPlausiblePart } from '../identifiers';
+import { isPartShaped, isPlausiblePart } from '../identifiers';
 import { normalizeField } from '../normalize';
 
 /**
@@ -26,6 +26,19 @@ function checkPart(cell: Cell): Verdict {
 	const segments = cell.text.split('\n').map((s) => s.trim()).filter(Boolean);
 	if (segments.length === 0 || cell.text.trim() === '-') return 'skip';
 	return segments.every(isPlausiblePart) ? 'pass' : 'fail';
+}
+
+/**
+ * The stricter part check for a column whose header does not name Part (see isPartShaped). A number cell
+ * counts only as a whole number long enough to be a code, so quantities and prices fail.
+ */
+export function checkPartShape(cell: Cell): Verdict {
+	if (cell.kind === 'empty' || cell.kind === 'error') return 'skip';
+	if (cell.kind === 'date' || cell.kind === 'boolean') return 'fail';
+	if (cell.kind === 'number') return isPartShaped(cell.text) ? 'repaired' : 'fail';
+	const segments = cell.text.split('\n').map((s) => s.trim()).filter(Boolean);
+	if (segments.length === 0 || cell.text.trim() === '-') return 'skip';
+	return segments.every(isPartShaped) ? 'pass' : 'fail';
 }
 
 /** A description has letters and does not look like a code: a single token with digits, a URL, or an NSN/NIIN. */

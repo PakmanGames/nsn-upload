@@ -51,7 +51,7 @@ describe('PENCOM shape', () => {
 		const [table] = byName(sheets, 'Part Number Intake').tables;
 		const found = table.columns.find((c) => c.header === 'NSN Found')!;
 		expect(found.field).toBeNull();
-		expect(found.reasons).toEqual(["Header 'NSN Found' mentions NSN but also says 'found'", '0 of 2 values are valid NSNs']);
+		expect(found.reasons).toEqual(['Header mentions NSN, but 0 of 2 values are valid NSNs']);
 	});
 
 	it('holds back the search log with evidence for each mapped column', () => {
@@ -69,8 +69,8 @@ describe('PENCOM shape', () => {
 	it('explains why dashboards and notes have no table', () => {
 		expect(byName(sheets, 'Opportunity Matrix').reasons).toEqual([
 			'No column holds part numbers, NSNs, or NIINs under a matching header',
-			"Row 2, column C: Header 'Likely FSC' matches FSC; 1 of 4 values are valid FSCs",
-			"Row 2, column E: Header 'NSN Matchability (1-5)' mentions NSN but also says 'matchability'; 0 of 4 values are valid NSNs"
+			'Row 2, column C: Header mentions FSC, but 1 of 4 values are valid FSCs',
+			'Row 2, column E: Header mentions NSN, but 0 of 4 values are valid NSNs'
 		]);
 		expect(byName(sheets, 'Sources & Notes').reasons).toContain(
 			'Row 3 looks like a header, but none of its columns names Part, NSN, or NIIN'
@@ -142,10 +142,7 @@ describe('WOW shape', () => {
 		const [visible] = analyzeStructure(wowShape({ metadataHidden: false }), {});
 		const [t] = visible.tables;
 		expect(mapping(t)).toEqual({ D: 'part', E: 'nsn', F: 'description' });
-		expect(t.columns[0].reasons).toEqual([
-			"Header '(Do Not Modify) Part' mentions Part but also says 'do not modify'",
-			'0 of 30 values are plausible part numbers'
-		]);
+		expect(t.columns[0].reasons).toEqual(['Header mentions Part, but 0 of 30 values are plausible part numbers']);
 	});
 });
 

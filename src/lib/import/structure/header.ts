@@ -14,6 +14,8 @@ export type HeaderMatch = {
 	strength: HeaderStrength;
 	/** Why a match is weak, e.g. "also says 'found'"; null for strong matches. */
 	weakBecause: string | null;
+	/** Set when an identifier label only hints at the field (`Material #`); weakBecause then says why it may fit. */
+	hint?: true;
 };
 
 const VOCABULARY: Record<Field, string[]> = {
@@ -24,6 +26,15 @@ const VOCABULARY: Record<Field, string[]> = {
 	cage: ['cage', 'cage code'],
 	fsc: ['fsc', 'federal supply class']
 };
+
+/**
+ * Identifier labels that often hold a field without naming it: an ERP's material number is usually the part
+ * number. A hint is weak, so its column reaches medium confidence at best (D19), and it counts only on a
+ * plain label, not one that is also weak for another reason (`Material # Status`).
+ */
+const HINTS = [
+	{ field: 'part' as Field, phrases: ['material #', 'material number', 'material no'], why: 'a material number is usually the part number' }
+].map((hint) => ({ ...hint, phrases: hint.phrases.map((p) => p.split(' ')) }));
 
 /** Words that mark a column as being about the field rather than holding it (`NSN Found`, `Part Family`). */
 const MODIFIERS = [
@@ -101,6 +112,7 @@ function containsPhrase(tokens: string[], phrase: string[]): boolean {
  * Weak: a modifier word is present (`NSN Found`), a word holds digits, or the text is a sentence rather than a label.
  * A word with digits marks a value, not a label: `PN-4410` is a part number that starts with header vocabulary,
  * and treating it as a strong `Part` label would make data rows look like repeated headers.
+ * A hint (`Material #`) is a weak match for a field the vocabulary does not name.
  */
 export function matchHeader(text: string): HeaderMatch[] {
 	const tokens = tokenize(normalizeHeader(text));
@@ -116,11 +128,18 @@ export function matchHeader(text: string): HeaderMatch[] {
 				: sentence
 					? 'reads like a sentence, not a column label'
 					: null;
-	return PHRASES.filter(({ phrases }) => phrases.some((p) => containsPhrase(tokens, p))).map(({ field }) => ({
+	const named = (phrases: string[][]) => phrases.some((p) => containsPhrase(tokens, p));
+	const matches: HeaderMatch[] = PHRASES.filter(({ phrases }) => named(phrases)).map(({ field }) => ({
 		field,
 		strength: weakBecause ? 'weak' : 'strong',
 		weakBecause
 	}));
+	for (const { field, phrases, why } of HINTS) {
+		if (!weakBecause && named(phrases) && !matches.some((m) => m.field === field)) {
+			matches.push({ field, strength: 'weak', weakBecause: why, hint: true });
+		}
+	}
+	return matches;
 }
 
 /** True when the header carries a modifier word, i.e. it describes metadata (dates, notes, statuses). */

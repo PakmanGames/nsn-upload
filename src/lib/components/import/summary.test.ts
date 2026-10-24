@@ -10,6 +10,7 @@ import {
 	columnsOpenByDefault,
 	columnsSummary,
 	nothingToImport,
+	partColumnChoices,
 	rowsSummary,
 	rowsTitle,
 	setupSheets,
@@ -113,6 +114,31 @@ describe('R4 and R5 section summaries', () => {
 		const searchLog = pencom.decisions.find((d: Decision) => d.kind === 'include-table' && d.tableId?.startsWith('Search Log'))!;
 		expect(columnsOpenByDefault(fixture(PENCOM, { decisions: { [searchLog.id]: 'include' } }))).toBe(true);
 		expect(columnsOpenByDefault(fixture(WOW, { columns: { 'Active Parts@1': { 6: null } } }))).toBe(true);
+	});
+
+	it('opens Columns and offers both columns when two could hold part numbers and neither is mapped', () => {
+		const tie = makeWorkbook('tie.xlsx', [
+			makeSheet('Parts', [
+				['Item', 'Drawing', 'NSN'],
+				['02-15784', 'MS35106-1', '4330-01-320-0968'],
+				['03W2504-164', '12297933', '5310-01-580-7835'],
+				['130909B190', 'SM-A-802914', '5306-01-482-8472'],
+				['131554-4F', '457985-1 B', '5340-01-482-2716']
+			])
+		]);
+		const analysis = analyze(tie, []);
+		const [table] = analysis.sheets[0].tables;
+		expect(partColumnChoices(table).map((column) => column.header)).toEqual(['Item', 'Drawing']);
+		expect(columnsOpenByDefault(analysis)).toBe(true);
+		// The rows still import, but the open choice is not "nothing needs you".
+		expect(summarySentence(analysis)).toBe('1 of 1 sheet has an importable table · 4 rows · pick the part number column');
+		expect(summaryParts(analysis).done).toBe(false);
+
+		// Picking one maps it, which ends the choice.
+		const picked = analyze(tie, [], { columns: { [table.id]: { 1: 'part' } } });
+		expect(partColumnChoices(picked.sheets[0].tables[0])).toEqual([]);
+		// A single candidate beside a mapped Part column is only a suggestion in its picker.
+		expect(partColumnChoices(fixture(STATZ).sheets[0].tables[0])).toEqual([]);
 	});
 });
 

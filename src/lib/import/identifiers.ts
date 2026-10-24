@@ -37,3 +37,24 @@ export function isPlausiblePart(text: string): boolean {
 	if (ISO_DATE.test(value) || SLASH_DATE.test(value) || BASE64.test(value)) return false;
 	return value.split(/\s+/).length <= 4;
 }
+
+/** Fewer digits than this, alone, read as a quantity, a year, or an FSC rather than a part number. */
+const PART_SHAPE_MIN_DIGITS = 5;
+/** Decimals, signed numbers, and percentages: `44.03`, `-12`, `50%`. */
+const NUMBER = /^[-+]?\d*\.?\d+%?$/;
+/** A word that carries a code: a digit and at least 3 characters (`620`, `C-5`, `AN3C6`). */
+const CODE_WORD = /^(?=.*\d).{3,}$/;
+
+/**
+ * Part shape for a column whose header does not name Part, where the values are the only evidence.
+ * Stricter than isPlausiblePart, which stays the check under a Part header: money, decimals, short whole
+ * numbers, text with commas (`AIRCRAFT, GALAXY C-5`, `1,234`), and words around a stray digit (`Widget 0`)
+ * describe prices, quantities, and names, so they do not count.
+ */
+export function isPartShaped(text: string): boolean {
+	const value = text.trim();
+	if (!isPlausiblePart(value) || /[,$€£¥]/.test(value)) return false;
+	if (/^\d+$/.test(value)) return value.length >= PART_SHAPE_MIN_DIGITS;
+	if (NUMBER.test(value)) return false;
+	return value.split(/\s+/).some((word) => CODE_WORD.test(word));
+}

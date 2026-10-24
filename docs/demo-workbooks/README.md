@@ -15,7 +15,7 @@ To start from a clean mappings table, use the reset button next to the mappings 
 
 ## (a) `a-ai-unfamiliar-header.xlsx` - the AI path
 
-A stock list whose NSN column is headed "National Stock No.", below a title, with no part number column the rules recognize.
+A stock list whose NSN column is headed "National Stock No.", below a title, with no header the rules recognize.
 
 Start the app with the mock AI provider (or with a real `OPENROUTER_API_KEY` in `.env`):
 
@@ -25,7 +25,7 @@ AI_PROVIDER=mock pnpm dev
 
 What to expect:
 
-1. The sheet "Stock List" needs review: the header is found on row 4, and column B is recognized as NSNs from its values alone (6 of 6 are valid), but the header is unfamiliar, so confidence is only medium.
+1. The sheet "Stock List" needs review: the header is found on row 4, column B is recognized as NSNs from its values alone (6 of 6 are valid), and column A "Ref" as part numbers from its values alone (6 of 6 look like part numbers), but neither header names its field, so confidence is only medium.
 2. Nothing imports yet ("Import 0 records"), and AI assistance says it could help with Stock List. No workbook data has been sent.
 3. Turn on AI assistance. Only a sample of Stock List is sent; the proposal is verified against the workbook ("Accepted 1 table") and the sheet gets an AI badge.
 4. The mock's confidence is below the auto-apply bar, so the AI table still waits for you. Include it, and 6 records import, each with its NSN and the NIIN derived from it.

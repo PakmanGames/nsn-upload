@@ -41,13 +41,13 @@ describe('tables without a header row', () => {
 		expect(mapping(sheet)).toEqual({ A: 'niin' });
 	});
 
-	it('leaves a column of part numbers unmapped beside the NSNs, since only NSN and NIIN map from values alone', () => {
+	it('maps a column of part numbers beside the NSNs from its values alone, at medium confidence (E4)', () => {
 		const sheet = analyzeOne(nsns(4).map((nsn, i) => [nsn, `SE58${i}6-A`]));
 		const [table] = sheet.tables;
 
-		expect(mapping(sheet)).toEqual({ A: 'nsn' });
+		expect(mapping(sheet)).toEqual({ A: 'nsn', B: 'part' });
 		expect(table.range).toEqual({ top: 1, left: 1, bottom: 4, right: 2 });
-		expect(table.columns[1]).toMatchObject({ field: null, alternatives: ['part'] });
+		expect(table.columns[1]).toMatchObject({ field: 'part', confidence: 'medium' });
 	});
 
 	it('does not make a table of two NSNs', () => {
@@ -77,7 +77,7 @@ describe('tables without a header row', () => {
 		const sheet = analyzeOne(rows);
 
 		expect(sheet.tables[0]).toMatchObject({ id: 'List@1', headerRows: [], dataRows: [1, 2, 3, 4] });
-		expect(mapping(sheet)).toEqual({ A: 'nsn' });
+		expect(mapping(sheet)).toEqual({ A: 'nsn', B: 'part' });
 	});
 
 	it('keeps using a real header row when there is one', () => {
