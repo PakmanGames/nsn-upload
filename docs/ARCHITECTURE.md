@@ -3,7 +3,7 @@
 This is the design note required by `TASK_SPEC.md` ("Deliverables", item 3).
 It describes what is built, why, and what is not supported.
 
-Status (2026-10-24): everything described here is merged and tested; on `main`, 601 tests and 12 Playwright browser tests pass.
+Status (2026-10-24): everything described here is merged and tested; on `main`, 605 tests and 13 Playwright browser tests pass.
 Questions waiting on a product decision are in [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## In one minute
@@ -92,7 +92,7 @@ flowchart TB
 | --- | --- | --- |
 | `localStorage` key `nsn-upload-interview-task:mappings` | The saved mapping records (part, description, NSN, NIIN, CAGE, plus id, created date, and status) as JSON. Read when the page loads, and passed to the pipeline so it can find duplicates of saved records and conflicts with them. Written when the user imports or clicks "Reset demo data"; until the first write, the page shows built-in demo records. | Until the browser's site data is cleared |
 | `localStorage` key `nsn-upload-interview-task:ai-assistance` | Whether the user turned AI assistance on, so the choice survives a reload. | Same |
-| Memory, inside `ImportSession` | The uploaded file's `WorkbookModel`, the user's `Overrides` (remaps, included tables, decisions, accepted AI tables), and the latest `WorkbookAnalysis`. | Until the review window closes or another file is chosen; only the records the user imports are kept |
+| Memory, inside `ImportSession` | The uploaded file's `WorkbookModel`, the user's `Overrides` (remaps, included tables, decisions, accepted AI tables, unchecked rows), and the latest `WorkbookAnalysis`. | Until the review window closes or another file is chosen; only the records the user imports are kept |
 | Server | Nothing. The route reads `AI_PROVIDER`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL` from the environment on each request; the key never reaches the browser. | n/a |
 
 The AI sample leaves out hidden sheets, rows, and columns and system metadata columns, and the reply carries structure only (which rows and columns form a table), never values; section 7 has the details.
@@ -152,7 +152,7 @@ sequenceDiagram
 
 All of it lives in `src/lib/import/`, one directory per stage, joined by the typed contracts in `model.ts`.
 `analyze(model, existing, overrides)` runs structure -> records -> validate and is a pure function.
-The review window keeps the parsed workbook and an `Overrides` object (column remaps, decision choices, accepted AI tables).
+The review window keeps the parsed workbook and an `Overrides` object (column remaps, decision choices, accepted AI tables, rows the user unchecked).
 Every user change re-runs `analyze()` with new overrides; the file is never read again.
 
 ### From a cell to a record
@@ -402,7 +402,9 @@ Each decision shows its explanation, a side-by-side comparison (cross-sheet conf
 
 - **Sheets:** "2 ready · 1 needs review · 3 nothing to import". Each sheet has its status badge, include switch, and "Why this classification"; sheets with nothing to import and hidden sheets are folded.
 - **Columns:** the mapped fields per table. Each mapped column shows its header, evidence ("127 of 129 values are valid NSNs"), field picker, and confidence; unmapped columns fold into "3 more columns not imported", each still remappable. Opens by itself when a column is Medium or Low, or was remapped.
-- **Rows:** titled with the same row count as the summary sentence, with held-back rows counted apart ("Rows (4) · 3 held back"); the preview has status tabs for non-zero counts, a sheet filter, search across values and cell references, and 100 rows per page; derived values say "derived from E2" and split rows "1 of 2 from D136". Rows of held-back tables fold into "Search Log · 3 rows held back, not importing". Clicking a row opens the provenance drawer: for each field the cell, original text, normalized value, transformations, and origin.
+- **Rows:** titled with the same row count as the summary sentence, with held-back rows counted apart ("Rows (4) · 3 held back"); the preview has status tabs for non-zero counts, a sheet filter, search across values and cell references, and 100 rows per page; derived values say "derived from E2" and split rows "1 of 2 from D136". Rows of held-back tables fold into "Search Log · 3 rows held back, not importing".
+  Each importable row has a checkbox: unchecking it leaves that one record out ("Excluded by you", and the import count drops by one) without changing any other row or decision, and checking it again brings it back. "Worth a look" then stops listing it, since that line promises its rows still import.
+  Clicking anywhere else on a row opens the provenance drawer: for each field the cell, original text, normalized value, transformations, and origin.
 - **Applied automatically:** the automatic decisions grouped by kind, each with undo.
 - **AI assistance:** the opt-in switch, its status, and "How AI assistance works". Opens by itself when a sheet could use AI.
 
@@ -459,12 +461,12 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 ## 9. Testing
 
 - Unit tests per module: reader against the 3 real files and synthetic workbooks; normalizers table-driven over every rule above; structure on hand-built sheet shapes and the real files; records, validation, and the AI request builder, verifier, and route.
-- Acceptance suites in `tests/acceptance/` (part of `pnpm test`; 601 tests pass in total on `main`): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
+- Acceptance suites in `tests/acceptance/` (part of `pnpm test`; 605 tests pass in total on `main`): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
 - Every expected number for the example files was checked independently against the raw workbooks.
 - A messy-case suite (`tests/acceptance/messy.test.ts`) adds 14 more unseen workbooks: a part cell merged down across several rows, numeric NSNs and CAGEs, `NSN:` prefixes and dash variants, formulas and `#N/A`, part numbers Excel turned into dates, filtered rows, a header on row 7 below instructions, FSC + NIIN only, a totals row, a malformed value above a repeated header, two stacked tables, and a two-row header. Two-row headers have their own cases in `structure/two-row.test.ts` (split labels, a group label above the header, a hint row, a repeated two-row header, and a guard that keeps a first data row as data). The demo workbooks in `docs/demo-workbooks/` are tested to behave as their README says.
 - The acceptance suites also cover both F1 decisions: an unseen workbook whose NIIN contradicts its NSN, and PENCOM with a saved copy whose description differs, each through every option and the resulting import plan.
 - Playwright E2E tests (`pnpm test:e2e`, Chromium against a production build, `AI_PROVIDER=mock`): each example file is uploaded, its sheet badges, chips, and decisions are checked, "Accept all suggestions" is used where needed, the records are imported and found in the mappings table, and no AI request is sent. A fourth test turns AI on for a synthetic sheet and checks the mock proposal and that exactly one request was made.
-  Eight more (`tests/e2e/review-window.spec.ts`) cover the redesigned window: walking PENCOM's three decisions one at a time with focus moving to the next one, "Review my choices", a chip opening Rows with its filter, held-back rows folded outside the main list, the Columns open-by-default rule (closed on a clean file, open once an uncertain table is included or after a remap), and "Worth a look" for WOW and Statz, including that it stays hidden when nothing imports with a warning.
+  Nine more (`tests/e2e/review-window.spec.ts`) cover the redesigned window: walking PENCOM's three decisions one at a time with focus moving to the next one, "Review my choices", a chip opening Rows with its filter, held-back rows folded outside the main list, the Columns open-by-default rule (closed on a clean file, open once an uncertain table is included or after a remap), "Worth a look" for WOW and Statz, including that it stays hidden when nothing imports with a warning, and unchecking a row to leave it out of the import and checking it again.
 
 ## 10. Dependencies
 
