@@ -58,10 +58,15 @@ export const justNsns = {
 		73, 75, 76, 77, 78, 81, 82, 83, 86, 89, 95, 97, 98, 99
 	],
 	/** A1 and the rows that repeat it. */
-	firstNsn: { cell: 'A1', original: '1025-00-0425307', copies: [2, 3, 4], imported: { nsn: '1025000425307', niin: '000425307' } },
+	firstNsn: {
+		cell: 'A1',
+		original: '1025-00-0425307',
+		copies: [2, 3, 4],
+		imported: { nsn: '1025000425307', niin: '000425307' } satisfies MappingInput
+	},
 	/** The same table set up by hand in the review window: "No header row", column A = NSN. */
 	manual: {
 		sheet: 'Sheet1',
 		spec: { headerRows: [], range: { top: 1, left: 1, bottom: 99, right: 1 }, columns: { 1: 'nsn' } } satisfies TableSpec
 	}
-} satisfies FixtureExpectation & Record<string, unknown> & { firstNsn: { imported: MappingInput } };
+} satisfies FixtureExpectation & Record<string, unknown>;
