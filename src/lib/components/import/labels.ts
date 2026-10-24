@@ -53,7 +53,7 @@ export const ISSUE_LABEL: Record<IssueCode, string> = {
 	'ambiguous-multi-value': 'Ambiguous multi-value cell',
 	'low-confidence-mapping': 'Low-confidence mapping',
 	'split-from-multi-value': 'Split from multi-value cell',
-	'fsc-niin-mismatch': 'FSC differs for same NIIN',
+	'fsc-niin-mismatch': 'Same item under different NSNs',
 	'suspicious-value': 'Check value',
 	'missing-optional': 'Missing optional value'
 };
