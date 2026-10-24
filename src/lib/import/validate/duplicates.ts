@@ -145,6 +145,9 @@ function resolveConflict(log: DecisionLog, entries: Entry[], differing: Field[])
 		at: at(entries[0])
 	});
 
+	const preferred = entries.find(({ record }) => chosen === `prefer:${record.id}`);
+	// Records the choice approves keep the differences only as a note.
+	const approves = (entry: Entry) => chosen === 'keep-all' || entry === preferred;
 	for (const field of differing) {
 		const holders = entries.filter(({ record }) => record.fields[field]);
 		const values = holders.map(
@@ -153,7 +156,7 @@ function resolveConflict(log: DecisionLog, entries: Entry[], differing: Field[])
 		for (const entry of entries) {
 			entry.record.issues.push({
 				code: 'conflict',
-				severity: chosen === null ? 'error' : 'warning',
+				severity: chosen === null ? 'error' : approves(entry) ? 'info' : 'warning',
 				field,
 				message: `${capitalize(FIELD_LABELS[field])} differs: ${values.join(' vs ')}.`,
 				cells: holders.flatMap(({ record }) => fieldCells(record, field)),
@@ -162,7 +165,6 @@ function resolveConflict(log: DecisionLog, entries: Entry[], differing: Field[])
 		}
 	}
 
-	const preferred = entries.find(({ record }) => chosen === `prefer:${record.id}`);
 	if (preferred) {
 		fold(preferred, entries.filter((entry) => entry !== preferred));
 	} else if (chosen === null || chosen === 'exclude-all') {
@@ -265,10 +267,12 @@ function resolveStorageConflict(log: DecisionLog, entry: Entry, matches: StoredM
 		} but a different ${labels}. Keeping the saved mapping is suggested.`,
 		at: at(entry)
 	});
+	// Replacing the saved mapping or keeping both settles the difference; it stays only as a note.
+	const settled = chosen === 'replace-saved' || chosen === 'keep-both';
 	for (const { field, value, saved } of differences) {
 		record.issues.push({
 			code: 'duplicate-in-storage',
-			severity: 'warning',
+			severity: settled ? 'info' : 'warning',
 			field,
 			message: `${capitalize(FIELD_LABELS[field])} "${value}" differs from the saved ${joinList(
 				saved.map((other) => `"${other}"`)

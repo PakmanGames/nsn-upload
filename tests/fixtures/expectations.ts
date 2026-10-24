@@ -175,7 +175,16 @@ export const pencom = {
 	// Summary counts cover included and pending tables, so the initial counts also include Search Log's records,
 	// whose number depends on how its columns are mapped. Once it is excluded only XRef and Intake count.
 	initial: { sheets: 6, tablesIncluded: 2, conflicts: 4, pendingDecisions: 3, toImport: 0 },
-	afterAcceptAll: { tablesIncluded: 2, sourceRows: 4, candidates: 4, pendingDecisions: 0, toImport: 2 },
+	// The settled conflicts stay on the two imported records as notes, so they count as valid.
+	afterAcceptAll: {
+		tablesIncluded: 2,
+		sourceRows: 4,
+		candidates: 4,
+		valid: 2,
+		warnings: 0,
+		pendingDecisions: 0,
+		toImport: 2
+	},
 	/** D5: held back as a pending include-table decision with "exclude" suggested. */
 	heldBackSheet: 'Search Log',
 	/** Same part + NSN on both sheets with different descriptions; the XRef record has more fields (CAGE). */

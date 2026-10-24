@@ -6,14 +6,12 @@
  * these steps make each one visible and reversible, and hold back rows that wait for the user.
  */
 import {
-	FIELDS,
 	PRIMARY_FIELDS,
 	decisionId,
 	type CandidateRecord,
 	type ColumnMapping,
 	type Confidence,
 	type Field,
-	type Issue,
 	type SheetAnalysis,
 	type TableCandidate
 } from '../model';
@@ -25,7 +23,10 @@ import {
 	groupBy,
 	hasPrimary,
 	hold,
+	isIdentifierConflict,
 	joinList,
+	malformed,
+	settle,
 	type Entry,
 	type TableState
 } from './entry';
@@ -152,10 +153,15 @@ export function decideRows(log: DecisionLog, entries: Entry[]): void {
 				auto: false,
 				reason: `${[...messages].join('; ')}. The file does not say which identifier is right, so excluding the row is suggested.`
 			});
-			// prefer-*: T4 kept the chosen identifiers and rejected the others, so the records import with
-			// a warning. Had T4 not applied the choice, its error would remain and keep them out.
+			// prefer-*: T4 kept the chosen identifiers and rejected the others, leaving a warning that the
+			// choice settles. Had T4 not applied the choice, its error would remain and keep them out.
 			if (chosen === null) conflicted.forEach((entry) => hold(entry, 'pending'));
 			if (chosen === 'exclude-row') conflicted.forEach((entry) => hold(entry));
+			if (chosen === 'prefer-nsn' || chosen === 'prefer-niin-fsc') {
+				conflicted.forEach((entry) =>
+					settle(entry, (issue) => isIdentifierConflict(issue) && issue.severity === 'warning')
+				);
+			}
 		}
 
 		const partial = row.filter(
@@ -185,23 +191,6 @@ export function decideRows(log: DecisionLog, entries: Entry[]): void {
 			if (chosen === 'exclude-row') partial.forEach((entry) => hold(entry));
 		}
 	}
-}
-
-/**
- * T4's NSN-vs-NIIN/FSC conflict. decideRows runs before the duplicate checks add their own `conflict`
- * issues, so every one seen here came from the row itself.
- */
-const isIdentifierConflict = (issue: Issue) => issue.code === 'conflict';
-
-/** Rejected fields, except cells an identifier-conflict choice rejected; that decision covers them. */
-function malformed(record: CandidateRecord): Field[] {
-	const covered = new Set(
-		record.issues.filter(isIdentifierConflict).flatMap((issue) => issue.cells)
-	);
-	return FIELDS.filter((field) => {
-		const rejected = record.rejected[field];
-		return rejected !== undefined && !covered.has(qualifiedRef(record.sheet, rejected.cell));
-	});
 }
 
 /**
