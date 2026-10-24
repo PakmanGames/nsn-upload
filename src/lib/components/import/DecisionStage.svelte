@@ -170,7 +170,7 @@
 	-->
 	<section
 		aria-labelledby="decision-stage-label"
-		class="flex h-[clamp(25rem,calc(100dvh-13rem),36rem)] flex-col rounded-xl border-2 border-amber-300 bg-white shadow-sm"
+		class="flex h-[clamp(25rem,calc(100dvh-20rem),36rem)] flex-col rounded-xl border-2 border-amber-300 bg-white shadow-sm sm:h-[clamp(25rem,calc(100dvh-13rem),36rem)]"
 	>
 		<div class="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-t-[10px] border-b border-amber-200 bg-amber-50 px-4 py-2.5">
 			<p id="decision-stage-label" class="text-xs font-semibold uppercase tracking-wide text-amber-800">
@@ -294,7 +294,8 @@
 			</div>
 		{/key}
 
-		<div class="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-b-[10px] border-t border-slate-200 px-4 py-3">
+		<!-- On phones Apply takes its own full-width row on top, so the three buttons never wrap unevenly. -->
+		<div class="flex shrink-0 flex-col-reverse gap-2 rounded-b-[10px] border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
 			<div class="flex gap-2">
 				<button
 					type="button"
@@ -316,7 +317,7 @@
 			<button
 				bind:this={applyEl}
 				type="button"
-				class="ml-auto rounded-md bg-blue-700 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-800"
+				class="w-full rounded-md bg-blue-700 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-800 sm:ml-auto sm:w-auto"
 				onclick={apply}
 			>
 				Apply and continue
