@@ -22,7 +22,10 @@ For how the importer works, read ARCHITECTURE.md instead.
 | T7 | Review window UI | Merged (#11); F1d and polish (#17); AI panel disclosure (#19) |
 | T8 | Acceptance suites, E2E, README | Merged: wave 1 (#8), wave 2 (#10), wave 3 E2E + README (#16, #18) |
 | F1 | Two new pending decisions ([brief](tasks/F1-decision-followups.md)) | Complete: F1a (#12), F1b (#14), F1c (#15), F1d (#17), F1e (#13) |
-| UX1 | Review window redesign, summary first ([brief](tasks/UX1-review-window-redesign.md), [prototype](prototypes/review-window/index.html)) | Not started: T7 builds it, then T8 adds E2E coverage |
+| UX1 | Review window redesign, summary first ([brief](tasks/UX1-review-window-redesign.md), [prototype](prototypes/review-window/index.html)) | Merged (#22); T8 adds E2E coverage next |
+| OD3 | Two-row header detection, plus two header/footer bugs found by T8's messy-case suite (#21) | In progress: T3 |
+| Zip bomb | Reject workbooks that expand to more than 200 MB (D21) | In progress: T1 |
+| Polish | Settled conflicts no longer counted as warnings (T5); Rows title count and tooltips that open on hover of the whole section (T7) | In progress |
 
 ## Scope (5-hour build)
 
@@ -72,6 +75,8 @@ For how the importer works, read ARCHITECTURE.md instead.
 | D17 | Excel error cells (`#N/A`) are rejected values with an `invalid-identifier` issue, not empty cells. | T2, accepted |
 | D18 | The planning docs (`PLAN.md`, `OPEN-DECISIONS.md`, `tasks/`) stay in the submitted repo next to the design note. | Product owner |
 | D19 | A word containing digits makes a header match weak (`PN-4410` is a value), so a header like `Part Number 2` reaches at most medium confidence. | T3 (#9), accepted |
+| D21 | Zip-bomb guard: reject a workbook whose declared uncompressed size is over 200 MB. A legitimate workbook at the 2,000,000-cell limit measured about 90 MB unzipped, the example files expand 4-12x, and zip bombs 100x or more. | Product owner |
+| D22 | Two-row header detection (OD3) is built now: today a split label like "Part" above "Number" can import a junk record and lose columns. | Product owner |
 | D20 | The review window becomes summary-first (UX1): one sentence and the pending decision first, everything else in collapsed sections with one-line summaries; all of R1-R9 kept; Columns opens by default only when a column is medium or low confidence or was remapped. Not a "simple mode" setting. | Product owner, after the prototype |
 
 ## Backlog (future ideas)
