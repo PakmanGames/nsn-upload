@@ -7,11 +7,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/lib/import/analyze';
 import {
 	decisionId,
-	type MappingInput,
+	type StoredMapping,
 	type WorkbookAnalysis,
 	type WorkbookModel
 } from '../../src/lib/import/model';
-import { toMappingInputs } from '../../src/lib/import/validate';
+import { toImportPlan } from '../../src/lib/import/validate';
 import { rows } from '../fixtures/expectations';
 import {
 	acceptAllSuggestions,
@@ -32,7 +32,7 @@ const NSN = ['5305-01-658-2565', '5305-01-669-8021', '5340-01-102-4535', '3020-0
 const digits = (nsn: string) => nsn.replace(/-/g, '');
 
 /** Builds the workbook once for the enclosing describe block and checks the provenance contract on it. */
-function useWorkbook(fileName: string, sheets: SheetSpec[], existing: MappingInput[] = []) {
+function useWorkbook(fileName: string, sheets: SheetSpec[], existing: StoredMapping[] = []) {
 	const context = {} as { model: WorkbookModel; analysis: WorkbookAnalysis };
 	beforeAll(async () => {
 		context.model = await buildWorkbook(fileName, sheets);
@@ -114,7 +114,7 @@ describe('unseen workbooks', () => {
 
 		it('still maps the part column', () => {
 			expect(mappedColumns(tableOf(workbook.analysis, 'Parts'))).toEqual({ part: 'A', nsn: 'B' });
-			expect(toMappingInputs(workbook.analysis).map((input) => input.part)).toEqual(['PN-4410', 'PN-4411', 'PN-4412']);
+			expect(toImportPlan(workbook.analysis).add.map((input) => input.part)).toEqual(['PN-4410', 'PN-4411', 'PN-4412']);
 		});
 	});
 
@@ -182,7 +182,7 @@ describe('unseen workbooks', () => {
 				expect(record.fields.niin?.provenance.origin).toBe('source');
 				expect(record.approved).toBe(true);
 			});
-			expect(toMappingInputs(workbook.analysis).map((input) => input.nsn)).toEqual(
+			expect(toImportPlan(workbook.analysis).add.map((input) => input.nsn)).toEqual(
 				lines.map(([, fsc, niin]) => fsc + niin)
 			);
 		});
@@ -361,11 +361,11 @@ describe('unseen workbooks', () => {
 	});
 
 	describe('a record that is already in local storage', () => {
-		const existing: MappingInput[] = [
+		const existing: StoredMapping[] = [
 			// Differs from row 2 only in case and internal whitespace, and stores the NSN normalized.
-			{ part: 'brk  1001', nsn: digits(NSN[0]) },
+			{ id: 'saved-1', part: 'brk  1001', nsn: digits(NSN[0]) },
 			// Same part as row 3 but another NSN: a different mapping, not a duplicate.
-			{ part: 'BRK-1002', nsn: digits(NSN[1]) }
+			{ id: 'saved-2', part: 'BRK-1002', nsn: digits(NSN[1]) }
 		];
 		const sheets: SheetSpec[] = [
 			{

@@ -8,10 +8,12 @@
 import type {
 	CandidateRecord,
 	Decision,
+	ImportPlan,
 	ImportSummary,
 	MappingInput,
 	Overrides,
 	SheetAnalysis,
+	StoredMapping,
 	WorkbookAnalysis,
 	WorkbookModel
 } from '../model';
@@ -25,7 +27,7 @@ export function finalizeAnalysis(
 	model: WorkbookModel,
 	sheets: SheetAnalysis[],
 	records: CandidateRecord[],
-	existing: MappingInput[],
+	existing: StoredMapping[],
 	overrides: Overrides
 ): WorkbookAnalysis {
 	const log = new DecisionLog(overrides.decisions);
@@ -109,8 +111,8 @@ function summarize(
 const STORED_FIELDS = ['part', 'description', 'nsn', 'niin', 'cage'] as const;
 
 /** Approved records as storage inputs. FSC is not stored; it lives on in the NSN. */
-export function toMappingInputs(analysis: WorkbookAnalysis): MappingInput[] {
-	return analysis.records
+export function toImportPlan(analysis: WorkbookAnalysis): ImportPlan {
+	const add = analysis.records
 		.filter((record) => record.approved)
 		.map(({ fields }) => {
 			const input: MappingInput = {};
@@ -120,4 +122,5 @@ export function toMappingInputs(analysis: WorkbookAnalysis): MappingInput[] {
 			}
 			return input;
 		});
+	return { add, replace: [] };
 }

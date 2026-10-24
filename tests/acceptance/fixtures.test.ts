@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/lib/import/analyze';
 import { decisionId, type WorkbookAnalysis, type WorkbookModel } from '../../src/lib/import/model';
 import { qualifiedRef } from '../../src/lib/import/refs';
-import { toMappingInputs } from '../../src/lib/import/validate';
+import { toImportPlan } from '../../src/lib/import/validate';
 import { FIXTURES, pencom, statz, wow } from '../fixtures/expectations';
 import {
 	acceptAllSuggestions,
@@ -86,7 +86,7 @@ describe('fixture acceptance', () => {
 			it('resolves everything with "Accept all suggestions"', () => {
 				expect(accepted.summary).toMatchObject(fixture.afterAcceptAll);
 				expectSummaryConsistent(accepted);
-				expect(toMappingInputs(accepted)).toHaveLength(accepted.summary.toImport);
+				expect(toImportPlan(accepted).add).toHaveLength(accepted.summary.toImport);
 			});
 
 			it('builds no records from hidden or no-table sheets', () => {
@@ -351,7 +351,7 @@ describe('fixture acceptance', () => {
 		});
 
 		it('imports nothing until the conflicts are resolved', () => {
-			expect(toMappingInputs(analysis)).toEqual([]);
+			expect(toImportPlan(analysis)).toEqual({ add: [], replace: [] });
 		});
 
 		it('imports the 2 XRef records after "Accept all suggestions"', () => {
@@ -363,7 +363,7 @@ describe('fixture acceptance', () => {
 				expect(record.fields.cage?.provenance).toMatchObject({ sheet: record.sheet, row: record.sourceRow });
 			}
 			const byPart = (a: { part?: string }, b: { part?: string }) => (a.part ?? '').localeCompare(b.part ?? '');
-			expect(toMappingInputs(accepted).sort(byPart)).toEqual([...pencom.imported].sort(byPart));
+			expect(toImportPlan(accepted).add.sort(byPart)).toEqual([...pencom.imported].sort(byPart));
 		});
 	});
 });

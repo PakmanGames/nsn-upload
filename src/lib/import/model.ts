@@ -256,7 +256,9 @@ export type DecisionKind =
 	| 'import-valid-portion'
 	| 'merge-duplicates'
 	| 'drop-duplicate'
-	| 'resolve-conflict';
+	| 'resolve-conflict'
+	| 'resolve-identifier-conflict'
+	| 'resolve-storage-conflict';
 
 export type DecisionOption = { id: string; label: string };
 
@@ -268,6 +270,8 @@ export type Decision = {
 	state: 'auto' | 'pending' | 'user';
 	tableId?: string;
 	recordIds: string[];
+	/** Saved records involved (resolve-storage-conflict), so the UI can show saved and new values side by side. */
+	existingIds?: string[];
 	/** Qualified refs of the cells involved. */
 	cells: string[];
 	options: DecisionOption[];
@@ -280,7 +284,8 @@ export type Decision = {
 /**
  * Decision subjects, so tasks can build the same id independently:
  * include-table -> table id; split-cell, ambiguous-multi-value, import-valid-portion -> `${tableId}:r${row}`;
- * merge-duplicates, drop-duplicate, resolve-conflict -> record ids sorted and joined with "+".
+ * merge-duplicates, drop-duplicate, resolve-conflict -> record ids sorted and joined with "+";
+ * resolve-identifier-conflict -> `${tableId}:r${row}`; resolve-storage-conflict -> `${recordId}+saved:${existingId}`.
  */
 export function decisionId(kind: DecisionKind, subject: string): string {
 	return `${kind}:${subject}`;
@@ -294,7 +299,9 @@ export const DECISION_OPTIONS = {
 	'import-valid-portion': ['import-valid-portion', 'exclude-row'],
 	'merge-duplicates': ['merge', 'keep-separate'],
 	'drop-duplicate': ['drop', 'keep'],
-	'resolve-conflict': ['keep-all', 'exclude-all']
+	'resolve-conflict': ['keep-all', 'exclude-all'],
+	'resolve-identifier-conflict': ['prefer-nsn', 'prefer-niin-fsc', 'exclude-row'],
+	'resolve-storage-conflict': ['keep-saved', 'replace-saved', 'keep-both']
 } as const satisfies Record<DecisionKind, readonly string[]>;
 
 /* ---------- Overrides: re-running analyze() with them never rereads the file ---------- */
@@ -329,6 +336,15 @@ export type WorkbookAnalysis = {
 	records: CandidateRecord[];
 	decisions: Decision[];
 	summary: ImportSummary;
+};
+
+/** A record already saved in the browser; the id lets an import replace it. */
+export type StoredMapping = MappingInput & { id: string };
+
+/** What an import does: add new records, and replace saved ones the user chose to overwrite. */
+export type ImportPlan = {
+	add: MappingInput[];
+	replace: Array<{ id: string; input: MappingInput }>;
 };
 
 /* ---------- AI boundary (T6) ---------- */
