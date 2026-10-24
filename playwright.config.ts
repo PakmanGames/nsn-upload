@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto';
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+/**
+ * One port per checkout, stable for that checkout. With a single shared port, parallel worktrees on one machine
+ * raced for it, and a run could test another checkout's build or time out while it started.
+ */
+const PORT = 4173 + (createHash('sha1').update(process.cwd()).digest().readUInt16BE(0) % 1000);
 
 /**
  * E2E against the production build, so the tests see the same lazy chunks and server route users get.
