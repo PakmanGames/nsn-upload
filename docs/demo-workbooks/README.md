@@ -38,11 +38,11 @@ Row 2 has NSN `5305-01-658-2565` (whose NIIN is `016582565`) but NIIN `016698021
 
 What to expect:
 
-1. One decision needs you: an identifier conflict on row 2, naming the NSN cell B2 and the NIIN cell D2. The suggestion is "Exclude row", because the file does not say which identifier is right.
+1. One decision needs you: an identifier conflict on row 2, naming the NSN cell B2 and the NIIN cell D2. The suggestion is "Keep the NSN", so nothing from the file is lost: the NIIN is worked out from the NSN and the disagreeing NIIN cell stays listed on the row.
 2. The other 3 rows import ("Import 3 records").
-3. "Keep the NSN" imports row 2 with NSN `5305016582565` and a NIIN derived from it (`016582565`); the NIIN cell is listed as rejected.
+3. "Keep the NSN" imports row 2 with NSN `5305016582565` and a NIIN derived from it (`016582565`); the NIIN cell is listed as rejected, and the row imports with a warning about it.
 4. "Keep the NIIN and FSC" imports row 2 with NIIN `016698021` and the NSN derived from FSC + NIIN (`5305016698021`); the NSN cell is listed as rejected.
-5. "Accept all suggestions" excludes the row.
+5. "Exclude row" leaves row 2 out. "Accept all suggestions" keeps the NSN, so 4 records import.
 
 ## (c) `c-pencom-changed-copy.xlsx` - a conflict with a saved record
 

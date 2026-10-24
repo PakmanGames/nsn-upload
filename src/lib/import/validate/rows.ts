@@ -198,15 +198,19 @@ export function decideRows(log: DecisionLog, entries: Entry[]): void {
 				recordIds: conflicted.map(({ record }) => record.id),
 				kind: 'resolve-identifier-conflict',
 				cells: [...new Set(issues.flatMap((issue) => issue.cells))],
-				suggested: 'exclude-row',
+				// Keeping the NSN loses nothing from the file: the NIIN and FSC follow from it, and the cells
+				// that disagree stay on the record (PLAN.md D24).
+				suggested: 'prefer-nsn',
 				auto: false,
-				reason: `${[...messages].join('; ')}. The file does not say which identifier is right, so excluding the row is suggested.`
+				reason: `${[...messages].join('; ')}. Keeping the NSN is suggested: its NIIN and FSC are worked out from it, and the cells that disagree stay listed on the row.`
 			});
-			// prefer-*: T4 kept the chosen identifiers and rejected the others, leaving a warning that the
-			// choice settles. Had T4 not applied the choice, its error would remain and keep them out.
+			// prefer-*: T4 kept the chosen identifiers and rejected the others, leaving a conflict warning.
+			// Had T4 not applied the choice, its error would remain and keep them out.
 			if (chosen === null) conflicted.forEach((entry) => hold(entry, 'pending'));
 			if (chosen === 'exclude-row') conflicted.forEach((entry) => hold(entry));
-			if (chosen === 'prefer-nsn' || chosen === 'prefer-niin-fsc') {
+			// prefer-nsn keeps the warning, so file cells replaced by values worked out from the NSN stay visible
+			// as warnings even when the suggestion is accepted in bulk; prefer-niin-fsc settles it into a note.
+			if (chosen === 'prefer-niin-fsc') {
 				conflicted.forEach((entry) =>
 					settle(entry, (issue) => isIdentifierConflict(issue) && issue.severity === 'warning')
 				);

@@ -185,14 +185,14 @@ describe('unseen workbooks', () => {
 		const partOnly = { part: 'SCR-0001', description: 'Screw, machine' };
 		const withChoice = (choice: string) => analyze(workbook.model, [], { decisions: { [id]: choice } });
 
-		it('holds the row back as a pending decision with "exclude-row" suggested', () => {
+		it('holds the row back as a pending decision with "prefer-nsn" suggested', () => {
 			const { analysis } = workbook;
 			const decision = analysis.decisions.find((candidate) => candidate.id === id);
 			expect(decision).toMatchObject({
 				kind: 'resolve-identifier-conflict',
 				state: 'pending',
 				chosen: null,
-				suggested: 'exclude-row'
+				suggested: 'prefer-nsn'
 			});
 			expect(decision?.options.map((option) => option.id)).toEqual(
 				expect.arrayContaining(['prefer-nsn', 'prefer-niin-fsc', 'exclude-row'])
@@ -206,23 +206,27 @@ describe('unseen workbooks', () => {
 			expect(analysis.summary).toMatchObject({ pendingDecisions: 1, toImport: 3 });
 		});
 
-		it('"Accept all suggestions" never imports the contradicted identifiers', () => {
+		it('"Accept all suggestions" keeps the NSN and never imports the contradicted NIIN', () => {
 			const accepted = analyze(workbook.model, [], acceptAllSuggestions(workbook.analysis));
-			expect(accepted.decisions.find((candidate) => candidate.id === id)).toMatchObject({ chosen: 'exclude-row' });
-			expect(singleRecordAt(accepted, 'Catalog', 2).approved).toBe(false);
-			expect(accepted.summary).toMatchObject({ pendingDecisions: 0, toImport: 3 });
+			expect(accepted.decisions.find((candidate) => candidate.id === id)).toMatchObject({ chosen: 'prefer-nsn' });
+			expect(singleRecordAt(accepted, 'Catalog', 2).approved).toBe(true);
+			expect(toImportPlan(accepted).add).toContainEqual({ ...partOnly, nsn: '5305016582565', niin: '016582565', derived: ['niin'] });
+			expect(accepted.summary).toMatchObject({ pendingDecisions: 0, toImport: 4 });
 		});
 
-		it('prefer-nsn keeps the NSN, rejects the NIIN cell, and derives the NIIN', () => {
+		it('prefer-nsn keeps the NSN, rejects the NIIN cell, derives the NIIN, and warns about the cell', () => {
 			const analysis = withChoice('prefer-nsn');
 			const record = singleRecordAt(analysis, 'Catalog', 2);
-			expect(record).toMatchObject({ status: 'valid', approved: true });
+			expect(record).toMatchObject({ status: 'warning', approved: true });
 			expect(record.fields.nsn).toMatchObject({ value: '5305016582565', provenance: { cell: 'B2', origin: 'source' } });
 			expect(record.fields.niin).toMatchObject({ value: '016582565', provenance: { origin: 'derived' } });
 			expect(record.fields.niin?.provenance.derivedFrom).toContain('B2');
-			expect(record.fields.fsc?.value).toBe('5305');
+			// The FSC cell agrees with the NSN, so it stays the source value.
+			expect(record.fields.fsc).toMatchObject({ value: '5305', provenance: { origin: 'source' } });
 			expect(record.rejected.niin).toEqual({ original: '016698021', cell: 'D2' });
-			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'info' }));
+			expect(record.issues).toContainEqual(
+				expect.objectContaining({ code: 'conflict', severity: 'warning', cells: ['Catalog!D2', 'Catalog!B2'] })
+			);
 			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016582565', niin: '016582565', derived: ['niin'] });
 			expectSummaryConsistent(analysis);
 			expectTraceable(workbook.model, analysis);

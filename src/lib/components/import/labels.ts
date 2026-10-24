@@ -96,6 +96,7 @@ export const TRANSFORM_LABEL: Record<Transform, string> = {
 	'merge-fill': 'Filled from merged cell',
 	'split-multi-value': 'Split multi-value cell',
 	'derive-niin-from-nsn': 'NIIN derived from NSN',
+	'derive-fsc-from-nsn': 'FSC derived from NSN',
 	'derive-nsn-from-fsc-niin': 'NSN derived from FSC + NIIN'
 };
 

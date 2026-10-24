@@ -339,6 +339,7 @@ function checkAndDerive(
  * Applies the row's resolve-identifier-conflict choice to an NSN that disagrees with the row's NIIN or FSC.
  * The losing cells move to `rejected` with a conflict warning. Undecided, `exclude-row`, and any choice
  * validate/ does not offer all build the same records: conflict errors, which hold the record as pending.
+ * With prefer-nsn, an FSC ruled against is derived from the NSN here; a NIIN is derived by checkAndDerive.
  */
 function resolveConflict(
 	ctx: TableContext,
@@ -354,7 +355,7 @@ function resolveConflict(
 	const at = (v: FieldValue) => qualifiedRef(ctx.sheet.name, toA1(v.provenance.row, v.provenance.col));
 	const choice = ctx.overrides.decisions?.[decisionId('resolve-identifier-conflict', `${ctx.table.id}:r${row}`)];
 	if (choice === 'prefer-nsn') {
-		return disagreeing.map((field) => {
+		const issues: Issue[] = disagreeing.map((field) => {
 			const other = reject(fields, rejected, field);
 			return {
 				code: 'conflict',
@@ -364,6 +365,10 @@ function resolveConflict(
 				cells: [at(other), at(nsn)]
 			};
 		});
+		// Only an FSC the choice ruled against is replaced: a row without an FSC cell needs none, and a
+		// malformed FSC cell is never in `disagreeing`, so nothing is derived over it.
+		if (disagreeing.includes('fsc')) fields.fsc = derived(nsn.value.slice(0, 4), 'derive-fsc-from-nsn', [nsn]);
+		return issues;
 	}
 	if (choice === 'prefer-niin-fsc') {
 		reject(fields, rejected, 'nsn');

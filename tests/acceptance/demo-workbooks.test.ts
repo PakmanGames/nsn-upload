@@ -89,10 +89,10 @@ describe('demo workbooks', () => {
 			analysis = analyze(model, [], {});
 		});
 
-		it('asks about row 2, suggests excluding it, and imports the other 3 rows', () => {
+		it('asks about row 2, suggests keeping the NSN, and imports the other 3 rows', () => {
 			expect(analysis.decisions.find((decision) => decision.id === id)).toMatchObject({
 				state: 'pending',
-				suggested: 'exclude-row',
+				suggested: 'prefer-nsn',
 				cells: expect.arrayContaining(['Catalog!B2', 'Catalog!D2'])
 			});
 			expect(analysis.summary).toMatchObject({ pendingDecisions: 1, toImport: 3 });
