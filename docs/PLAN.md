@@ -45,33 +45,37 @@ Four new workbooks came with the feedback and are in `example-excel-uploads/`.
 | E4 | Part column chosen by its values; one FSC for several NSNs; headers that only mention a field ([brief](tasks/E4-columns-by-values-and-multi-nsn-cells.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Not started |
 | V1 | The spreadsheet inside the review window, with a focus hook for hover highlighting ([brief](tasks/V1-spreadsheet-view.md)) | all | Not started |
 | V2 | Hovering the review highlights the matching cells (outlined at the end of the V1 brief) | all | After V1 |
+| M1 | Messages a user understands: plain-language explanations, with AI wording when AI assistance is on ([brief](tasks/M1-plain-language-messages.md)) | all | Not started |
 
-All five briefs start in parallel.
+E1-E4, V1, and M1 run in parallel.
 
 ### Wave 2 rules (in addition to the rules below)
 
 1. Each task owns the paths listed at the end of its brief. `model.ts` changes only in E1 (its brief has the exact contract).
 2. Shared files, and who edits which part:
 
-   | File | E1 | E2 | E3 | E4 | V1 |
-   | --- | --- | --- | --- | --- | --- |
-   | `structure/detect.ts` | one call in the no-header branch | `tryHeader` span | `detectTable`, `nextTable` | | |
-   | `structure/sheet.ts` | manual-table branch | | deterministic branch | | |
-   | `structure/columns.ts` | | `readHeader` | | value-only rules | |
-   | `session.svelte.ts` | two methods | | | | `focus` state |
-   | `SheetsPanel.svelte` | setup control | | one line per table | | |
-   | `ColumnsPanel.svelte` | | "(no header)" label | group headings | | |
+   | File | E1 | E2 | E3 | E4 | V1 | M1 |
+   | --- | --- | --- | --- | --- | --- | --- |
+   | `structure/detect.ts` | one call in the no-header branch | `tryHeader` span | `detectTable`, `nextTable` | | | |
+   | `structure/sheet.ts` | manual-table branch | | deterministic branch | | | |
+   | `structure/columns.ts` | | `readHeader` | | value-only rules | | |
+   | `session.svelte.ts` | two methods | | | | `focus` state | explanation state |
+   | `src/lib/import/ai/` | verifier, prompt, schema | | | | | new `explain*.ts` files only |
+   | `SheetsPanel.svelte` | setup control | | one line per table | | | |
+   | `ColumnsPanel.svelte` | | "(no header)" label | group headings | | | |
+   | `PreviewPanel.svelte`, `ProvenanceDrawer.svelte` | | | | | focus calls | message lines |
 
    Keep your edits inside your part, and when you rebase after another task merged, keep its behavior and rerun the whole suite.
 3. Each new fixture gets its own expectations file (`tests/fixtures/<name>.ts`) and acceptance suite (`tests/acceptance/<name>.test.ts`). Do not add to `FIXTURES` in `expectations.ts`; the coordinator registers the new fixtures after the merges.
 4. The WOW, Statz, and PENCOM expectations stay green. A change to them must be explained in the PR, not silently updated.
-5. Merge order when several are ready at once: E4, E2, E3, E1; V1 at any time.
+5. Merge order when several are ready at once: E4, E2, E3, E1; V1 and M1 at any time.
 
 ### Defaults the briefs assume (product owner can overrule)
 
 - **Headerless sheets (E1):** detected automatically and offered as one pending decision suggested "include", plus a by-hand setup for any sheet without a table. "Manually add a column" is read as mapping a column by hand on a sheet where no table was found.
 - **Second table on a sheet (E3):** each table becomes its own line in Sheets, with its own decision, columns, and rows ("like a separate sheet"), but provenance keeps the real sheet name. Side-by-side tables that share rows are left for later.
 - **Spreadsheet view (V1):** values only, drawn from the parsed workbook; Excel formatting (fills, fonts) is not shown. The importer's findings are drawn on top.
+- **Messages (M1):** plain-language wording is built without AI and always shown, because AI assistance is off until the user turns it on; with AI on, the wording is rewritten from the same facts and verified against them. The AI explains the problem; the suggestion stays the pipeline's.
 
 Beyond Wave 2, what remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
