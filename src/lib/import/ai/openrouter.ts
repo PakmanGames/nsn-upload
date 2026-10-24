@@ -30,6 +30,7 @@ The user message holds a JSON workbook sample. Each sheet has its name, the A1 r
 Return structure only:
 - At most one table per sheet, and only for sheets that hold one record per row of part or stock numbers. Leave out dashboards, notes, instructions, and search logs.
 - range runs from the first header row to the last data row and stays inside the sheet's range. headerRows are 1-based row numbers. col is the 1-based column number (A = 1). headerText is the header cell text in that column as written, joined with a space across header rows.
+- A table may have no header row, such as a bare list of NSNs. Then headerRows is empty, range starts at the first data row, and every headerText is empty. Without a header, map only nsn and niin columns in which nearly every value is valid; other columns cannot be identified from values alone.
 - Map a column only when its values fit the field. Each field at most once, each column at most once. A table needs a part, nsn, or niin column.
 - confidence is 0 to 1 for the table and mapping together. reasons are a few short phrases about structure, such as "header in row 2" or "column E holds 13-digit NSNs".
 - Never output cell values or identifiers. headerText is the only text you copy.

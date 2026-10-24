@@ -6,7 +6,8 @@
  * medium confidence. Every other column is evaluated the same way and stays unmapped unless it passes.
  */
 import type { Cell, CellRange, Field, SheetModel } from '../model';
-import { assignFields, evaluateColumns, isPrimary, readHeader, type ColumnHeader } from './columns';
+import { colLetter } from '../refs';
+import { assignFields, describeEvidence, evaluateColumns, isPrimary, readHeader, type ColumnHeader } from './columns';
 import type { Detection } from './detect';
 import { formatRows } from './table';
 import { checkValue } from './values';
@@ -84,4 +85,23 @@ export function detectHeaderless(sheet: SheetModel, extent: CellRange, span: Spa
 			? [`${above.length === 1 ? 'Row' : 'Rows'} ${formatRows(above)} above the first NSN or NIIN ${above.length === 1 ? 'is' : 'are'} not imported`]
 			: [];
 	return { spec: { headerRows: [], range: { top, left, bottom: extent.bottom, right }, columns }, reasons };
+}
+
+/**
+ * Why a column of a proposed table without a header row cannot be mapped, or null when every column's values
+ * identify its field. The AI verifier holds proposals to the same rule as detection with it.
+ */
+export function unsupportedByValues(sheet: SheetModel, range: CellRange, columns: ReadonlyMap<number, Field>): string | null {
+	const rows: number[] = [];
+	for (let row = range.top; row <= range.bottom; row++) if (!sheet.hiddenRows.has(row)) rows.push(row);
+	const headers = new Map([...columns.keys()].map((col) => [col, readHeader(sheet, [], col)]));
+	for (const column of evaluateColumns(sheet, headers, rows, { mapped: columns })) {
+		const field = columns.get(column.col)!;
+		const evidence = column.fields.get(field)!;
+		if (!evidence.confidence) {
+			const values = describeEvidence(column, evidence).at(-1);
+			return `Column ${colLetter(column.col)} (${field}) has no header row, and its values alone are not enough to map it (${values})`;
+		}
+	}
+	return null;
 }

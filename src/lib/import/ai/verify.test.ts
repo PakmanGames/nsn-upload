@@ -134,7 +134,8 @@ describe('verifyInterpretation', () => {
 		[{ range: 'A2:D60' }, "Range A2:D60 is outside the sheet's values (A1:D6)"],
 		[{ headerRows: [1] }, 'Header row 1 is outside the range A2:D6'],
 		[{ range: 'A2:D2' }, 'Range A2:D2 has no rows below the header'],
-		[{ headerRows: [] }, 'No header row given'],
+		// Without a header row there is no header text, so a model that quotes one has misread the sheet.
+		[{ headerRows: [] }, 'Column B header is "", but the AI read "Part Number"'],
 		[{ columns: [] }, 'No columns mapped'],
 		[
 			{ columns: [{ field: 'description', col: 4, headerText: 'Nomenclature' }] },
@@ -238,5 +239,52 @@ describe('verifyInterpretation', () => {
 			range: { top: 2, left: 1, bottom: 6, right: 4 },
 			columns: { 2: 'part', 3: 'nsn', 4: 'description' }
 		});
+	});
+});
+
+describe('verifyInterpretation, tables without a header row', () => {
+	const nsns = ['5305-01-658-2565', '5305-01-669-8021', '5340-01-102-4535', '3020-01-660-9619', '2530-00-967-3346'];
+	const list = makeSheet('List', nsns.map((nsn, i) => [nsn, `SE58${i}6`]));
+	const listModel = makeWorkbook('list.xlsx', [list]);
+	const listRequest = buildInterpretationRequest(listModel, [{ ...trigger, name: 'List' }]);
+	const headerless: InterpretationTable = {
+		sheetName: 'List',
+		range: 'A1:B5',
+		headerRows: [],
+		columns: [{ field: 'nsn', col: 1, headerText: '' }],
+		confidence: 0.9,
+		reasons: ['no header row; column A holds NSNs']
+	};
+	const verifyList = (table: InterpretationTable) =>
+		verifyInterpretation(listModel, listRequest, { tables: [table] });
+
+	it('accepts one whose columns pass on their values alone', () => {
+		const result = verifyList(headerless);
+
+		expect(result.rejected).toEqual([]);
+		expect(materialize).toHaveBeenCalledWith(
+			list,
+			{ headerRows: [], range: { top: 1, left: 1, bottom: 5, right: 2 }, columns: { 1: 'nsn' } },
+			'ai'
+		);
+	});
+
+	it.each([
+		[
+			{ columns: [{ field: 'nsn', col: 2, headerText: '' }] },
+			'Column B (nsn) has no header row, and its values alone are not enough to map it (0 of 5 values are valid NSNs)'
+		],
+		[
+			// Part numbers have no strict format, so values alone never map a part column.
+			{ columns: [...headerless.columns, { field: 'part', col: 2, headerText: '' }] },
+			'Column B (part) has no header row, and its values alone are not enough to map it (5 of 5 values are plausible part numbers)'
+		],
+		[{ columns: [{ field: 'nsn', col: 1, headerText: 'NSN' }] }, 'Column A header is "", but the AI read "NSN"']
+	] as Array<[Partial<InterpretationTable>, string]>)('rejects %o', (change, reason) => {
+		const result = verifyList({ ...headerless, ...change });
+
+		expect(result.tables).toEqual([]);
+		expect(result.rejected.map((r) => r.reason)).toEqual([reason]);
+		expect(materialize).not.toHaveBeenCalled();
 	});
 });
