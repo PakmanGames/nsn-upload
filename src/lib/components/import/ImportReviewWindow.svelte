@@ -36,6 +36,7 @@
 		heldBackGroups,
 		heldBackTables,
 		rowsSummary,
+		rowsTitle,
 		sheetsSummary,
 		statusChips,
 		summaryParts,
@@ -476,7 +477,7 @@
 							</Section>
 							<Section
 								id="rows"
-								title={`Rows (${analysis.records.length})`}
+								title={rowsTitle(analysis)}
 								summary={rowsSummary(analysis)}
 								icon={Rows3}
 								open={isOpen('rows')}
