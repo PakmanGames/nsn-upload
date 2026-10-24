@@ -7,10 +7,9 @@
 	import Search from '@lucide/svelte/icons/search';
 	import Settings from '@lucide/svelte/icons/settings';
 	import { onMount } from 'svelte';
-	import SmartUploadModal from './SmartUploadModal.svelte';
+	import ImportReviewWindow from './import/ImportReviewWindow.svelte';
 	import { demoMappings } from '$lib/demo-data';
-	import { uniqueKey } from '$lib/smart-upload';
-	import type { ImportResult, MappingRecord, UploadRow } from '$lib/types';
+	import type { MappingInput, MappingRecord } from '$lib/types';
 
 	const storageKey = 'nsn-upload-interview-task:mappings';
 	const pageSize = 8;
@@ -58,36 +57,19 @@
 		currentPage = 0;
 	}
 
-	async function importRows(rows: UploadRow[]): Promise<ImportResult> {
-		const existing = new Set(mappings.map(uniqueKey));
-		const failed: ImportResult['failed'] = [];
-		const added: MappingRecord[] = [];
-
-		rows.forEach((row) => {
-			const { input } = row;
-			const key = uniqueKey(input);
-			const identifier = input.nsn || input.niin || input.part || 'No identifier';
-			if (existing.has(key)) {
-				failed.push({
-					line: row.line,
-					identifier,
-					error: 'Already exists in the local NSN table.'
-				});
-				return;
-			}
-
-			existing.add(key);
-			added.push({
-				...input,
-				id: crypto.randomUUID(),
-				createdAt: new Date().toISOString(),
-				status: 'Ready'
-			});
-		});
-
+	/** Duplicates against saved records were already resolved in the review window, so every input is added. */
+	function importMappings(inputs: MappingInput[]): number {
+		const createdAt = new Date().toISOString();
+		const added: MappingRecord[] = inputs.map((input) => ({
+			...input,
+			id: crypto.randomUUID(),
+			createdAt,
+			status: 'Ready'
+		}));
 		save([...added, ...mappings]);
+		searchTerm = '';
 		currentPage = 0;
-		return { success: added.length, failed };
+		return added.length;
 	}
 
 	function statusStyle(status: MappingRecord['status']) {
@@ -268,8 +250,9 @@
 	</div>
 </div>
 
-<SmartUploadModal
+<ImportReviewWindow
 	open={showUpload}
+	existing={mappings}
 	onClose={() => (showUpload = false)}
-	onImport={importRows}
+	onImport={importMappings}
 />
