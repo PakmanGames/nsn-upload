@@ -8,12 +8,12 @@ export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsh
 export async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
 	await page.goto('/');
 	const dialog = page.getByRole('dialog', { name: 'Smart Upload' });
-	// The button is server-rendered, and a click that lands before hydration does nothing (it happens on a busy
-	// machine), so click until the dialog opens.
+	// The page is server-rendered, and a click that lands before hydration does nothing (seen on a loaded
+	// machine), so click again until the window opens. Clicking only while it is closed keeps the retry safe.
 	await expect(async () => {
-		await page.getByRole('button', { name: 'Smart Upload' }).click();
-		await expect(dialog).toBeVisible({ timeout: 1_000 });
-	}).toPass();
+		if (!(await dialog.isVisible())) await page.getByRole('button', { name: 'Smart Upload' }).click();
+		await expect(dialog).toBeVisible({ timeout: 2_000 });
+	}).toPass({ timeout: 20_000 });
 	await dialog.locator('input[type=file]').setInputFiles(file);
 	await expect(importButton(dialog)).toBeVisible();
 	return dialog;
