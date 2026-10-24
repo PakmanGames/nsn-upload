@@ -55,7 +55,8 @@ describe('demo workbooks', () => {
 			expect(sheet.aiTrigger).not.toBeNull();
 			const table = tableOf(analysis, 'Stock List');
 			expect(table.headerRows).toEqual([4]);
-			expect(mappedColumns(table)).toEqual({ nsn: 'B' });
+			// Neither header names its field: both columns are mapped from their values alone, at medium confidence.
+			expect(mappedColumns(table)).toEqual({ part: 'A', nsn: 'B' });
 			expect(analysis.summary).toMatchObject({ candidates: 6, pendingDecisions: 1, toImport: 0 });
 			expectContracts(model, analysis);
 		});

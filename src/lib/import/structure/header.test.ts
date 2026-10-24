@@ -73,6 +73,30 @@ describe('matchHeader', () => {
 		]);
 	});
 
+	it.each(['Material #', 'Material Number', 'Material No.', 'SAP Material #'])('treats %j as a weak hint at part', (header) => {
+		expect(matchHeader(header)).toEqual([
+			{ field: 'part', strength: 'weak', weakBecause: 'a material number is usually the part number', hint: true }
+		]);
+	});
+
+	it('gives no hint for a plain Material column, or for a label that is weak for another reason', () => {
+		expect(matchHeader('Material')).toEqual([]);
+		expect(matchHeader('Material # Status')).toEqual([]);
+	});
+
+	it.each(['Partner', 'Pneumatic Fitting', 'Caged Bearings', 'Unsnapped Count', 'Fiscal Year', 'Departure', 'Spin'])(
+		'matches field words as whole words only, so %j names no field',
+		(header) => {
+			expect(matchHeader(header)).toEqual([]);
+		}
+	);
+
+	it('still finds a field word inside a longer label; the values decide whether the column holds it', () => {
+		expect(fieldsOf('Matched NSN(s)', 'strong')).toEqual(['nsn']);
+		expect(fieldsOf('MATCH: NSN/PN Supplier', 'strong')).toEqual(['part', 'nsn']);
+		expect(fieldsOf('MATCH: CAGE Email', 'strong')).toEqual(['cage']);
+	});
+
 	it('treats a sentence that mentions a field as weak', () => {
 		const [match] = matchHeader('Fast public discovery of NSN and supplier associations');
 		expect(match).toMatchObject({ field: 'nsn', strength: 'weak', weakBecause: 'reads like a sentence, not a column label' });
