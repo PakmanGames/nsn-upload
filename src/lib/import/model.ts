@@ -318,6 +318,11 @@ export type Overrides = {
 	decisions?: Record<string, string>;
 	/** AI tables that passed verification (T6). They replace deterministic tables on the same sheet. */
 	aiTables?: TableCandidate[];
+	/**
+	 * Record ids the user unchecked in the Rows preview. Only those records stay out of the import:
+	 * duplicates, conflicts, and decisions are worked out as if they were still in it.
+	 */
+	excludedRecords?: string[];
 };
 
 export type ImportSummary = {

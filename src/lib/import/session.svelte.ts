@@ -162,6 +162,14 @@ export class ImportSession {
 		this.#apply({ ...this.overrides, decisions: { ...this.overrides.decisions, [decisionId]: option } });
 	}
 
+	/** Unchecking a row in the preview keeps that record out of the import; checking it again brings it back. */
+	setRecordExcluded(recordId: string, excluded: boolean) {
+		const ids = new Set(this.overrides.excludedRecords);
+		if (excluded) ids.add(recordId);
+		else ids.delete(recordId);
+		this.#apply({ ...this.overrides, excludedRecords: [...ids] });
+	}
+
 	/** Drops the user's choice so the decision falls back to its policy (auto) or back to pending. */
 	resetDecision(decisionId: string) {
 		const { [decisionId]: _, ...rest } = this.overrides.decisions ?? {};

@@ -64,6 +64,18 @@ describe('ImportSession', () => {
 		expect(session.analysis!.sheets.find((sheet) => sheet.name === 'Sheet1')!.tables[0].columns[0].field).toBe('part');
 	});
 
+	it('re-analyzes with a row unchecked, and without it once checked again', async () => {
+		const engine = { ...spyEngine(), analyze: vi.fn(mockEngine.analyze) };
+		const session = await loaded(engine);
+		session.setRecordExcluded('Sheet1@1:r2', true);
+		session.setRecordExcluded('Sheet1@1:r5', true);
+		expect(engine.analyze).toHaveBeenLastCalledWith(session.model, [], { excludedRecords: ['Sheet1@1:r2', 'Sheet1@1:r5'] });
+
+		session.setRecordExcluded('Sheet1@1:r2', false);
+		expect(session.overrides.excludedRecords).toEqual(['Sheet1@1:r5']);
+		expect(engine.read).toHaveBeenCalledTimes(1);
+	});
+
 	it('accepts every suggestion in one step, and a revert brings a decision back to pending', async () => {
 		const session = await loaded();
 		const before = session.analysis!.summary;

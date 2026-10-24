@@ -62,13 +62,18 @@ export function finalizeAnalysis(
 	decideStorage(log, entries, existing);
 	flagFscMismatches(entries);
 
+	// Applied last, so unchecking a row changes nothing but that row: a copy it outranked stays dropped.
+	const excluded = new Set(overrides.excludedRecords);
 	for (const entry of entries) {
 		// A held-back table's records wait on its include decision, whatever their contents.
 		const status =
 			entry.status ?? (entry.table === 'pending' ? 'pending' : contentStatus(entry.record));
 		entry.record.status = status;
 		entry.record.approved =
-			entry.table === 'included' && !entry.held && (status === 'valid' || status === 'warning');
+			entry.table === 'included' &&
+			!entry.held &&
+			!excluded.has(entry.record.id) &&
+			(status === 'valid' || status === 'warning');
 	}
 
 	const decisions = log.sorted();

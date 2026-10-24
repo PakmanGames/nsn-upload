@@ -27,7 +27,7 @@ For how the importer works, read ARCHITECTURE.md instead.
 | Zip bomb | Reject workbooks that expand to more than 200 MB (D21) | Merged (#24) |
 | Polish | Settled conflicts counted as valid (#26); Rows title count (#27); tooltips only on their own (i) button (#28) | Merged |
 
-All work items are merged; `main` passes 601 tests and 12 browser tests. What remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
+All work items are merged; `main` passes 605 tests and 13 browser tests. What remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## Scope (5-hour build)
 

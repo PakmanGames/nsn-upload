@@ -119,10 +119,15 @@ function sheet(
 function run(
 	sheets: SheetAnalysis[],
 	records: CandidateRecord[],
-	options: { existing?: StoredMapping[]; decisions?: Record<string, string> } = {}
+	options: {
+		existing?: StoredMapping[];
+		decisions?: Record<string, string>;
+		excludedRecords?: string[];
+	} = {}
 ): WorkbookAnalysis {
 	return finalizeAnalysis(makeWorkbook(FILE, []), sheets, records, options.existing ?? [], {
-		decisions: options.decisions
+		decisions: options.decisions,
+		excludedRecords: options.excludedRecords
 	});
 }
 
@@ -1114,6 +1119,33 @@ describe('decision list and re-runs', () => {
 		run(sheets, records, { decisions: acceptAll(run(sheets, records)) });
 
 		expect(records).toEqual(before);
+	});
+});
+
+describe('rows the user unchecked', () => {
+	const sheets = [sheet('Parts', 0)];
+	const screw = record('Parts', 2, { part: 'P-1', nsn: '5305016582565' }, { status: 'valid' });
+	const bolt = record('Parts', 3, { part: 'B-7', nsn: '5306016698021' }, { status: 'valid' });
+
+	it('keeps only the unchecked record out, and brings it back when it is checked again', () => {
+		const unchecked = run(sheets, [screw, bolt], { excludedRecords: [screw.id] });
+
+		expect(find(unchecked, screw.id)).toMatchObject({ status: 'valid', approved: false });
+		expect(find(unchecked, bolt.id)).toMatchObject({ status: 'valid', approved: true });
+		expect(unchecked.summary).toMatchObject({ valid: 2, toImport: 1 });
+		expect(toImportPlan(unchecked).add).toEqual([{ part: 'B-7', nsn: '5306016698021', niin: '016698021' }]);
+		expect(run(sheets, [screw, bolt], { excludedRecords: [] }).summary.toImport).toBe(2);
+	});
+
+	it('changes nothing else: a copy the unchecked record outranked stays dropped', () => {
+		const copy = record('Parts', 9, { part: 'p-1 ', nsn: '5305016582565' });
+		const unchecked = run(sheets, [screw, copy], { excludedRecords: [screw.id] });
+
+		expect(decisionsOf(unchecked, 'drop-duplicate')).toEqual([
+			expect.objectContaining({ state: 'auto', chosen: 'drop' })
+		]);
+		expect(find(unchecked, copy.id)).toMatchObject({ status: 'duplicate', approved: false });
+		expect(unchecked.summary.toImport).toBe(0);
 	});
 });
 

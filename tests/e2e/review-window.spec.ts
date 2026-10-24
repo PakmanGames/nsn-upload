@@ -107,6 +107,29 @@ test('held-back rows fold into one line per table, outside the main list', async
 	await expect(fold.getByRole('button')).toHaveCount(3);
 });
 
+test('unchecking a row leaves it out of the import, and checking it again brings it back', async ({ page }) => {
+	const dialog = await upload(page, `${FIXTURE_DIR}${wow.file}`);
+	const rows = section(dialog, 'rows');
+	await rows.locator('summary').first().click();
+	const toggle = rows.getByRole('checkbox', { name: `Import Active Parts row ${wow.annotatedPart.row}` });
+	const bracketNote = dialog.getByText('1 part number has a note in brackets');
+	await expect(toggle).toBeChecked();
+	await expect(bracketNote).toBeVisible();
+
+	await toggle.uncheck();
+	await expect(importButton(dialog, wow.initial.toImport - 1)).toBeVisible();
+	await expect(rows.getByText('Excluded by you')).toHaveCount(1);
+	// "Worth a look" promises its rows still import, so the unchecked row leaves it.
+	await expect(bracketNote).toHaveCount(0);
+	// The checkbox toggles the import only; it does not open the row's details.
+	await expect(dialog.getByRole('complementary')).toHaveCount(0);
+
+	await toggle.check();
+	await expect(importButton(dialog, wow.initial.toImport)).toBeVisible();
+	await expect(rows.getByText('Excluded by you')).toHaveCount(0);
+	await expect(bracketNote).toBeVisible();
+});
+
 test.describe('Columns open-by-default rule', () => {
 	test('stays closed on a clean file, and opens by itself once a table with an uncertain column is included', async ({
 		page
