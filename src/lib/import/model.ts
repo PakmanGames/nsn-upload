@@ -126,11 +126,15 @@ export type SkippedRow = {
 };
 
 export type TableCandidate = {
-	/** `${sheet}@${firstHeaderRow}`. Stable across remaps so overrides keep applying. */
+	/**
+	 * `${sheet}@${first header row}`, or `${sheet}@${first data row}` for a table without a header row.
+	 * Stable across remaps so overrides keep applying.
+	 */
 	id: string;
 	sheet: string;
+	/** Empty for a table without a header row: its columns are mapped from their values only. */
 	headerRows: number[];
-	/** First header row through last data row. */
+	/** First header row (or first data row, without a header row) through last data row. */
 	range: CellRange;
 	/** Rows that become candidate records, ascending. */
 	dataRows: number[];
@@ -139,7 +143,7 @@ export type TableCandidate = {
 	status: 'ready' | 'needs-review';
 	confidence: Confidence;
 	reasons: string[];
-	source: 'deterministic' | 'ai';
+	source: 'deterministic' | 'ai' | 'user';
 };
 
 /** Input to materializeTable(): a table shape proposed by detection, the user, or the AI. */
@@ -322,6 +326,8 @@ export type Overrides = {
 	decisions?: Record<string, string>;
 	/** AI tables that passed verification (T6). They replace deterministic tables on the same sheet. */
 	aiTables?: TableCandidate[];
+	/** Tables the user set up by hand on a sheet. They replace detection on that sheet, like AI tables. */
+	manualTables?: Array<TableSpec & { sheet: string }>;
 	/**
 	 * Record ids the user unchecked in the Rows preview. Only those records stay out of the import:
 	 * duplicates, conflicts, and decisions are worked out as if they were still in it.

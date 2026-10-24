@@ -108,7 +108,7 @@ export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnal
 		};
 	}
 
-	const id = tableId(sheet.name, detection.spec.headerRows[0]);
+	const id = tableId(sheet.name, detection.spec);
 	const { spec, user } = applyUserColumns(detection.spec, overrides.columns?.[id]);
 	const { table, competition }: MaterializedTable = materialize(sheet, spec, 'deterministic', user);
 	const aiTrigger = table.status === 'ready' ? null : (competition[0] ?? identifierTrigger(sheet, 'the table needs review'));
