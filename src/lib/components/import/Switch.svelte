@@ -2,11 +2,13 @@
 	type Props = {
 		checked: boolean;
 		label: string;
+		/** Id of the element that describes what the switch does. */
+		describedby?: string;
 		disabled?: boolean;
 		onchange: (checked: boolean) => void;
 	};
 
-	let { checked, label, disabled = false, onchange }: Props = $props();
+	let { checked, label, describedby, disabled = false, onchange }: Props = $props();
 </script>
 
 <button
@@ -14,6 +16,7 @@
 	role="switch"
 	aria-checked={checked}
 	aria-label={label}
+	aria-describedby={describedby}
 	{disabled}
 	class={[
 		'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50',

@@ -2,10 +2,15 @@
  * The review window's guided flow (UX1, docs/tasks/UX1-review-window-redesign.md): the decision stage, a chip
  * opening Rows, held-back tables folded out of the main list, the Columns open-by-default rule, and "Worth a look".
  * Expected rows come from tests/fixtures/expectations.ts; quoted copy is the brief's.
+ *
+ * These pin the deterministic analysis, so AI assistance is off: with it on (the default), PENCOM's Search Log
+ * table would be replaced by the AI's while a test steps through it. tests/e2e/ai-default.spec.ts covers AI on.
  */
 import { expect, test, type Locator } from '@playwright/test';
 import { pencom, statz, wow } from '../fixtures/expectations';
-import { FIXTURE_DIR, importButton, openSection, section, upload } from './helpers';
+import { FIXTURE_DIR, importButton, openSection, section, turnAiOff, upload } from './helpers';
+
+test.beforeEach(({ page }) => turnAiOff(page));
 
 /** Rows that become warnings in WOW: the 2 malformed NSNs, the bracketed part note, and the missing description. */
 const WOW_WARNING_ROWS = [

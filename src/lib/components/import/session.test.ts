@@ -1,9 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decisionId, type ImportPlan } from '$lib/import/model';
-import { ImportSession, type ImportEngine } from '$lib/import/session.svelte';
+import { aiPreferenceKey, ImportSession, type ImportEngine } from '$lib/import/session.svelte';
 import { mockEngine } from './mock-analysis';
 
+// The AI preference lives in localStorage, which the session only touches in the browser.
+vi.mock('$app/environment', () => ({ browser: true }));
+
 const xlsx = () => new File(['x'], 'parts.xlsx');
+
+function memoryStorage(): Storage {
+	const items = new Map<string, string>();
+	return {
+		getItem: (key) => items.get(key) ?? null,
+		setItem: (key, value) => void items.set(key, value),
+		removeItem: (key) => void items.delete(key),
+		clear: () => items.clear(),
+		key: (index) => [...items.keys()][index] ?? null,
+		get length() {
+			return items.size;
+		}
+	};
+}
 
 function spyEngine() {
 	return {
@@ -15,9 +32,13 @@ function spyEngine() {
 }
 
 describe('ImportSession', () => {
+	let storage: Storage;
+
 	beforeEach(() => {
 		// load() waits for a frame so the analyzing state can paint; node has no frames.
 		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(callback));
+		storage = memoryStorage();
+		vi.stubGlobal('localStorage', storage);
 		vi.useFakeTimers();
 	});
 	afterEach(() => {
@@ -27,6 +48,16 @@ describe('ImportSession', () => {
 
 	async function loaded(engine: ImportEngine = mockEngine) {
 		const session = new ImportSession(engine);
+		const loading = session.load(xlsx(), []);
+		await vi.runAllTimersAsync();
+		await loading;
+		return session;
+	}
+
+	/** As the review window does it: restore the AI preference on open, then load a file and let AI finish. */
+	async function opened(engine: ImportEngine) {
+		const session = new ImportSession(engine);
+		session.initAi();
 		const loading = session.load(xlsx(), []);
 		await vi.runAllTimersAsync();
 		await loading;
@@ -170,26 +201,42 @@ describe('ImportSession', () => {
 		expect(session.decisionGroups).toEqual([]);
 	});
 
-	it('makes no AI request, not even the availability check, until AI assistance is turned on', async () => {
+	it('turns AI on by default: checks availability, then interprets the triggered sheets on load', async () => {
 		const engine = spyEngine();
-		const session = await loaded(engine);
-		session.initAi();
-		await vi.runAllTimersAsync();
+		const session = await opened(engine);
+		expect(session.aiEnabled).toBe(true);
+		expect(engine.aiAvailability).toHaveBeenCalledTimes(1);
+		expect(engine.interpret).toHaveBeenCalledTimes(1);
+		expect(session.aiRun).toMatchObject({ status: 'done', sheets: ['Search Log'] });
+		expect(session.analysis!.sheets.find((sheet) => sheet.name === 'Search Log')!.tables[0].source).toBe('ai');
+		// Only the user's own choice is saved, so a later change of default reaches browsers that never chose.
+		expect(storage.getItem(aiPreferenceKey)).toBeNull();
+	});
+
+	it('makes no AI request of any kind, not even the availability check, once this browser saved "off"', async () => {
+		storage.setItem(aiPreferenceKey, 'off');
+		const engine = spyEngine();
+		const session = await opened(engine);
+		expect(session.aiEnabled).toBe(false);
 		expect(engine.aiAvailability).not.toHaveBeenCalled();
 		expect(engine.interpret).not.toHaveBeenCalled();
 		expect(session.aiAvailability).toBeNull();
 	});
 
-	it('turns the switch back off with the reason when AI is unavailable', async () => {
-		const engine = { ...spyEngine(), aiAvailability: vi.fn(async () => ({ available: false, reason: 'No key' })) };
-		const session = await loaded(engine);
-		await session.setAiEnabled(true);
-		expect(session.aiEnabled).toBe(false);
-		expect(session.aiAvailability).toEqual({ available: false, reason: 'No key' });
-		expect(engine.interpret).not.toHaveBeenCalled();
-	});
+	it.each([null, 'on'])(
+		'shows the switch off with the reason when AI is unavailable, and leaves the saved preference (%s) alone',
+		async (saved) => {
+			if (saved) storage.setItem(aiPreferenceKey, saved);
+			const engine = { ...spyEngine(), aiAvailability: vi.fn(async () => ({ available: false, reason: 'No key' })) };
+			const session = await opened(engine);
+			expect(session.aiEnabled).toBe(false);
+			expect(session.aiAvailability).toEqual({ available: false, reason: 'No key' });
+			expect(engine.interpret).not.toHaveBeenCalled();
+			expect(storage.getItem(aiPreferenceKey)).toBe(saved);
+		}
+	);
 
-	it('sends triggered sheets only while AI assistance is on, and drops AI tables when it is turned off', async () => {
+	it('sends triggered sheets only while AI assistance is on, drops AI tables when it is turned off, and saves each choice', async () => {
 		const engine = spyEngine();
 		const session = await loaded(engine);
 		expect(engine.interpret).not.toHaveBeenCalled();
@@ -197,6 +244,7 @@ describe('ImportSession', () => {
 		const enabling = session.setAiEnabled(true);
 		await vi.runAllTimersAsync();
 		await enabling;
+		expect(storage.getItem(aiPreferenceKey)).toBe('on');
 		expect(engine.aiAvailability).toHaveBeenCalledTimes(1);
 		expect(engine.interpret).toHaveBeenCalledTimes(1);
 		expect(session.aiRun).toMatchObject({ status: 'done', sheets: ['Search Log'] });
@@ -204,9 +252,44 @@ describe('ImportSession', () => {
 		expect(session.analysis!.sheets.find((sheet) => sheet.name === 'Search Log')!.tables[0].source).toBe('ai');
 
 		session.setAiEnabled(false);
+		expect(storage.getItem(aiPreferenceKey)).toBe('off');
 		expect(session.aiRun).toBeNull();
 		expect(session.overrides.aiTables).toBeUndefined();
 		expect(session.analysis!.sheets.find((sheet) => sheet.name === 'Search Log')!.tables[0].source).toBe('deterministic');
+	});
+
+	it('turning AI off while it reads a sheet aborts the request and applies nothing', async () => {
+		const engine = spyEngine();
+		const session = new ImportSession(engine);
+		session.initAi();
+		const loading = session.load(xlsx(), []);
+		// The mock reads for 500 ms and interprets for 1500 ms, so at 1 s the AI is still reading.
+		await vi.advanceTimersByTimeAsync(1000);
+		await loading;
+		expect(session.aiRun).toMatchObject({ status: 'running', sheets: ['Search Log'] });
+		const signal = engine.interpret.mock.calls[0][2];
+
+		await session.setAiEnabled(false);
+		expect(signal.aborted).toBe(true);
+		expect(session.aiRun).toBeNull();
+		await vi.runAllTimersAsync();
+		expect(session.aiRun).toBeNull();
+		expect(session.overrides.aiTables).toBeUndefined();
+	});
+
+	it('sends the waiting sheets again when the user retries a failed request', async () => {
+		const engine = spyEngine();
+		engine.interpret.mockRejectedValueOnce(new Error('Could not reach the AI provider'));
+		const session = await opened(engine);
+		expect(session.aiRun).toMatchObject({ status: 'error', error: 'Could not reach the AI provider' });
+		expect(session.overrides.aiTables).toBeUndefined();
+
+		session.retryAi();
+		await vi.runAllTimersAsync();
+		expect(engine.interpret).toHaveBeenCalledTimes(2);
+		expect(engine.aiAvailability).toHaveBeenCalledTimes(1);
+		expect(session.aiRun).toMatchObject({ status: 'done', sheets: ['Search Log'] });
+		expect(session.overrides.aiTables).toHaveLength(1);
 	});
 
 	it('imports only approved records as additions', async () => {
@@ -234,8 +317,12 @@ describe('ImportSession', () => {
 });
 
 describe('ImportSession explanations', () => {
+	let storage: Storage;
+
 	beforeEach(() => {
 		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(callback));
+		storage = memoryStorage();
+		vi.stubGlobal('localStorage', storage);
 		vi.useFakeTimers();
 	});
 	afterEach(() => {
@@ -270,6 +357,27 @@ describe('ImportSession explanations', () => {
 		expect(engine.explain).not.toHaveBeenCalled();
 		expect(new Set(sources(session))).toEqual(new Set(['rules']));
 		expect(session.explanations.size).toBe(session.analysis!.decisions.length);
+	});
+
+	it('follows AI assistance on by default, and sends nothing once this browser saved "off"', async () => {
+		const open = async (engine: ImportEngine) => {
+			const session = new ImportSession(engine);
+			session.initAi();
+			const loading = session.load(xlsx(), []);
+			await vi.runAllTimersAsync();
+			await loading;
+			await vi.runAllTimersAsync();
+			return session;
+		};
+		const byDefault = explainingEngine();
+		await open(byDefault);
+		expect(byDefault.explain).toHaveBeenCalledTimes(1);
+
+		storage.setItem(aiPreferenceKey, 'off');
+		const off = explainingEngine();
+		const session = await open(off);
+		expect(off.explain).not.toHaveBeenCalled();
+		expect(new Set(sources(session))).toEqual(new Set(['rules']));
 	});
 
 	it('sends one bounded request once AI is on, pending decisions first, and shows the checked wording', async () => {

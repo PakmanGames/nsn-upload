@@ -4,6 +4,33 @@ import { expect, type Locator, type Page } from '@playwright/test';
 
 export const FIXTURE_DIR = fileURLToPath(new URL('../../example-excel-uploads/', import.meta.url));
 export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+/** Where the app keeps this browser's AI choice (`aiPreferenceKey` in session.svelte.ts). */
+export const AI_PREFERENCE_KEY = 'nsn-upload-interview-task:ai-assistance';
+
+/**
+ * Saves "AI assistance off" before the app loads, on every navigation of this page, as a user who turned it off would have.
+ * AI is on by default (D23) and these runs use the mock provider, so specs that pin the deterministic flow call this
+ * first; otherwise a sheet that needs review would get an AI table while the test is looking at it.
+ */
+export async function turnAiOff(page: Page) {
+	await page.addInitScript((key) => localStorage.setItem(key, 'off'), AI_PREFERENCE_KEY);
+}
+
+export type AiRequest = { method: string; path: '/api/interpret' | '/api/explain' };
+
+/** Requests to the AI routes: the availability check (GET) and interpretations (POST), and explanations (POST). */
+export function recordAiRequests(page: Page): AiRequest[] {
+	const requests: AiRequest[] = [];
+	page.on('request', (request) => {
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/interpret' || path === '/api/explain') requests.push({ method: request.method(), path });
+	});
+	return requests;
+}
+
+/** Methods of the requests to the interpretation route, in order. */
+export const interpretRequests = (requests: AiRequest[]) =>
+	requests.filter((request) => request.path === '/api/interpret').map((request) => request.method);
 
 /** Opens the Smart Upload window from the mappings page. */
 export async function openSmartUpload(page: Page): Promise<Locator> {

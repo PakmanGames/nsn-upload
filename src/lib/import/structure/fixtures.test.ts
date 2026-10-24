@@ -33,7 +33,8 @@ describe('PENCOM fixture', () => {
 			['Search Log', 'needs-review'],
 			['Sources & Notes', 'no-table']
 		]);
-		expect(pencom.every((s) => s.aiTrigger === null)).toBe(true);
+		// The held-back table asks for AI help; dashboards and notes never do (D23).
+		expect(pencom.filter((s) => s.aiTrigger).map((s) => s.name)).toEqual(['Search Log']);
 	});
 
 	it('finds the headers on row 2 and ignores the styled empty rows', () => {

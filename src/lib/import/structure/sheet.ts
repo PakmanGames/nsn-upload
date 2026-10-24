@@ -139,10 +139,12 @@ export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnal
 	// The AI proposes one table per sheet, replacing detection there, so it is only offered when no table is ready.
 	// A table without a header row was found by its values alone, so the AI has nothing left to decide either.
 	const settled = status === 'ready' || tables.some((table) => table.headerRows.length === 0);
+	// Any other table that needs review is worth an AI look (D23), even with few identifier-shaped cells.
 	const aiTrigger = settled
 		? null
 		: (found.flatMap(({ competition }) => competition)[0] ??
-			identifierTrigger(sheet, tables.length > 1 ? 'none of its tables is ready' : 'the table needs review'));
+			identifierTrigger(sheet, tables.length > 1 ? 'none of its tables is ready' : 'the table needs review') ??
+			'A table was found, but it needs review');
 	// A note about the whole sheet, such as the column limit, comes with every band; it is listed once.
 	return { ...base, status, reasons: [...new Set(found.flatMap(({ reasons }) => reasons))], tables, aiTrigger };
 }

@@ -389,18 +389,33 @@ export type AiState = {
 	triggered: string[];
 };
 
-/** The AI section's one-line summary: whether it is on, and what it did or could do. */
+/** The AI section's one-line summary: whether it is on, what it did, and while on, what it sends and to whom. */
 export function aiSummary({ enabled, availability, run, triggered }: AiState): string {
-	if (enabled && availability === null) return 'Checking availability…';
+	if (enabled && availability === null) return 'On · checking the AI service…';
 	if (availability?.available === false) return `Unavailable · ${availability.reason ?? 'the AI service is not configured'}`;
-	if (run?.status === 'running') return `On · interpreting ${joinAnd(run.sheets)}…`;
+	if (run?.status === 'running') return `On · reading ${joinAnd(run.sheets)}…`;
 	if (run?.status === 'error') return 'On · the AI request failed';
 	if (run?.status === 'done' && run.result) {
 		const rejected = run.result.rejected.length ? `, rejected ${run.result.rejected.length}` : '';
 		return `On · sent ${joinAnd(run.sheets)}; accepted ${plural(run.result.tables.length, 'table')}${rejected}`;
 	}
-	if (triggered.length) return `${enabled ? 'On' : 'Off'} · could help with ${joinAnd(triggered)}`;
-	return enabled ? 'On · every sheet was read without help, so no sheet was sent' : 'Off · every sheet was read without help';
+	if (enabled) return 'On · sheets the importer cannot read are sent to the AI provider as sampled cells';
+	return triggered.length ? `Off · could help with ${joinAnd(triggered)}` : 'Off · every sheet was read without help';
+}
+
+/**
+ * The summary bar's AI line. It appears as soon as AI starts reading, so counts that change a few seconds later
+ * are expected, and stays once it is done, so the change is explained. Null when nothing was sent.
+ */
+export function aiActivity(run: AiRun | null): string | null {
+	if (!run) return null;
+	const sheets = joinAnd(run.sheets);
+	if (run.status === 'running') return `AI is reading ${sheets}…`;
+	if (run.status === 'error') return `AI could not read ${sheets}`;
+	// Sampling can leave nothing to send, and then nothing was read.
+	if (run.sheets.length === 0) return null;
+	const found = run.result?.tables.length ?? 0;
+	return `AI read ${sheets}: ${found ? `found ${plural(found, 'table')}` : 'no table found'}`;
 }
 
 /** Open AI assistance when it could help or has something to show. */

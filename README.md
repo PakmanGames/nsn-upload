@@ -26,10 +26,34 @@ pnpm build
 pnpm preview
 ```
 
-## Optional AI assistance
+## AI assistance
 
 The importer is deterministic and needs no key or network.
-AI assistance is an optional fallback for sheets it cannot read confidently; it is off until the user turns it on in the review window, and it only ever proposes structure (which rows and columns form a table), which is then verified against the workbook.
+AI assistance is its fallback for sheets it cannot read confidently: a table that needs review, or NSN- or NIIN-shaped values without a recognized table.
+It is on by default whenever the server has AI configured, and it only ever proposes structure (which rows and columns form a table), which is then verified against the workbook.
+
+**What is sent, and to whom.**
+Two kinds of request, both only while AI assistance is on:
+
+- The sheets the importer flagged, as a bounded sample of cells: at most 3 sheets, 60 rows and 30 columns per sheet, 120 characters per cell, and 3,000 cells in all. They go to this app's own route `/api/interpret`.
+- The facts behind each decision (at most 60 decisions per request, no sheet samples), so the explanations can be reworded in plain language. They go to `/api/explain`.
+
+Both routes forward to OpenRouter (or the mock, below); the provider key stays on the server.
+Hidden sheets, hidden rows and columns, and metadata columns (UUIDs, checksums, timestamps) are never sent.
+A workbook whose sheets all read without help sends no sheet sample; the review window asks once whether AI is available, and sends the facts of its decisions, if any, for rewording.
+While the AI reads a sheet, the summary bar and that sheet's line say so, and the AI assistance section at the bottom of the review window says what is sent.
+
+**Turning it off.**
+Use the "AI assistance" switch in that section.
+The choice is saved in this browser (`localStorage` key `nsn-upload-interview-task:ai-assistance`), and from then on the browser makes no AI request of any kind, not even the availability check, until the switch is turned back on.
+
+**Without a key**, nothing goes to any provider: the route reports AI as unavailable, the switch shows off with that reason, and everything else works.
+The saved choice is left as it was, so the same browser gets AI once the server has a key.
+
+**Why on by default (decision D23 in [`docs/PLAN.md`](docs/PLAN.md)).**
+`TASK_SPEC.md` asks that network transmission be disabled unless AI parsing is explicitly enabled.
+The product owner accepted on-by-default as a deviation from a literal reading, because AI is the fallback for exactly the sheets the importer cannot read, and a user should not have to find a switch first.
+The deviation is kept small: nothing is sent without a server key, only flagged sheets are sent and only as sampled cells, and the switch turns it off for good on this browser.
 
 To configure it, copy the example env file; `.env` is gitignored:
 
@@ -49,8 +73,8 @@ To see the AI path without a key:
 AI_PROVIDER=mock pnpm dev
 ```
 
-None of the three example workbooks needs AI; for them the panel says every sheet was read without help.
-It is offered for a sheet that has NSN- or NIIN-shaped values but no confidently recognized table, such as NSNs under an unfamiliar header like `National Stock No.`.
+Of the example workbooks, PENCOM's `Search Log` (a table that needs review) is sent and read; the others read without help and send nothing.
+AI is also used for a sheet with NSN- or NIIN-shaped values but no confidently recognized table, such as NSNs under an unfamiliar header like `National Stock No.` (`docs/demo-workbooks/a-ai-unfamiliar-header.xlsx`).
 
 ## Tests and checks
 
