@@ -26,8 +26,54 @@ For how the importer works, read ARCHITECTURE.md instead.
 | OD3 | Two-row header detection, plus two header/footer bugs found by T8's messy-case suite (#21) | Merged (#25) |
 | Zip bomb | Reject workbooks that expand to more than 200 MB (D21) | Merged (#24) |
 | Polish | Settled conflicts counted as valid (#26); Rows title count (#27); tooltips only on their own (i) button (#28) | Merged |
+| Row checkbox | Uncheck a row in the Rows preview to leave it out of the import (#30) | Merged |
 
-All work items are merged; `main` passes 605 tests and 13 browser tests. What remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
+Wave 1 is merged; `main` passes 605 tests and 13 browser tests.
+Wave 2, from the review on 2026-10-24, is below.
+
+## Wave 2 - review feedback (2026-10-24)
+
+The review asked for more edge cases, UI polish, and user experience work.
+Edge cases and the spreadsheet view go first; polish and UX items follow as their own briefs.
+Four new workbooks came with the feedback and are in `example-excel-uploads/`.
+
+| Task | What | Fixture | State |
+| --- | --- | --- | --- |
+| E1 | Tables without a header row; set up a table by hand ([brief](tasks/E1-headerless-and-manual-tables.md)) | `Just NSNs (1).xlsx` | Not started |
+| E2 | Where a table ends; merged columns; columns without a header ([brief](tasks/E2-table-edges-and-merged-columns.md)) | `Merged Column, FSC + NIIN NSN Tests (1).xlsx` | Not started |
+| E3 | Several tables on one sheet, at any column offset ([brief](tasks/E3-several-tables-per-sheet.md)) | `ShiftedTable.xlsx` | Not started |
+| E4 | Part column chosen by its values; one FSC for several NSNs; headers that only mention a field ([brief](tasks/E4-columns-by-values-and-multi-nsn-cells.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Not started |
+| V1 | The spreadsheet inside the review window, with a focus hook for hover highlighting ([brief](tasks/V1-spreadsheet-view.md)) | all | Not started |
+| V2 | Hovering the review highlights the matching cells (outlined at the end of the V1 brief) | all | After V1 |
+
+All five briefs start in parallel.
+
+### Wave 2 rules (in addition to the rules below)
+
+1. Each task owns the paths listed at the end of its brief. `model.ts` changes only in E1 (its brief has the exact contract).
+2. Shared files, and who edits which part:
+
+   | File | E1 | E2 | E3 | E4 | V1 |
+   | --- | --- | --- | --- | --- | --- |
+   | `structure/detect.ts` | one call in the no-header branch | `tryHeader` span | `detectTable`, `nextTable` | | |
+   | `structure/sheet.ts` | manual-table branch | | deterministic branch | | |
+   | `structure/columns.ts` | | `readHeader` | | value-only rules | |
+   | `session.svelte.ts` | two methods | | | | `focus` state |
+   | `SheetsPanel.svelte` | setup control | | one line per table | | |
+   | `ColumnsPanel.svelte` | | "(no header)" label | group headings | | |
+
+   Keep your edits inside your part, and when you rebase after another task merged, keep its behavior and rerun the whole suite.
+3. Each new fixture gets its own expectations file (`tests/fixtures/<name>.ts`) and acceptance suite (`tests/acceptance/<name>.test.ts`). Do not add to `FIXTURES` in `expectations.ts`; the coordinator registers the new fixtures after the merges.
+4. The WOW, Statz, and PENCOM expectations stay green. A change to them must be explained in the PR, not silently updated.
+5. Merge order when several are ready at once: E4, E2, E3, E1; V1 at any time.
+
+### Defaults the briefs assume (product owner can overrule)
+
+- **Headerless sheets (E1):** detected automatically and offered as one pending decision suggested "include", plus a by-hand setup for any sheet without a table. "Manually add a column" is read as mapping a column by hand on a sheet where no table was found.
+- **Second table on a sheet (E3):** each table becomes its own line in Sheets, with its own decision, columns, and rows ("like a separate sheet"), but provenance keeps the real sheet name. Side-by-side tables that share rows are left for later.
+- **Spreadsheet view (V1):** values only, drawn from the parsed workbook; Excel formatting (fills, fonts) is not shown. The importer's findings are drawn on top.
+
+Beyond Wave 2, what remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## Scope (5-hour build)
 
@@ -87,11 +133,11 @@ Deferred by D15; revisit if time allows. Each is listed as a known gap in ARCHIT
 
 | Idea | Why it matters | Rough size | Owner if picked up |
 | --- | --- | --- | --- |
-| Multiple tables per sheet | TASK_SPEC "strongly preferred". Today only the best table per sheet imports; a second table is mentioned in the sheet's reasons. | ~2 h, touches T3/T5/T7 | T3 |
+| Multiple tables per sheet | Picked up as E3 (stacked tables). Side-by-side tables that share rows remain a gap. | | E3 |
 | Web Worker parsing | Encouraged, not mandatory. 100k rows x 10 columns analyze in about 1.5 s on the main thread today. | ~1 h | T1 + T7 |
 | Merge compatible new info into saved records | A re-upload that only adds a missing description or CAGE could update the saved record instead of being dropped. | ~30 min after F1 | T5 |
 | AI segmentation of complex multi-value cells | TASK_SPEC lists it as an AI use case; not implemented. | ~1 h | T6 |
-| Remap a `no-table` sheet by hand | Today only the AI path can propose a table there. | ~1 h | T3 + T7 |
+| Remap a `no-table` sheet by hand | Picked up as E1. | | E1 |
 
 ## Fixture expectations (encoded in `tests/fixtures/expectations.ts`, verified against the real files)
 
