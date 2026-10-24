@@ -207,7 +207,7 @@
 						</div>
 						<div class="min-w-0">
 							<h2 id="import-title" class="text-lg font-semibold text-slate-950">Smart Upload</h2>
-							<p class="mt-0.5 truncate text-sm text-slate-500">
+							<p class={['mt-0.5 text-sm text-slate-500', session.fileName && 'truncate']}>
 								{#if session.fileName}
 									{session.fileName}
 									{#if analysis}
@@ -321,15 +321,20 @@
 									<dd class="font-medium tabular-nums text-slate-900">{records!.length}</dd>
 								</div>
 							{/each}
-							{#each [['Held back for review', reasons.review], ['Invalid', reasons.invalid], ['Duplicates skipped', reasons.duplicate], ['Excluded', reasons.excluded]] as const as [label, count] (label)}
-								{#if count}
-									<div class="flex justify-between gap-3 px-4 py-2">
-										<dt class="text-slate-500">{label} (not imported)</dt>
-										<dd class="tabular-nums text-slate-500">{count}</dd>
-									</div>
-								{/if}
-							{/each}
 						</dl>
+						{#if reasons.review + reasons.invalid + reasons.duplicate + reasons.excluded}
+							<p class="mt-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Not imported</p>
+							<dl class="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-left text-sm">
+								{#each [['Held back for review', reasons.review], ['Invalid', reasons.invalid], ['Duplicates skipped', reasons.duplicate], ['Excluded', reasons.excluded]] as const as [label, count] (label)}
+									{#if count}
+										<div class="flex justify-between gap-3 px-4 py-2">
+											<dt class="text-slate-600">{label}</dt>
+											<dd class="tabular-nums text-slate-600">{count}</dd>
+										</div>
+									{/if}
+								{/each}
+							</dl>
+						{/if}
 						<button
 							type="button"
 							class="mt-6 inline-flex items-center justify-center rounded-md bg-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-800"

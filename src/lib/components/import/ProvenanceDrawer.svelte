@@ -28,7 +28,10 @@
 	const status = $derived(RECORD_STATUS[record.status]);
 	const fields = $derived(FIELDS.filter((field) => record.fields[field]));
 	const rejected = $derived(FIELDS.filter((field) => record.rejected[field]));
-	const related = $derived(decisions.filter((decision) => decision.recordIds.includes(record.id)));
+	// Table inclusion covers every record of the table, so it says nothing about this row in particular.
+	const related = $derived(
+		decisions.filter((decision) => decision.kind !== 'include-table' && decision.recordIds.includes(record.id))
+	);
 	const issueFor = (field: Field) => record.issues.find((issue) => issue.field === field && issue.code === 'invalid-identifier');
 	const chosenLabel = (decision: Decision) =>
 		decision.options.find((option) => option.id === decision.chosen)?.label ?? 'Waiting for you';
