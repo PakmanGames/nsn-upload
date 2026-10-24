@@ -51,7 +51,7 @@ describe('smart upload parsing', () => {
 		sheet.addRow(['Part Number', 'Nomenclature', 'NSN', 'CAGE Code']);
 		sheet.addRow(['ABC-42', 'Hydraulic pump', '2910-01-234-5678', '1A2B3']);
 		const buffer = await workbook.xlsx.writeBuffer();
-		const file = new File([Uint8Array.from(buffer as Uint8Array)], 'parts.xlsx');
+		const file = new File([buffer], 'parts.xlsx');
 
 		const analysis = await analyzeWorkbook(file);
 
