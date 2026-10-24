@@ -64,6 +64,14 @@ Add `setManualTable(sheet, spec)` and `removeManualTable(sheet)` to `ImportSessi
 The verifier accepts `headerRows: []` when every mapped column passes the same value-only rule.
 Update the request text and schema descriptions in `src/lib/import/ai/` to say a table may have no header row; `headerText` is then empty.
 
+## UX bar
+
+Meet the UX bar in `docs/PLAN.md`. For this task in particular:
+
+- Today the review window says "0 of 1 sheet has an importable table · 0 rows · nothing needs you", in green, while nothing will import. When nothing will import, the summary says why and offers the next step (accept the detected table, set one up by hand, or turn AI on), never "nothing needs you". The sentence is in `summary.ts`; keep to the nothing-to-import branch, since E3 and AI1 edit other lines there.
+- "Set up table" is reachable from that summary, not only inside the collapsed Sheets section.
+- The setup editor needs no explanation: the first values next to each column make the choice obvious, and a choice that cannot work (no identifier column mapped) says so before "Use this table".
+
 ## Done when
 
 - `Just NSNs (1).xlsx`: one headerless table `Sheet1@1` (`A1:A99`), column A = NSN at medium confidence, one pending `include-table` suggested include.

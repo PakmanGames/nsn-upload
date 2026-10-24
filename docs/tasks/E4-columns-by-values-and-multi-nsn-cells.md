@@ -45,6 +45,13 @@ Single-value cells are unchanged, so row 49 stays a pending decision.
 - Reason wording for a header that mentions a field the values do not support: "Header mentions NSN, but 0 of 68 values are valid NSNs".
 - Tests that a column headed "MATCH: NSN/PN Supplier" with a few valid NSNs never outranks a real NSN column, and that field words match whole tokens only.
 
+## UX bar
+
+Meet the UX bar in `docs/PLAN.md`. For this task in particular:
+
+- Column reasons are plain words: "No header says Part, but 139 of 139 values look like part numbers".
+- When two columns tie and nothing is mapped, the Columns card tells the user to pick one and offers both, so the sheet is never stuck.
+
 ## Done when
 
 - `Substring Headers in Diff Sheet (1).xlsx`: Part = A at medium confidence, NSN = B, Description = C, FSC = E; G-N and F unmapped.

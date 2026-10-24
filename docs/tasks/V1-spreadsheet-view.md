@@ -60,6 +60,13 @@ Clicking a cell in the grid shows its address and value in a small bar above the
 Hovering any review element that refers to cells sets `focus` (debounced): a column card highlights its column within the table's range, a sheet or table line its range, a decision its cells, a "Worth a look" line its rows, a row in the preview its row.
 V1 is done right if V2 only adds `onmouseenter`/`onfocus` handlers.
 
+## UX bar
+
+Meet the UX bar in `docs/PLAN.md`. For this task in particular:
+
+- The spreadsheet also helps when things go wrong: it opens on a sheet with no table, so the user can see why, and the "Set up table" flow (E1) can be checked against it.
+- The toggle, split, and divider never cover the Import button or the decision stage.
+
 ## Done when
 
 - The toggle opens the spreadsheet beside the review on all seven fixtures, and the tab strip switches sheets.

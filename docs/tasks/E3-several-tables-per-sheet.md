@@ -37,6 +37,13 @@ Make each table a first-class unit instead, which gives the user exactly "a sepa
 
 Side-by-side tables (two tables sharing rows, separated by blank columns) are out of scope for E3; list them as a known gap in the PR so the coordinator can record it.
 
+## UX bar
+
+Meet the UX bar in `docs/PLAN.md`. For this task in particular:
+
+- The user finds the second table without knowing any internal term: the Sheets lines and the summary read naturally for one sheet with several tables.
+- A table held back says why and how to include it, on its own line.
+
 ## Done when
 
 - `ShiftedTable.xlsx`: two ready tables, `@1` (`A1:G31`, Part = A, NSN = C) and `@34` (`E34:K58`, Part = E, NSN = G); 54 records.

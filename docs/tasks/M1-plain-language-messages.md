@@ -91,6 +91,13 @@ Copy rules:
 - `AppliedDecisions.svelte`, the Rows status column (`PreviewPanel.svelte`), and the provenance drawer use layer 1 (and layer 2 for decisions).
 - `AiAssist.svelte`: the AI assistance section also says what was sent for explanations ("Explained 28 decisions; 2 used the standard wording").
 
+## UX bar
+
+Meet the UX bar in `docs/PLAN.md`. For this task in particular:
+
+- The sheet and table reasons in Sheets and Columns get the same treatment ("No header row found: no row near the top has at least two short text labels" becomes something like "No header row: we couldn't tell which column is which").
+- An explanation request that fails falls back quietly: no error toast, the plain wording stays, and the AI section notes it once.
+
 ## Done when
 
 - Every `DecisionKind` and `IssueCode` has a template, with unit tests on real fixture cases: Substring row 49 (identifier conflict), WOW `E134` and `E166` (malformed NSN), WOW `D136` (split cell), PENCOM's two XRef/Intake conflicts, a storage conflict, a dropped duplicate, Statz `fsc-niin-mismatch`.

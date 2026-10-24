@@ -55,6 +55,13 @@ Cover these variants with synthetic workbooks (`tests/acceptance/helpers.ts`, `b
 Columns that hold values in the table's data rows but have no header cell (O-P here) become part of the table as columns without a header, shown as "column O (no header)".
 They map only through the value-only rule (NSN/NIIN, 95%), so an NSN column someone forgot to label still imports, and names or emails stay unmapped and visible under "more columns not imported".
 
+## UX bar
+
+Meet the UX bar in `docs/PLAN.md`. For this task in particular:
+
+- The reasons for rows left below the table and for "column O (no header)" read as plain language a buyer understands.
+- The rows left out stay visible as skipped (with their reason) in Rows and Sheets, so the user can see nothing was lost by mistake.
+
 ## Done when
 
 - `Merged Column, FSC + NIIN NSN Tests (1).xlsx`: table ends at row 30; 24 records, 0 invalid, all importable; FSC and NIIN both high confidence; column C not listed; O and P listed as unmapped columns without a header; the reasons name rows 33-43.

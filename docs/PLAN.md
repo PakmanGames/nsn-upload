@@ -46,29 +46,49 @@ Four new workbooks came with the feedback and are in `example-excel-uploads/`.
 | V1 | The spreadsheet inside the review window, with a focus hook for hover highlighting ([brief](tasks/V1-spreadsheet-view.md)) | all | Not started |
 | V2 | Hovering the review highlights the matching cells (outlined at the end of the V1 brief) | all | After V1 |
 | M1 | Messages a user understands: plain-language explanations, with AI wording when AI assistance is on ([brief](tasks/M1-plain-language-messages.md)) | all | Not started |
+| AI1 | AI assistance on by default; the switch stays and is remembered ([brief](tasks/AI1-ai-on-by-default.md)) | all | Not started |
+| DS1 | Faster decisions: keep the NSN suggested, apply a choice to similar decisions, an Apply button that stays put ([brief](tasks/DS1-faster-decisions.md)) | `Substring Headers in Diff Sheet (1).xlsx` | Not started |
 
-E1-E4, V1, and M1 run in parallel.
+All Wave 2 tasks run in parallel.
 
 ### Wave 2 rules (in addition to the rules below)
 
 1. Each task owns the paths listed at the end of its brief. `model.ts` changes only in E1 (its brief has the exact contract).
 2. Shared files, and who edits which part:
 
-   | File | E1 | E2 | E3 | E4 | V1 | M1 |
-   | --- | --- | --- | --- | --- | --- | --- |
-   | `structure/detect.ts` | one call in the no-header branch | `tryHeader` span | `detectTable`, `nextTable` | | | |
-   | `structure/sheet.ts` | manual-table branch | | deterministic branch | | | |
-   | `structure/columns.ts` | | `readHeader` | | value-only rules | | |
-   | `session.svelte.ts` | two methods | | | | `focus` state | explanation state |
-   | `src/lib/import/ai/` | verifier, prompt, schema | | | | | new `explain*.ts` files only |
-   | `SheetsPanel.svelte` | setup control | | one line per table | | | |
-   | `ColumnsPanel.svelte` | | "(no header)" label | group headings | | | |
-   | `PreviewPanel.svelte`, `ProvenanceDrawer.svelte` | | | | | focus calls | message lines |
+   | File | Who edits which part |
+   | --- | --- |
+   | `model.ts` | E1: the contract in its brief. DS1: one `Transform` member. |
+   | `structure/detect.ts` | E1: one call in the no-header branch. E2: the `tryHeader` span. E3: `detectTable`, `nextTable`. |
+   | `structure/sheet.ts` | E1: the manual-table branch. E3: the deterministic branch. |
+   | `structure/columns.ts` | E2: `readHeader`. E4: the value-only rules. |
+   | `records/table.ts` | E4: split and conflict matching. DS1: the `prefer-nsn` branch and FSC derivation. |
+   | `validate/rows.ts` | E1: the include suggestion for headerless tables. DS1: the identifier-conflict suggestion. |
+   | `src/lib/import/ai/` | E1: verifier, prompt, schema. M1: new `explain*.ts` files only. |
+   | `session.svelte.ts` | E1: manual-table methods. V1: `focus`. M1: explanation state. AI1: the AI default. DS1: `chooseMany`, `resetDecisions`. |
+   | `summary.ts` | E1: the nothing-to-import sentence. E3: counting tables. AI1: the AI line. |
+   | `SheetsPanel.svelte` | E1: the setup control. E3: one line per table. AI1: "AI is reading". |
+   | `ColumnsPanel.svelte` | E2: the "(no header)" label. E3: group headings. |
+   | `DecisionStage.svelte` | M1: the explanation text block. DS1: options, actions, focus, the done list. |
+   | `AiAssist.svelte` | M1: the explained-decisions line. AI1: default-on copy. |
+   | `PreviewPanel.svelte`, `ProvenanceDrawer.svelte` | V1: focus calls. M1: message lines. |
 
    Keep your edits inside your part, and when you rebase after another task merged, keep its behavior and rerun the whole suite.
 3. Each new fixture gets its own expectations file (`tests/fixtures/<name>.ts`) and acceptance suite (`tests/acceptance/<name>.test.ts`). Do not add to `FIXTURES` in `expectations.ts`; the coordinator registers the new fixtures after the merges.
 4. The WOW, Statz, and PENCOM expectations stay green. A change to them must be explained in the PR, not silently updated.
-5. Merge order when several are ready at once: E4, E2, E3, E1; V1 and M1 at any time.
+5. Merge order when several are ready at once: E4, E2, E3, E1; V1, M1, AI1, and DS1 at any time.
+6. Meet the UX bar below.
+
+### The UX bar (every Wave 2 task)
+
+The product owner's standard: importing complex or broken data must still feel smooth, obvious, and calm.
+
+- **No dead ends.** Every state the user can reach says what happened and offers the next step: an empty sheet, a sheet with no table, AI unavailable or failed, nothing to import, a read error, a skipped decision.
+- **Never misleading.** "Nothing needs you" or any green success only when something will import and nothing is waiting. Counts match what the Import button will do.
+- **The user's language.** No importer jargon, no repeated `Sheet!A1` strings, identifiers written the way users write them. M1's copy rules apply to any text you add.
+- **Stable and fast.** Nothing jumps under the pointer; results that arrive later (AI) are announced; repeating an action is safe.
+- **Recoverable.** Every automatic or bulk action can be undone where it is shown.
+- **Checked by hand.** Try your change in a real browser on all seven fixtures, including the error paths it touches, at 1440 px and phone width, with screenshots in the PR. Fix anything that looks off on the screens you touch, even if your task did not cause it.
 
 ### Defaults the briefs assume (product owner can overrule)
 
@@ -119,7 +139,7 @@ Beyond Wave 2, what remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DE
 | D9 | Annotated part numbers (`12273108 (EATON M144E)`) are kept verbatim with a warning. | Plan |
 | D10 | Rows with values only in unmapped columns are skipped and counted, not shown as invalid. | Plan |
 | D11 | Automation: certain decisions are applied and logged with an undo; uncertain ones are held back with a suggestion; "Accept all suggestions" resolves them in one click. | Product owner |
-| D12 | A row whose NSN contradicts its own NIIN or FSC is a pending decision (prefer NSN, prefer NIIN/FSC, or exclude; suggested exclude). | Product owner (F1) |
+| D12 | A row whose NSN contradicts its own NIIN or FSC is a pending decision (prefer NSN, prefer NIIN/FSC, or exclude; suggested exclude). The suggestion is superseded by D24. | Product owner (F1) |
 | D13 | A new record matching a saved one with a different description or CAGE is a pending decision (keep saved, replace saved, or keep both; suggested keep saved). | Product owner (F1) |
 | D14 | The review demo uses the current OpenRouter key from a gitignored `.env`; the key is rotated after the review. Without a key the AI toggle is disabled with the reason, and `AI_PROVIDER=mock` shows the AI path offline. | Product owner |
 | D15 | The extras below are deferred to the backlog and described in the design note as future work. | Product owner |
@@ -129,6 +149,8 @@ Beyond Wave 2, what remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DE
 | D19 | A word containing digits makes a header match weak (`PN-4410` is a value), so a header like `Part Number 2` reaches at most medium confidence. | T3 (#9), accepted |
 | D21 | Zip-bomb guard: reject a workbook whose declared uncompressed size is over 200 MB. A legitimate workbook at the 2,000,000-cell limit measured about 90 MB unzipped, the example files expand 4-12x, and zip bombs 100x or more. | Product owner |
 | D22 | Two-row header detection (OD3) is built now: today a split label like "Part" above "Number" can import a junk record and lose columns. | Product owner |
+| D23 | AI assistance is on by default whenever the server has AI configured; the switch stays and turning it off is remembered per browser. Accepted deviation from a literal reading of TASK_SPEC's "transmission disabled unless AI parsing is explicitly enabled"; nothing is sent without a server key, and the AI section says what is sent. | Product owner (AI1) |
+| D24 | An NSN that disagrees with its own FSC or NIIN stays a pending decision, now suggesting "Keep the NSN" (FSC and NIIN worked out from it, disagreeing cells listed); replaces D12's suggested exclude. A choice can be applied to similar decisions in one click. Other suggestions are unchanged. | Product owner (DS1) |
 | D20 | The review window becomes summary-first (UX1): one sentence and the pending decision first, everything else in collapsed sections with one-line summaries; all of R1-R9 kept; Columns opens by default only when a column is medium or low confidence or was remapped. Not a "simple mode" setting. | Product owner, after the prototype |
 
 ## Backlog (future ideas)
