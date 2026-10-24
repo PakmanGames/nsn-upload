@@ -175,7 +175,6 @@
 	}
 
 	const CHIPS: Array<{ key: keyof NonNullable<typeof analysis>['summary']; label: string; filter: RecordFilter; dot: string }> = [
-		{ key: 'candidates', label: 'candidates', filter: 'all', dot: 'bg-slate-400' },
 		{ key: 'valid', label: 'valid', filter: 'valid', dot: 'bg-emerald-500' },
 		{ key: 'warnings', label: 'warnings', filter: 'warning', dot: 'bg-amber-500' },
 		{ key: 'invalid', label: 'invalid', filter: 'invalid', dot: 'bg-red-500' },
@@ -250,11 +249,21 @@
 
 				{#if reviewing && analysis}
 					<div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-						<!-- One scrolling row on phones keeps the fixed header short. -->
-						<ul
-							class="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&>li]:shrink-0"
-							aria-label="Summary"
-						>
+						<ul class="flex flex-wrap gap-1.5" aria-label="Summary">
+							<!-- Source rows and records differ when a cell splits into several records (WOW: 179 rows, 180 records). -->
+							<li>
+								<button
+									type="button"
+									class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+									onclick={() => showStatus('all')}
+								>
+									<span class="size-1.5 rounded-full bg-slate-400"></span>
+									<span class="font-semibold tabular-nums">{analysis.summary.sourceRows.toLocaleString()}</span>
+									rows →
+									<span class="font-semibold tabular-nums">{analysis.summary.candidates.toLocaleString()}</span>
+									records
+								</button>
+							</li>
 							{#each CHIPS as chip (chip.key)}
 								{@const value = analysis.summary[chip.key]}
 								<li>
@@ -315,6 +324,11 @@
 						<h3 class="mt-4 text-lg font-semibold text-slate-950">
 							{plural(session.imported?.add.length ?? 0, 'record')} added to your NSN table
 						</h3>
+						{#if session.imported?.replace.length}
+							<p class="mt-1 text-sm font-medium text-slate-700">
+								{plural(session.imported.replace.length, 'saved record')} replaced with values from this file
+							</p>
+						{/if}
 						<p class="mt-1 text-sm text-slate-500">Saved in this browser.</p>
 						<dl class="mt-6 divide-y divide-slate-100 rounded-lg border border-slate-200 text-left text-sm">
 							{#each bySheet as [sheet, records] (sheet)}
@@ -324,11 +338,6 @@
 								</div>
 							{/each}
 						</dl>
-						{#if session.imported?.replace.length}
-							<p class="mt-1 text-sm font-medium text-slate-700">
-								{plural(session.imported.replace.length, 'saved record')} replaced with values from this file
-							</p>
-						{/if}
 						{#if reasons.review + reasons.invalid + reasons.duplicate + reasons.excluded}
 							<p class="mt-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Not imported</p>
 							<dl class="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-left text-sm">
