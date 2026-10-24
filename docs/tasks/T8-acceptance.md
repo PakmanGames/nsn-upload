@@ -1,6 +1,7 @@
 # T8 - Acceptance tests, unseen-workbook coverage, E2E, docs
 
-Owns: `tests/`, `playwright.config.ts`, `README.md`, `docs/ARCHITECTURE.md`, the `scripts` section of `package.json`, and the `test` block of `vite.config.ts`.
+Owns: `tests/`, `playwright.config.ts`, `README.md`, the `scripts` section of `package.json`, and the `test` and `build.chunkSizeWarningLimit` settings of `vite.config.ts`.
+`docs/ARCHITECTURE.md` (the design note) is owned by the coordinator: send it notes instead of editing it.
 First change: set `test.include` in `vite.config.ts` (for example `src/**/*.test.ts` and `tests/acceptance/**/*.test.ts`) so Vitest never runs Playwright's `tests/e2e/*.spec.ts`.
 Read first: `docs/PLAN.md` (rules, fixture expectations, messy cases), `docs/ARCHITECTURE.md`, `TASK_SPEC.md` (acceptance cases, testing expectations, deliverables), `src/lib/import/model.ts`.
 You are also the integrator in wave 2: run everything, find failures, and route each one to the owning task with a minimal reproduction.
@@ -33,8 +34,8 @@ You are also the integrator in wave 2: run everything, find failures, and route 
   - upload each fixture, check the sheet badges and the summary chips match the expectations, import, and see the records in the mappings table;
   - PENCOM: "Accept all suggestions" changes "Import 0 records" to "Import 2 records";
   - AI toggle on a sheet with an `aiTrigger` shows the mock proposal with an AI badge.
-- `README.md`: run instructions, `pnpm test`, `pnpm test:acceptance`, `pnpm test:e2e`, the env vars (`OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `AI_PROVIDER`), and a short "how it works".
-- `docs/ARCHITECTURE.md`: turn it into the design note the spec asks for. Update every section to match what was actually built (table and header detection, confidence scoring, normalization and dedup, performance, AI boundary, tradeoffs and unsupported cases), using the handoff notes from T1-T7.
+- `README.md`: run instructions, `pnpm test`, `pnpm test:acceptance`, `pnpm test:e2e`, the env vars (`OPENROUTER_API_KEY` in a gitignored `.env`, optional `OPENROUTER_MODEL`, `AI_PROVIDER=mock` to see the AI path without a key), a short "how it works", and a link to `docs/ARCHITECTURE.md` as the design note.
+- Send the coordinator anything the design note gets wrong about the finished app (E2E results, UI behavior, test counts).
 
 ## Done when
 

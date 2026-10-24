@@ -29,7 +29,7 @@ Never render cell text with `{@html}`.
 
 ## Wave 2: wire the real pipeline (after T1-T6 merge)
 
-- `readWorkbook` -> `analyze(model, existingMappings, overrides)`; import with `toMappingInputs(analysis)`.
+- `readWorkbook` -> `analyze(model, mappings, overrides)`, passing the current `MappingRecord[]`; import with `toImportPlan(analysis)` once F1a lands (it replaces `toMappingInputs`), adding new records and replacing saved ones by id. See `docs/tasks/F1-decision-followups.md` (F1d).
 - AI: `buildInterpretationRequest` -> `createHttpInterpreter().interpret` -> `verifyInterpretation` -> `overrides.aiTables`.
 - Update `NsnSettingsTab.svelte` import handling; delete the old smart-upload files and the unused types in `src/lib/types.ts` (`UploadRow`, `UploadAnalysis`, `ImportResult`), keeping `MappingInput` and `MappingRecord`.
 - Drop the "Download sample workbook" link (it used ExcelJS at runtime).
