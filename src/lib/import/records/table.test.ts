@@ -467,22 +467,90 @@ describe('identifier conflict decisions', () => {
 		}
 	});
 
-	it('applies the choice only to the split records whose NSN conflicts', () => {
-		const sheet = sheetOf(['NSN', 'NIIN'], { 2: ['5305-01-658-2565\n5305-01-658-2566', '016582565'] });
-		expect(build(sheet, ['nsn', 'niin']).map((r) => r.status)).toEqual(['valid', 'pending']);
-
-		const [agrees, conflicts] = build(sheet, ['nsn', 'niin'], choose('prefer-nsn'));
-		expect(agrees).toMatchObject({ rejected: {}, status: 'valid', approved: true });
-		expect(agrees.fields.niin?.provenance.origin).toBe('source');
-		expect(conflicts.rejected).toEqual({ niin: { original: '016582565', cell: 'B2' } });
-		expect(conflicts.fields.niin).toMatchObject({ value: '016582566', provenance: { origin: 'derived' } });
-		expect(conflicts).toMatchObject({ status: 'warning', approved: true });
-	});
-
 	it('ignores a stored choice on a row whose identifiers agree', () => {
 		const sheet = sheetOf(HEADER, { 2: ['MS51957-3', '5305-01-658-2565', '016582565', '5305', 'Screw', '0bwz1'] });
 
 		expect(build(sheet, FIELDS, choose('prefer-niin-fsc'))).toEqual(build(sheet, FIELDS));
+	});
+});
+
+describe('split NSNs beside one FSC or NIIN', () => {
+	const fscNote = (record: CandidateRecord) => record.issues.find((i) => i.field === 'fsc');
+
+	it('gives the FSC only to the NSN it matches, with a note on the other record (B10 shape)', () => {
+		const sheet = sheetOf(['Part', 'NSN', 'FSC'], { 10: ['1654062-3', '1680-01-581-8020\n5342-01-547-4725', '5342'] });
+		const [other, owner] = build(sheet, ['part', 'nsn', 'fsc']);
+
+		expect(owner.fields.fsc).toMatchObject({ value: '5342', provenance: { cell: 'C10', origin: 'source' } });
+		expect(codes(owner)).toEqual(['split-from-multi-value']);
+		expect(other.fields.fsc).toBeUndefined();
+		expect(other.fields.niin).toMatchObject({ value: '015818020', provenance: { origin: 'derived', derivedFrom: ['B10'] } });
+		expect(fscNote(other)).toEqual({
+			code: 'split-from-multi-value',
+			severity: 'info',
+			field: 'fsc',
+			message: `FSC 5342 in ${SHEET}!C10 matches the other NSN in ${SHEET}!B10`,
+			cells: [`${SHEET}!C10`, `${SHEET}!B10`]
+		});
+		expect([other, owner].map((r) => [r.status, r.approved])).toEqual([
+			['valid', true],
+			['valid', true]
+		]);
+	});
+
+	it('names the matching position when the cell lists more than two NSNs', () => {
+		const nsns = '5305-01-658-2565\n1680-01-581-8020\n5305-01-669-8021';
+		const first = build(sheetOf(['NSN', 'FSC'], { 2: [nsns, '5305'] }), ['nsn', 'fsc']);
+		expect(first.map((r) => r.fields.fsc?.value)).toEqual(['5305', undefined, '5305']);
+		expect(fscNote(first[1])?.message).toBe(`FSC 5305 in ${SHEET}!B2 matches NSNs 1 and 3 of 3 in ${SHEET}!A2`);
+
+		const last = build(sheetOf(['NSN', 'FSC'], { 2: [nsns, '1680'] }), ['nsn', 'fsc']);
+		expect(last.map((r) => r.fields.fsc?.value)).toEqual([undefined, '1680', undefined]);
+		expect(fscNote(last[0])?.message).toBe(`FSC 1680 in ${SHEET}!B2 matches NSN 2 of 3 in ${SHEET}!A2`);
+		expect([...first, ...last].map((r) => r.status)).toEqual(Array(6).fill('valid'));
+	});
+
+	it('gives a NIIN cell only to the NSN it matches; the other NIIN is derived from its own NSN', () => {
+		const sheet = sheetOf(['NSN', 'NIIN'], { 2: ['1680-01-581-8020\n5342-01-547-4725', '015474725'] });
+		const [other, owner] = build(sheet, ['nsn', 'niin']);
+
+		expect(owner.fields.niin).toMatchObject({ value: '015474725', provenance: { cell: 'B2', origin: 'source' } });
+		expect(other.fields.niin).toMatchObject({ value: '015818020', provenance: { origin: 'derived', derivedFrom: ['A2'] } });
+		expect(other.issues.find((i) => i.field === 'niin')?.message).toBe(
+			`NIIN 015474725 in ${SHEET}!B2 matches the other NSN in ${SHEET}!A2`
+		);
+		expect([other.status, owner.status]).toEqual(['valid', 'valid']);
+	});
+
+	it('keeps an FSC that every split NSN shares on every record, without a note', () => {
+		const sheet = sheetOf(['NSN', 'FSC'], { 2: ['3110-00-100-3137\n3110-01-630-4025', '3110'] });
+		const records = build(sheet, ['nsn', 'fsc']);
+
+		expect(records.map((r) => r.fields.fsc?.value)).toEqual(['3110', '3110']);
+		expect(records.map((r) => codes(r))).toEqual([['split-from-multi-value'], ['split-from-multi-value']]);
+	});
+
+	it('still holds every record as a conflict when the FSC matches none of the NSNs, and applies the choice to all', () => {
+		const sheet = sheetOf(['NSN', 'FSC'], { 2: ['1680-01-581-8020\n5342-01-547-4725', '5305'] });
+		const undecided = build(sheet, ['nsn', 'fsc']);
+		expect(undecided.map((r) => [r.status, issue(r, 'conflict')?.severity])).toEqual([
+			['pending', 'error'],
+			['pending', 'error']
+		]);
+
+		const decisions = { [decisionId('resolve-identifier-conflict', `${TABLE_ID}:r2`)]: 'prefer-nsn' };
+		for (const record of build(sheet, ['nsn', 'fsc'], { decisions })) {
+			expect(record.rejected).toEqual({ fsc: { original: '5305', cell: 'B2' } });
+			expect(record).toMatchObject({ status: 'warning', approved: true });
+		}
+	});
+
+	it('still holds a single NSN that disagrees with its FSC (row 49 shape)', () => {
+		const sheet = sheetOf(['Part', 'NSN', 'FSC'], { 49: ['HT3326-5-50', '6850-01-494-9650', '8030'] });
+		const [record] = build(sheet, ['part', 'nsn', 'fsc']);
+
+		expect(issue(record, 'conflict')).toMatchObject({ severity: 'error', field: 'fsc' });
+		expect(record).toMatchObject({ status: 'pending', approved: false });
 	});
 });
 

@@ -187,16 +187,23 @@ function buildRowRecords(ctx: TableContext, row: Row): CandidateRecord[] {
 	const layout = chooseLayout(ctx, row);
 	const total = Math.max(1, ...row.sources.map((s) => s.values.length));
 	const baseId = `${ctx.table.id}:r${row.row}`;
+	const owners = ownersAmongSplitNsns(row);
 	const records: CandidateRecord[] = [];
 	for (let index = 0; index < total; index++) {
 		const fields: CandidateRecord['fields'] = {};
+		const notes: Issue[] = [];
 		for (const source of row.sources) {
+			const owner = owners.find((o) => o.source === source);
+			if (owner && !owner.indexes.includes(index)) {
+				notes.push(ownedElsewhere(ctx, owner, total));
+				continue;
+			}
 			// Single values repeat on every record; each multi-value cell left in the layout has `total` values.
 			const value = source.values.length === 1 ? source.values[0] : source.values[index];
 			fields[source.field] = fieldValue(ctx, row.row, source, value);
 		}
 		const rejected = { ...row.rejected };
-		const issues = [...row.issues, ...layoutIssues(ctx, layout, index, total)];
+		const issues = [...row.issues, ...layoutIssues(ctx, layout, index, total), ...notes];
 		issues.push(...checkAndDerive(ctx, fields, rejected, row));
 		issues.push(...mappingIssues(ctx, row.row, fields));
 		const pending = layout.kind === 'ambiguous' && layout.chosen === undefined;
@@ -216,6 +223,42 @@ function buildRowRecords(ctx: TableContext, row: Row): CandidateRecord[] {
 		});
 	}
 	return records;
+}
+
+/** A single FSC or NIIN cell that belongs to some of the NSNs split from another cell of its row. */
+type Owner = { source: Source; nsn: Source; indexes: number[] };
+
+/**
+ * A cell of several NSNs next to one FSC (or NIIN) usually lists alternatives for one item, and the FSC
+ * describes the NSN it matches. When it matches some of the split NSNs but not all, it belongs to those
+ * records only; the others derive their FSC and NIIN from their own NSN, so nothing conflicts. A cell that
+ * matches none is still checked against every record, which raises the usual conflict.
+ */
+function ownersAmongSplitNsns(row: Row): Owner[] {
+	const nsn = row.sources.find((s) => s.field === 'nsn' && s.values.length > 1);
+	if (!nsn) return [];
+	return (['fsc', 'niin'] as const).flatMap((field) => {
+		const source = row.sources.find((s) => s.field === field && s.values.length === 1);
+		if (!source) return [];
+		const digitsOf = (value: string) => (field === 'fsc' ? value.slice(0, 4) : value.slice(4));
+		const indexes = nsn.values.flatMap((v, i) => (digitsOf(v.value) === source.values[0].value ? [i] : []));
+		return indexes.length > 0 && indexes.length < nsn.values.length ? [{ source, nsn, indexes }] : [];
+	});
+}
+
+/** "FSC 5342 in Sheet!E10 matches the other NSN in Sheet!B10", on each record that does not carry it. */
+function ownedElsewhere(ctx: TableContext, { source, nsn, indexes }: Owner, total: number): Issue {
+	const at = (s: Source) => qualifiedRef(ctx.sheet.name, s.cell.ref);
+	const positions = indexes.map((i) => String(i + 1));
+	const which =
+		total === 2 ? 'the other NSN' : positions.length === 1 ? `NSN ${positions[0]} of ${total}` : `NSNs ${joinAnd(positions)} of ${total}`;
+	return {
+		code: 'split-from-multi-value',
+		severity: 'info',
+		field: source.field,
+		message: `${LABEL[source.field]} ${source.values[0].value} in ${at(source)} matches ${which} in ${at(nsn)}`,
+		cells: [at(source), at(nsn)]
+	};
 }
 
 function fieldValue(ctx: TableContext, row: number, source: Source, value: NormalizedValue): FieldValue {
