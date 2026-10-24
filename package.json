@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
-    "test:acceptance": "vitest run tests/acceptance"
+    "test:acceptance": "vitest run tests/acceptance",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@lucide/svelte": "^0.561.0",
