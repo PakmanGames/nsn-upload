@@ -100,7 +100,6 @@ The AI sample leaves out hidden sheets, rows, and columns and system metadata co
 ### A typical session
 
 ```mermaid
-%%{init: {"sequence": {"width": 100, "actorMargin": 16, "messageMargin": 30}}}%%
 sequenceDiagram
     autonumber
     actor U as User
@@ -109,31 +108,29 @@ sequenceDiagram
     participant W as Review window
     participant E as Pipeline
     participant R as /api/interpret
-    participant O as OpenRouter
 
     P->>S: load saved records
     U->>P: Smart Upload
-    P->>W: open, with saved records
+    P->>W: open with records
     U->>W: choose an .xlsx file
     W->>E: readWorkbook(bytes)
-    E-->>W: WorkbookModel, kept
-    W->>E: analyze(model, saved, {})
+    E-->>W: WorkbookModel
+    W->>E: analyze()
     E-->>W: WorkbookAnalysis
-    loop each remap, decision, or undo
+    loop each remap, decision, undo: file not reread
         U->>W: change something
-        W->>E: analyze(model, saved, overrides)
-        E-->>W: new analysis, no re-read
+        W->>E: analyze() with overrides
+        E-->>W: new analysis
     end
     opt AI is on and a sheet needs help
         W->>R: bounded sample
-        R->>O: strict JSON schema
-        O-->>R: proposed structure
+        Note over R: OpenRouter,<br/>strict JSON schema
         R-->>W: structure only
-        W->>E: verify, then analyze again
+        W->>E: verify, analyze()
     end
     U->>W: Import N records
-    W->>E: toImportPlan(analysis)
-    E-->>W: records to add and replace
+    W->>E: toImportPlan()
+    E-->>W: add and replace lists
     W->>P: the import plan
     P->>S: save records
     P-->>U: table shows the records
