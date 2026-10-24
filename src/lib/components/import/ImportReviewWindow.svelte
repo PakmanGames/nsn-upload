@@ -559,7 +559,7 @@
 						<button
 							type="button"
 							class={[
-								'group flex min-h-52 flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-8 text-center transition disabled:cursor-progress',
+								'group/drop flex min-h-52 flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-8 text-center transition disabled:cursor-progress',
 								isDragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white hover:border-blue-400 hover:bg-blue-50/40'
 							]}
 							disabled={session.busy}
@@ -574,7 +574,7 @@
 							ondrop={onDrop}
 							onclick={() => fileInput?.click()}
 						>
-							<div class="grid size-11 place-items-center rounded-full bg-slate-100 text-slate-600 group-hover:bg-blue-100 group-hover:text-blue-700">
+							<div class="grid size-11 place-items-center rounded-full bg-slate-100 text-slate-600 group-hover/drop:bg-blue-100 group-hover/drop:text-blue-700">
 								{#if session.busy}
 									<LoaderCircle class="animate-spin" size={21} />
 								{:else}

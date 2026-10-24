@@ -21,12 +21,12 @@
 	id={`section-${id}`}
 	{open}
 	ontoggle={(event) => onToggle(event.currentTarget.open)}
-	class="group scroll-mt-3 rounded-xl border border-slate-200 bg-white shadow-sm"
+	class="group/section scroll-mt-3 rounded-xl border border-slate-200 bg-white shadow-sm"
 >
 	<summary
-		class="flex cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 group-open:rounded-b-none [&::-webkit-details-marker]:hidden"
+		class="flex cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 group-open/section:rounded-b-none [&::-webkit-details-marker]:hidden"
 	>
-		<ChevronRight size={16} class="shrink-0 text-slate-400 transition group-open:rotate-90" />
+		<ChevronRight size={16} class="shrink-0 text-slate-400 transition group-open/section:rotate-90" />
 		<span class="grid size-7 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-600"><Icon size={16} /></span>
 		<span class="min-w-0 flex-1">
 			<span class="block text-sm font-semibold text-slate-900">{title}</span>
