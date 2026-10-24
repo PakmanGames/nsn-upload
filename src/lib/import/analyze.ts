@@ -1,4 +1,4 @@
-import type { MappingInput, Overrides, WorkbookAnalysis, WorkbookModel } from './model';
+import type { Overrides, StoredMapping, WorkbookAnalysis, WorkbookModel } from './model';
 import { analyzeStructure } from './structure';
 import { buildRecords } from './records';
 import { finalizeAnalysis } from './validate';
@@ -6,7 +6,7 @@ import { finalizeAnalysis } from './validate';
 /** Pure and deterministic: the UI calls it again with new overrides instead of rereading the file. */
 export function analyze(
 	model: WorkbookModel,
-	existing: MappingInput[],
+	existing: StoredMapping[],
 	overrides: Overrides = {}
 ): WorkbookAnalysis {
 	const sheets = analyzeStructure(model, overrides);

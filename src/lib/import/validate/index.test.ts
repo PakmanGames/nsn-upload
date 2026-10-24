@@ -5,13 +5,13 @@ import type {
 	Field,
 	FieldValue,
 	Issue,
-	MappingInput,
 	SheetAnalysis,
+	StoredMapping,
 	TableCandidate,
 	WorkbookAnalysis
 } from '../model';
 import { makeWorkbook } from '../testing';
-import { finalizeAnalysis, toMappingInputs } from '.';
+import { finalizeAnalysis, toImportPlan } from '.';
 
 const FILE = 'parts.xlsx';
 /** One column per field, so every value sits in a distinct, predictable cell. */
@@ -104,7 +104,7 @@ function sheet(
 function run(
 	sheets: SheetAnalysis[],
 	records: CandidateRecord[],
-	options: { existing?: MappingInput[]; decisions?: Record<string, string> } = {}
+	options: { existing?: StoredMapping[]; decisions?: Record<string, string> } = {}
 ): WorkbookAnalysis {
 	return finalizeAnalysis(makeWorkbook(FILE, []), sheets, records, options.existing ?? [], {
 		decisions: options.decisions
@@ -416,7 +416,7 @@ describe('row decisions', () => {
 		]);
 		expect(analysis.decisions[1].reason).toContain('same value as part number in Active Parts!A134');
 		expect(find(analysis, malformed.id)).toMatchObject({ status: 'warning', approved: true });
-		expect(toMappingInputs(analysis)).toEqual([{ part: '12663107', description: 'Bolt' }]);
+		expect(toImportPlan(analysis).add).toEqual([{ part: '12663107', description: 'Bolt' }]);
 	});
 
 	it('excludes the row when the user undoes the valid-portion import', () => {
@@ -525,7 +525,7 @@ describe('duplicates and conflicts', () => {
 		expect(merged.fields.description!.provenance).toMatchObject({ sheet: 'Intake', cell: 'B5' });
 		expect(find(analysis, 'Intake@1:r5')).toMatchObject({ status: 'duplicate', approved: false });
 		expect(issueCodes(find(analysis, 'Intake@1:r5'))).toEqual(['duplicate-across-sheets']);
-		expect(toMappingInputs(analysis)).toEqual([
+		expect(toImportPlan(analysis).add).toEqual([
 			{
 				part: 'SE5826',
 				description: 'Assembly screw',
@@ -655,9 +655,9 @@ describe('duplicates and conflicts', () => {
 			record('Parts', 2, { part: 'MS 51957-3', nsn: '5305016582565' }),
 			record('Parts', 3, { part: 'SE5826', nsn: '5305016698021', cage: '0BWZ1' })
 		];
-		const existing: MappingInput[] = [
-			{ part: ' ms  51957-3', nsn: '5305-01-658-2565' },
-			{ part: 'SE5826', nsn: '5305016698021', cage: '9ZZZ9' }
+		const existing: StoredMapping[] = [
+			{ id: 'saved-1', part: ' ms  51957-3', nsn: '5305-01-658-2565' },
+			{ id: 'saved-2', part: 'SE5826', nsn: '5305016698021', cage: '9ZZZ9' }
 		];
 		const analysis = run(sheets, records, { existing });
 
@@ -770,8 +770,8 @@ describe('decision list and re-runs', () => {
 	});
 });
 
-describe('toMappingInputs', () => {
-	it('returns approved records only, without FSC', () => {
+describe('toImportPlan', () => {
+	it('adds approved records only, without FSC', () => {
 		const analysis = run(
 			[sheet('Parts', 0)],
 			[
@@ -780,8 +780,9 @@ describe('toMappingInputs', () => {
 			]
 		);
 
-		expect(toMappingInputs(analysis)).toEqual([
-			{ part: 'P-1', nsn: '5305016582565', niin: '016582565' }
-		]);
+		expect(toImportPlan(analysis)).toEqual({
+			add: [{ part: 'P-1', nsn: '5305016582565', niin: '016582565' }],
+			replace: []
+		});
 	});
 });

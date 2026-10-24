@@ -26,7 +26,17 @@ const OPTION_LABELS: { [K in DecisionKind]: Record<(typeof DECISION_OPTIONS)[K][
 	},
 	'merge-duplicates': { merge: 'Merge into one record', 'keep-separate': 'Keep separate records' },
 	'drop-duplicate': { drop: 'Skip duplicate', keep: 'Import anyway' },
-	'resolve-conflict': { 'keep-all': 'Keep all records', 'exclude-all': 'Exclude all records' }
+	'resolve-conflict': { 'keep-all': 'Keep all records', 'exclude-all': 'Exclude all records' },
+	'resolve-identifier-conflict': {
+		'prefer-nsn': 'Keep the NSN',
+		'prefer-niin-fsc': 'Keep the NIIN and FSC',
+		'exclude-row': 'Exclude row'
+	},
+	'resolve-storage-conflict': {
+		'keep-saved': 'Keep the saved record',
+		'replace-saved': 'Replace the saved record',
+		'keep-both': 'Keep both records'
+	}
 };
 
 function fixedOptions(kind: DecisionKind): DecisionOption[] {

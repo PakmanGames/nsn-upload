@@ -186,7 +186,7 @@ export const pencom = {
 			other: { sheet: INTAKE, row: 3, descriptionCell: 'C3' }
 		}
 	],
-	/** toMappingInputs() after "Accept all suggestions". */
+	/** toImportPlan().add after "Accept all suggestions". */
 	imported: [
 		{
 			part: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P',
