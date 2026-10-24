@@ -3,47 +3,26 @@
  * through the real reader, so the whole pipeline is exercised on files it was not tuned against.
  * Every workbook also has to satisfy the provenance contract (expectTraceable).
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { analyze } from '../../src/lib/import/analyze';
-import {
-	decisionId,
-	type StoredMapping,
-	type WorkbookAnalysis,
-	type WorkbookModel
-} from '../../src/lib/import/model';
+import { decisionId, type StoredMapping } from '../../src/lib/import/model';
 import { toImportPlan } from '../../src/lib/import/validate';
 import { rows } from '../fixtures/expectations';
 import {
 	acceptAllSuggestions,
-	buildWorkbook,
+	digits,
 	expectSummaryConsistent,
 	expectTraceable,
 	mappedColumns,
+	NSN,
 	recordAt,
 	recordsOf,
 	sheetOf,
 	singleRecordAt,
 	tableOf,
+	useWorkbook,
 	type SheetSpec
 } from './helpers';
-
-// Real-shaped NSNs: FSC + NIIN, written with hyphens the way users paste them.
-const NSN = ['5305-01-658-2565', '5305-01-669-8021', '5340-01-102-4535', '3020-01-660-9619', '2530-00-967-3346'];
-const digits = (nsn: string) => nsn.replace(/-/g, '');
-
-/** Builds the workbook once for the enclosing describe block and checks the provenance contract on it. */
-function useWorkbook(fileName: string, sheets: SheetSpec[], existing: StoredMapping[] = []) {
-	const context = {} as { model: WorkbookModel; analysis: WorkbookAnalysis };
-	beforeAll(async () => {
-		context.model = await buildWorkbook(fileName, sheets);
-		context.analysis = analyze(context.model, existing, {});
-	});
-	it('traces every value to the cell that holds its original text', () => {
-		expectTraceable(context.model, context.analysis);
-		expectSummaryConsistent(context.analysis);
-	});
-	return context;
-}
 
 describe('unseen workbooks', () => {
 	describe('title rows and a merged header cell above a table on row 4', () => {

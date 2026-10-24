@@ -4,19 +4,26 @@
  */
 import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
-import { expect } from 'vitest';
+import { beforeAll, expect, it } from 'vitest';
+import { analyze } from '../../src/lib/import/analyze';
 import {
 	decisionId,
 	type CandidateRecord,
 	type Field,
 	type Overrides,
 	type SheetAnalysis,
+	type StoredMapping,
 	type TableCandidate,
 	type WorkbookAnalysis,
 	type WorkbookModel
 } from '../../src/lib/import/model';
 import { colLetter, parseA1, toA1 } from '../../src/lib/import/refs';
 import { readWorkbook } from '../../src/lib/import/reader';
+
+/** Real-shaped NSNs (FSC + NIIN) for synthetic workbooks, written with hyphens the way users paste them. */
+export const NSN = ['5305-01-658-2565', '5305-01-669-8021', '5340-01-102-4535', '3020-01-660-9619', '2530-00-967-3346'];
+
+export const digits = (nsn: string) => nsn.replace(/-/g, '');
 
 const FIXTURE_DIR = new URL('../../example-excel-uploads/', import.meta.url);
 
@@ -28,10 +35,17 @@ export async function loadFixture(file: string): Promise<WorkbookModel> {
 
 export type SheetSpec = {
 	name: string;
-	/** rows[0] is Excel row 1; null leaves a cell empty. */
-	rows: Array<Array<string | number | null>>;
+	/**
+	 * rows[0] is Excel row 1; null leaves a cell empty. Besides strings and numbers, ExcelJS values cover dates,
+	 * `{ formula, result }` (a cached result Excel would store), and `{ error: '#N/A' }`.
+	 */
+	rows: Array<Array<ExcelJS.CellValue>>;
 	merges?: string[];
 	state?: 'visible' | 'hidden' | 'veryHidden';
+	/** A1 ref -> number format, e.g. a date format on a number. */
+	numFmts?: Record<string, string>;
+	/** 1-based rows hidden in Excel, as a filter leaves them. */
+	hiddenRows?: number[];
 };
 
 /**
@@ -49,9 +63,28 @@ export async function buildWorkbook(fileName: string, sheets: SheetSpec[]): Prom
 			});
 		});
 		for (const range of spec.merges ?? []) sheet.mergeCells(range);
+		for (const [ref, format] of Object.entries(spec.numFmts ?? {})) sheet.getCell(ref).numFmt = format;
+		for (const row of spec.hiddenRows ?? []) sheet.getRow(row).hidden = true;
 	}
 	const bytes = new Uint8Array(await workbook.xlsx.writeBuffer());
 	return readWorkbook(bytes.buffer, fileName);
+}
+
+/**
+ * Builds the workbook once for the enclosing describe block and checks the provenance and summary contracts on it.
+ * The returned object is filled in by beforeAll, so read it inside tests only.
+ */
+export function useWorkbook(fileName: string, sheets: SheetSpec[], existing: StoredMapping[] = []) {
+	const context = {} as { model: WorkbookModel; analysis: WorkbookAnalysis };
+	beforeAll(async () => {
+		context.model = await buildWorkbook(fileName, sheets);
+		context.analysis = analyze(context.model, existing, {});
+	});
+	it('traces every value to the cell that holds its original text', () => {
+		expectTraceable(context.model, context.analysis);
+		expectSummaryConsistent(context.analysis);
+	});
+	return context;
 }
 
 /** What "Accept all suggestions" does: every pending decision takes its suggested option, in one pass. */
