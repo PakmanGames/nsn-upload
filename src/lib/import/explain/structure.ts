@@ -78,7 +78,8 @@ const SKIPPED: Record<SkippedRow['reason'], [one: string, many: string]> = {
 	hidden: ['is hidden in Excel', 'are hidden in Excel'],
 	'repeated-header': ['repeats the header', 'repeat the header'],
 	'no-mapped-values': ['only has values in columns that are not imported', 'only have values in columns that are not imported'],
-	footer: ['is a totals row', 'are totals rows']
+	footer: ['is a totals row', 'are totals rows'],
+	'below-table': ['sits below the table, after a blank gap', 'sit below the table, after a blank gap']
 };
 
 /** "rows 32-33 are blank and row 34 repeats the header, so they are left out". */
@@ -98,10 +99,12 @@ export function tableNotes(table: TableCandidate, model: SheetModel | undefined)
 	const notes: string[] = [];
 	const skipped = skippedLine(table);
 	if (skipped) notes.push(skipped);
+	// Rows below the table that are not already listed as left out of it.
 	const extent = model?.valueExtent;
-	if (extent && extent.bottom > table.range.bottom) {
-		const rows = extent.bottom === table.range.bottom + 1 ? `Row ${extent.bottom}` : `Rows ${table.range.bottom + 1}-${extent.bottom}`;
-		notes.push(`${rows} below the table ${extent.bottom === table.range.bottom + 1 ? 'is' : 'are'} not part of it and not imported.`);
+	const last = Math.max(table.range.bottom, ...table.skippedRows.map((skip) => skip.row));
+	if (extent && extent.bottom > last) {
+		const rows = extent.bottom === last + 1 ? `Row ${extent.bottom}` : `Rows ${last + 1}-${extent.bottom}`;
+		notes.push(`${rows} below the table ${extent.bottom === last + 1 ? 'is' : 'are'} not part of it and not imported.`);
 	}
 	const mapped = new Set(table.columns.map((column) => column.field));
 	const missing = (['description', 'cage'] as const).filter((field) => !mapped.has(field));

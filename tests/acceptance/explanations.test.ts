@@ -301,18 +301,13 @@ describe('decision templates on real cases', () => {
 });
 
 describe('issue templates on real cases', () => {
-	it('invalid values: a malformed NSN, and text in an FSC column', () => {
+	it('invalid values: a malformed NSN, and a row with no identifier', () => {
 		const analysis = initial(wow.file);
 		expect(issueText(analysis, singleRecordAt(analysis, 'Active Parts', 166), 'invalid-identifier').headline).toBe('The NSN in E166 contains letters');
-		const merged = initial(MERGED);
-		const record = singleRecordAt(merged, 'RFI Response', 33);
-		expect(issueText(merged, record, 'invalid-identifier')).toEqual({
-			headline: 'A33 holds text, not an FSC',
-			body: 'A33 holds "Supplier Information", but an FSC is 4 digits.'
-		});
-		expect(issueText(merged, record, 'missing-primary-identifier')).toEqual({
+		const substring = initial(SUBSTRING);
+		expect(issueText(substring, singleRecordAt(substring, SUBSTRING_SHEET, 134), 'missing-primary-identifier')).toEqual({
 			headline: 'No part number, NSN, or NIIN in this row',
-			body: 'A record needs a part number, NSN, or NIIN, and the NIIN cell B33 is empty.'
+			body: 'A record needs a part number, NSN, or NIIN, and the NSN cell B134 is empty.'
 		});
 	});
 
