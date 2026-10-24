@@ -5,6 +5,7 @@
 	import Columns3 from '@lucide/svelte/icons/columns-3';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import FileUp from '@lucide/svelte/icons/file-up';
+	import Grid3x3 from '@lucide/svelte/icons/grid-3x3';
 	import Layers from '@lucide/svelte/icons/layers';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Rows3 from '@lucide/svelte/icons/rows-3';
@@ -15,10 +16,11 @@
 	import WandSparkles from '@lucide/svelte/icons/wand-sparkles';
 	import X from '@lucide/svelte/icons/x';
 	import { tick } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { MediaQuery, SvelteSet } from 'svelte/reactivity';
+	import { browser } from '$app/environment';
 	import type { CandidateRecord, ColumnMapping, Field, ImportPlan, StoredMapping, TableCandidate } from '$lib/import/model';
 	import { colLetter } from '$lib/import/refs';
-	import { ImportSession } from '$lib/import/session.svelte';
+	import { ImportSession, type SheetFocus } from '$lib/import/session.svelte';
 	import AiAssist from './AiAssist.svelte';
 	import AppliedDecisions from './AppliedDecisions.svelte';
 	import ColumnsPanel from './ColumnsPanel.svelte';
@@ -27,6 +29,8 @@
 	import ProvenanceDrawer from './ProvenanceDrawer.svelte';
 	import Section from './Section.svelte';
 	import SheetsPanel from './SheetsPanel.svelte';
+	import SheetView from './sheet-view/SheetView.svelte';
+	import SplitDivider from './sheet-view/SplitDivider.svelte';
 	import { CHIP_STYLE, FIELD_LABEL, plural, type RecordFilter } from './labels';
 	import { skippedGroups } from './skipped';
 	import {
@@ -78,6 +82,56 @@
 	let isDragActive = $state(false);
 	let fileInput = $state<HTMLInputElement>();
 	let drawerOpener: HTMLElement | null = null;
+
+	/** Wide enough for the spreadsheet beside the review (at least 560 px for the review); narrower, it replaces it. */
+	const SPLIT_QUERY = 'min-width: 1280px';
+	const REVIEW_MIN = 560;
+	const SHEET_MIN = 400;
+	const sheetPreferenceKey = 'nsn-upload-interview-task:spreadsheet-view';
+	const wide = new MediaQuery(SPLIT_QUERY);
+	let sheetOpen = $state(restoreSheetView());
+	/** The review's share of the width in the split view; CSS keeps both panes above their minimum. */
+	let reviewShare = $state(0.45);
+	let bodyWidth = $state(0);
+	let sheetPane = $state<HTMLElement>();
+	const split = $derived(sheetOpen && wide.current);
+	const replaced = $derived(sheetOpen && !wide.current);
+	const shareMin = $derived(bodyWidth ? Math.min(0.5, REVIEW_MIN / bodyWidth) : 0.3);
+	const shareMax = $derived(bodyWidth ? Math.max(shareMin, 1 - SHEET_MIN / bodyWidth) : 0.7);
+
+	/**
+	 * The spreadsheet choice is remembered per browser, but restored only where it opens beside the review:
+	 * on a narrow screen it would hide the review the user came for.
+	 */
+	function restoreSheetView(): boolean {
+		if (!browser) return false;
+		try {
+			return localStorage.getItem(sheetPreferenceKey) === 'on' && matchMedia(`(${SPLIT_QUERY})`).matches;
+		} catch {
+			return false;
+		}
+	}
+
+	function setSheetView(open: boolean) {
+		sheetOpen = open;
+		try {
+			localStorage.setItem(sheetPreferenceKey, open ? 'on' : 'off');
+		} catch {
+			// Blocked storage: the choice lasts until the page reloads.
+		}
+	}
+
+	/** A cell reference in the details: show it in the spreadsheet, opening the spreadsheet for this review if needed. */
+	async function showCells(focus: SheetFocus) {
+		session.focus = focus;
+		sheetOpen = true;
+		if (wide.current) return;
+		// Narrow, the details would cover the cell: close them and keep the keyboard in the grid. Clicking the cell reopens them.
+		drawerRecordId = null;
+		drawerOpener = null;
+		await tick();
+		sheetPane?.querySelector<HTMLElement>('[role="grid"]')?.focus();
+	}
 
 	const analysis = $derived(session.analysis);
 	const reviewing = $derived(!!analysis && (session.phase === 'ready' || session.phase === 'importing'));
@@ -298,6 +352,19 @@
 						{#if reviewing}
 							<button
 								type="button"
+								class={[
+									'inline-flex items-center gap-2 rounded-md p-2 text-sm font-medium transition sm:px-3',
+									sheetOpen ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+								]}
+								aria-label="Spreadsheet"
+								aria-pressed={sheetOpen}
+								onclick={() => setSheetView(!sheetOpen)}
+							>
+								<Grid3x3 size={17} />
+								<span class="hidden sm:inline">Spreadsheet</span>
+							</button>
+							<button
+								type="button"
 								class="inline-flex items-center gap-2 rounded-md p-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:text-slate-300 sm:px-3"
 								aria-label="Choose another file"
 								disabled={session.busy}
@@ -440,8 +507,19 @@
 				</div>
 			{:else if reviewing && analysis}
 				{@const worth = worthALook(analysis)}
-				<div class="relative min-h-0 flex-1">
-					<div class="h-full overflow-y-auto">
+				<!--
+					One grid cell holds the review; the split view adds the divider and the spreadsheet beside it. The review
+					element is never re-created or removed, so its scroll position, open sections, and search survive the
+					spreadsheet opening and closing. Where the spreadsheet replaces it, it stays laid out underneath, invisible.
+				-->
+				<div
+					class="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]"
+					style:grid-template-columns={split
+						? `clamp(${REVIEW_MIN}px, ${reviewShare * 100}%, calc(100% - ${SHEET_MIN}px)) 1px minmax(0, 1fr)`
+						: 'minmax(0, 1fr)'}
+					bind:clientWidth={bodyWidth}
+				>
+					<div id="review-pane" class={['col-start-1 row-start-1 overflow-y-auto', replaced && 'invisible']}>
 						<div class="mx-auto max-w-5xl space-y-3 p-3 sm:p-5">
 							<DecisionStage
 								{session}
@@ -545,6 +623,7 @@
 									excluded={new Set(session.overrides.excludedRecords)}
 									activeRecordId={drawerRecordId}
 									onOpen={(record) => openRecord(record.id)}
+									onFocus={(focus) => (session.focus = focus)}
 									onToggle={(record, include) => session.setRecordExcluded(record.id, !include)}
 								/>
 							</Section>
@@ -571,22 +650,48 @@
 						</div>
 					</div>
 
-					{#if drawerRecord}
-						<button
-							type="button"
-							class="absolute inset-0 z-10 cursor-default bg-slate-950/20"
-							aria-label="Close details"
-							tabindex="-1"
-							onclick={closeDrawer}
-						></button>
-						<ProvenanceDrawer
-							record={drawerRecord}
-							fileName={analysis.fileName}
-							decisions={analysis.decisions}
-							describe={describeRecord}
-							onOpenRecord={openRecord}
-							onClose={closeDrawer}
+					{#if split}
+						<SplitDivider
+							share={Math.min(shareMax, Math.max(shareMin, reviewShare))}
+							min={shareMin}
+							max={shareMax}
+							controls="review-pane"
+							onResize={(share) => (reviewShare = share)}
 						/>
+					{/if}
+					{#if sheetOpen && session.model}
+						<div bind:this={sheetPane} class={['row-start-1 min-h-0', split ? 'col-start-3' : 'col-start-1']}>
+							<SheetView
+								model={session.model}
+								{analysis}
+								focus={session.focus}
+								onFocus={(focus) => (session.focus = focus)}
+								onOpenRecord={openRecord}
+								onBack={replaced ? () => setSheetView(false) : undefined}
+							/>
+						</div>
+					{/if}
+
+					<!-- The details open over the review's cell: beside the spreadsheet when split, over it when it replaces the review. -->
+					{#if drawerRecord}
+						<div class="relative col-start-1 row-start-1 min-h-0">
+							<button
+								type="button"
+								class="absolute inset-0 z-10 cursor-default bg-slate-950/20"
+								aria-label="Close details"
+								tabindex="-1"
+								onclick={closeDrawer}
+							></button>
+							<ProvenanceDrawer
+								record={drawerRecord}
+								fileName={analysis.fileName}
+								decisions={analysis.decisions}
+								describe={describeRecord}
+								onOpenRecord={openRecord}
+								onFocus={showCells}
+								onClose={closeDrawer}
+							/>
+						</div>
 					{/if}
 				</div>
 			{:else}

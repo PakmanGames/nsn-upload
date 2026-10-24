@@ -5,7 +5,9 @@
 	import Search from '@lucide/svelte/icons/search';
 	import type { CandidateRecord, Field, TableCandidate } from '$lib/import/model';
 	import { qualifiedRef } from '$lib/import/refs';
+	import type { SheetFocus } from '$lib/import/session.svelte';
 	import { RECORD_STATUS, SKIP_REASON, plural, type RecordFilter } from './labels';
+	import { recordsFocus } from './sheet-view/focus';
 	import type { SkippedGroup } from './skipped';
 
 	type Props = {
@@ -24,6 +26,8 @@
 		excluded: Set<string>;
 		activeRecordId: string | null;
 		onOpen: (record: CandidateRecord) => void;
+		/** Shows a record's cells in the spreadsheet. */
+		onFocus: (focus: SheetFocus | null) => void;
 		onToggle: (record: CandidateRecord, include: boolean) => void;
 	};
 
@@ -38,6 +42,7 @@
 		excluded,
 		activeRecordId,
 		onOpen,
+		onFocus,
 		onToggle
 	}: Props = $props();
 
@@ -117,6 +122,12 @@
 
 	const rowName = (record: CandidateRecord) =>
 		`${record.sheet} row ${record.sourceRow}${record.split ? `, value ${record.split.index} of ${record.split.total}` : ''}`;
+
+	/** Selecting a row opens its details and shows where it came from in the spreadsheet. */
+	function select(record: CandidateRecord) {
+		onOpen(record);
+		onFocus(recordsFocus([record]));
+	}
 
 	function firstIssue(record: CandidateRecord) {
 		return record.issues.find((issue) => issue.severity === 'error') ?? record.issues.find((issue) => issue.severity === 'warning') ?? record.issues[0];
@@ -201,7 +212,7 @@
 						]}
 						onclick={(event) => {
 							// The checkbox cell only toggles the import; anywhere else on the row opens the details.
-							if (!(event.target as Element).closest('[data-import-toggle]')) onOpen(record);
+							if (!(event.target as Element).closest('[data-import-toggle]')) select(record);
 						}}
 					>
 						<td class="p-0">
@@ -235,7 +246,7 @@
 								aria-label={`Details for ${rowName(record)}`}
 								onclick={(event) => {
 									event.stopPropagation();
-									onOpen(record);
+									select(record);
 								}}
 							>
 								<span class="block max-w-40 truncate text-xs text-slate-500">{record.sheet}</span>
@@ -350,7 +361,7 @@
 			<ul class="mt-1 divide-y divide-slate-100 text-sm text-slate-600">
 				{#each group.records as record (record.id)}
 					<li>
-						<button type="button" class="flex w-full flex-wrap gap-x-2 py-1 text-left hover:text-slate-900" onclick={() => onOpen(record)}>
+						<button type="button" class="flex w-full flex-wrap gap-x-2 py-1 text-left hover:text-slate-900" onclick={() => select(record)}>
 							<span>Row {record.sourceRow}</span>
 							{#each [record.fields.part?.value, record.fields.nsn?.value].filter(Boolean) as value, i (i)}
 								<span class="font-mono text-xs leading-5">· {value}</span>

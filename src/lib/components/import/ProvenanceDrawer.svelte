@@ -5,6 +5,8 @@
 	import X from '@lucide/svelte/icons/x';
 	import { FIELDS, type CandidateRecord, type Decision, type Field, type Severity } from '$lib/import/model';
 	import { qualifiedRef } from '$lib/import/refs';
+	import type { SheetFocus } from '$lib/import/session.svelte';
+	import { refsFocus } from './sheet-view/focus';
 	import { DECISION_KIND_LABEL, FIELD_LABEL, ISSUE_LABEL, RECORD_STATUS, TRANSFORM_LABEL } from './labels';
 
 	type Props = {
@@ -14,10 +16,12 @@
 		/** Resolves related record ids to a readable "Sheet row N" label, or null when not found. */
 		describe: (recordId: string) => string | null;
 		onOpenRecord: (recordId: string) => void;
+		/** Shows a cell reference in the spreadsheet. */
+		onFocus: (focus: SheetFocus) => void;
 		onClose: () => void;
 	};
 
-	let { record, fileName, decisions, describe, onOpenRecord, onClose }: Props = $props();
+	let { record, fileName, decisions, describe, onOpenRecord, onFocus, onClose }: Props = $props();
 
 	const SEVERITY: Record<Severity, { icon: typeof Info; style: string }> = {
 		error: { icon: CircleAlert, style: 'text-red-600' },
@@ -33,6 +37,12 @@
 		decisions.filter((decision) => decision.kind !== 'include-table' && decision.recordIds.includes(record.id))
 	);
 	const issueFor = (field: Field) => record.issues.find((issue) => issue.field === field && issue.code === 'invalid-identifier');
+	/** "D136" on this record's sheet, which the heading names; "A3 on NSN Cross-Reference" for another sheet. */
+	function refLabel(ref: string) {
+		const bang = ref.lastIndexOf('!');
+		const sheet = ref.slice(0, bang);
+		return sheet === record.sheet ? ref.slice(bang + 1) : `${ref.slice(bang + 1)} on ${sheet}`;
+	}
 	const chosenLabel = (decision: Decision) =>
 		decision.options.find((option) => option.id === decision.chosen)?.label ?? 'Waiting for you';
 
@@ -42,6 +52,23 @@
 		closeButton?.focus();
 	});
 </script>
+
+<!-- A qualified cell reference ("Active Parts!D136") as a link that shows the cell in the spreadsheet. -->
+{#snippet cellLink(ref: string)}
+	{@const focus = refsFocus([ref])}
+	{#if focus}
+		<button
+			type="button"
+			class="rounded text-left underline decoration-current/40 decoration-dotted underline-offset-2 transition hover:text-blue-700 hover:decoration-solid focus-visible:outline-2 focus-visible:outline-blue-600"
+			aria-label={`Show ${refLabel(ref)} in the spreadsheet`}
+			onclick={() => onFocus(focus)}
+		>
+			{refLabel(ref)}
+		</button>
+	{:else}
+		{ref}
+	{/if}
+{/snippet}
 
 <aside
 	class="absolute inset-y-0 right-0 z-20 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl"
@@ -98,7 +125,7 @@
 						</p>
 						<dl class="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
 							<dt class="text-slate-500">Cell</dt>
-							<dd class="font-mono text-slate-800">{qualifiedRef(provenance.sheet, provenance.cell)}</dd>
+							<dd class="font-mono text-slate-800">{@render cellLink(qualifiedRef(provenance.sheet, provenance.cell))}</dd>
 							<dt class="text-slate-500">Original</dt>
 							<dd class="whitespace-pre-wrap break-words font-mono text-slate-800">"{provenance.original}"</dd>
 							{#if provenance.transforms.length}
@@ -124,7 +151,7 @@
 						<li class="rounded-lg border border-red-200 bg-red-50/50 p-3">
 							<div class="flex items-baseline justify-between gap-3">
 								<span class="text-xs font-medium text-red-800">{FIELD_LABEL[field]}</span>
-								<span class="font-mono text-xs text-red-800">{qualifiedRef(record.sheet, value.cell)}</span>
+								<span class="font-mono text-xs text-red-800">{@render cellLink(qualifiedRef(record.sheet, value.cell))}</span>
 							</div>
 							<p class="mt-1 whitespace-pre-wrap break-words font-mono text-sm text-red-900">
 								{value.original ? `"${value.original}"` : 'Excel error (no text)'}
@@ -155,7 +182,9 @@
 							<p class="font-medium text-slate-900">{ISSUE_LABEL[issue.code]}</p>
 							<p class="mt-0.5 text-slate-600">{issue.message}</p>
 							{#if issue.cells.length}
-								<p class="mt-1 font-mono text-xs text-slate-500">{issue.cells.join(', ')}</p>
+								<p class="mt-1 font-mono text-xs text-slate-500">
+									{#each issue.cells as ref, i (i)}{i ? ', ' : ''}{@render cellLink(ref)}{/each}
+								</p>
 							{/if}
 							{#if issue.relatedRecords?.length}
 								<p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
