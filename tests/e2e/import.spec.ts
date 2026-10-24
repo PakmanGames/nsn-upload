@@ -3,15 +3,12 @@
  * the records in the mappings table. Counts come from tests/fixtures/expectations.ts, the same targets the
  * acceptance suite checks on the pipeline, so the UI is held to what the analysis promises.
  */
-import { fileURLToPath } from 'node:url';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { demoMappings } from '../../src/lib/demo-data';
 import type { ImportSummary, MappingInput, SheetStatus } from '../../src/lib/import/model';
 import { FIXTURES, pencom, statz, wow } from '../fixtures/expectations';
-
-const FIXTURE_DIR = fileURLToPath(new URL('../../example-excel-uploads/', import.meta.url));
-const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+import { FIXTURE_DIR, importButton, openSection, section, upload, XLSX_TYPE } from './helpers';
 
 /** What each sheet card's badge says. */
 const BADGE: Record<SheetStatus, string> = {
@@ -68,35 +65,6 @@ function recordAiPosts(page: Page): string[] {
 		if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/interpret') posts.push(request.url());
 	});
 	return posts;
-}
-
-async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
-	await page.goto('/');
-	await page.getByRole('button', { name: 'Smart Upload' }).click();
-	const dialog = page.getByRole('dialog', { name: 'Smart Upload' });
-	await dialog.locator('input[type=file]').setInputFiles(file);
-	await expect(importButton(dialog)).toBeVisible();
-	return dialog;
-}
-
-function importButton(dialog: Locator, count?: number): Locator {
-	const label = count === undefined ? String.raw`\d+ records?` : `${count} records?`;
-	return dialog.getByRole('button', { name: new RegExp(`^Import ${label}\\b`) });
-}
-
-type SectionId = 'sheets' | 'columns' | 'rows' | 'auto' | 'ai';
-
-/** A collapsible section of the review window (Sheets, Columns, Rows, Applied automatically, AI assistance). */
-function section(dialog: Locator, id: SectionId): Locator {
-	return dialog.locator(`details#section-${id}`);
-}
-
-/** Opens a section, and the folded lists inside it (sheets with nothing to import, hidden sheets). */
-async function openSection(dialog: Locator, id: SectionId): Promise<Locator> {
-	const details = section(dialog, id);
-	if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open))) await details.locator('summary').first().click();
-	for (const fold of await details.locator('details:not([open]) > summary').all()) await fold.click();
-	return details;
 }
 
 async function sheetCard(dialog: Locator, name: string): Promise<Locator> {
