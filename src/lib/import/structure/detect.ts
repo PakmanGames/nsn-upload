@@ -6,7 +6,8 @@
  * continue on the row directly below it (`Part` over `Number`); then both rows are the header.
  *
  * A sheet may hold several tables stacked on top of each other, each at its own columns. The sheet is split
- * into bands of rows, each ending where another table starts, and each band is detected on its own.
+ * into bands of rows, each ending where another table starts, and each band is detected on its own. Tables
+ * side by side share a band; it is split again at columns that are blank in every row of it.
  */
 import { isPlausiblePart } from '../identifiers';
 import type { Cell, CellRange, Field, SheetModel, TableSpec } from '../model';
@@ -58,7 +59,7 @@ export type Detection = {
 type BandDetection = Detection & { next: number | null };
 
 export type SheetDetection = {
-	/** Every table on the sheet in row order; they never share rows. Empty when no band maps a primary field. */
+	/** Every table on the sheet by header row, then column; they never share cells. Empty when no band maps a primary field. */
 	tables: Array<{ spec: TableSpec; reasons: string[] }>;
 	/** Why no table was found; empty when there is a table. */
 	reasons: string[];
@@ -373,26 +374,86 @@ function detectTable(sheet: SheetModel, band: CellRange): BandDetection {
 	};
 }
 
+/** No visible value in the column on any visible row of the band; a merged cell counts only in its first column. */
+function isBlankColumn(sheet: SheetModel, col: number, band: CellRange): boolean {
+	for (let row = band.top; row <= band.bottom; row++) {
+		if (sheet.hiddenRows.has(row)) continue;
+		const cell = sheet.cell(row, col);
+		if (cell.kind !== 'empty' && !cell.mergedFrom) return false;
+	}
+	return true;
+}
+
+/** The same bar `nextTable` sets for a new table: its own header maps a primary column at high confidence. */
+function headsTable(sheet: SheetModel, region: CellRange): boolean {
+	const { best } = bandHeader(sheet, region, { left: region.left, right: region.right });
+	return !!best && [...best.assigned.values()].some((e) => isPrimary(e.field) && e.confidence === 'high');
+}
+
 /**
- * Every table on the sheet, in row order. The first band starts at the top of the sheet; each next band starts
- * at the header of the table that ended the one before, and finds its own columns, so a table shifted any
- * number of columns is read like a sheet of its own. Bands never share rows, so neither do header rows or ids.
+ * The column spans of tables side by side in a band, or null when the band holds one table. The band is cut
+ * at visible columns blank in every row (a hidden column never separates, since the user cannot see a gap).
+ * A segment starts a table only when it heads one by itself; any other segment, such as a notes column, stays
+ * with the table to its left, or the first one, as it would without the split.
  */
-export function detectTables(sheet: SheetModel): SheetDetection {
-	const extent = sheet.valueExtent;
-	if (!extent) return { tables: [], reasons: ['Sheet has no values'] };
+function sideBySide(sheet: SheetModel, band: CellRange): Span[] | null {
+	const right = Math.min(band.right, band.left + MAX_COLUMNS - 1);
+	const segments: Span[] = [];
+	let start: number | null = null;
+	for (let col = band.left; col <= right + 1; col++) {
+		const blank = col > right || (!sheet.hiddenCols.has(col) && isBlankColumn(sheet, col, band));
+		if (!blank) start ??= col;
+		else if (start !== null) {
+			segments.push({ left: start, right: col - 1 });
+			start = null;
+		}
+	}
+	if (segments.length < 2) return null;
+	const tables: Span[] = [];
+	for (const segment of segments) {
+		if (headsTable(sheet, { ...band, ...segment })) tables.push({ ...segment });
+		else if (tables.length > 0) tables.at(-1)!.right = segment.right;
+	}
+	if (tables.length < 2) return null;
+	tables[0].left = segments[0].left;
+	return tables;
+}
+
+/**
+ * Every table in a region, in row order. The first band starts at the top of the region; each next band
+ * starts at the header of the table that ended the one before, and finds its own columns, so a table shifted
+ * any number of columns is read like a sheet of its own. A band holding tables side by side is read again
+ * per table, each over its own columns, so a table stacked under only one of them is found too.
+ */
+function detectRegion(sheet: SheetModel, extent: CellRange): SheetDetection {
 	const tables: SheetDetection['tables'] = [];
 	// Notes about rows that no table covers go with the table above them, or with the first table found below.
 	const uncovered: string[] = [];
 	for (let top = extent.top; ; ) {
 		const band = detectTable(sheet, { ...extent, top });
-		if (band.spec) {
+		const bottom = band.next === null ? extent.bottom : band.next - 1;
+		const spans = band.spec ? sideBySide(sheet, { ...extent, top, bottom }) : null;
+		if (spans) {
+			for (const span of spans) {
+				// A side table may end above the band; the blank rows under it belong to no table.
+				let last = bottom;
+				while (last > top && masterCells(sheet, last, span).length === 0) last--;
+				const inner = detectRegion(sheet, { top, bottom: last, ...span });
+				tables.push(...inner.tables);
+				uncovered.push(...inner.reasons);
+			}
+			if (tables.length > 0) tables[0].reasons.unshift(...uncovered.splice(0));
+		} else if (band.spec) {
 			tables.push({ spec: band.spec, reasons: [...uncovered.splice(0), ...band.reasons] });
 		} else if (band.next === null && tables.length === 0 && uncovered.length === 0) {
 			return { tables: [], reasons: band.reasons };
 		} else {
-			const bottom = band.next === null ? extent.bottom : band.next - 1;
 			(tables.at(-1)?.reasons ?? uncovered).push(...band.reasons.map((reason) => `Rows ${top}-${bottom}: ${reason}`));
+		}
+		if (tables.length > MAX_TABLES) {
+			tables.splice(MAX_TABLES);
+			tables.at(-1)!.reasons.push(`At most ${MAX_TABLES} tables per sheet are read, so the tables beside it and below it are not imported`);
+			break;
 		}
 		if (band.next === null) break;
 		if (tables.length === MAX_TABLES) {
@@ -402,4 +463,16 @@ export function detectTables(sheet: SheetModel): SheetDetection {
 		top = band.next;
 	}
 	return tables.length > 0 ? { tables, reasons: [] } : { tables, reasons: uncovered };
+}
+
+/**
+ * Every table on the sheet, ordered by header row and then column. Tables never share cells; two side by side
+ * may share a header row.
+ */
+export function detectTables(sheet: SheetModel): SheetDetection {
+	const extent = sheet.valueExtent;
+	if (!extent) return { tables: [], reasons: ['Sheet has no values'] };
+	const found = detectRegion(sheet, extent);
+	found.tables.sort((a, b) => a.spec.range.top - b.spec.range.top || a.spec.range.left - b.spec.range.left);
+	return found;
 }

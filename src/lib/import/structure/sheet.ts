@@ -125,10 +125,12 @@ export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnal
 	}
 
 	// Each table is its own unit: its own remaps, decision, and rows. The sheet is ready when one of them is.
-	const found = detection.tables.map(({ spec: detected, reasons: notes }) => {
-		const id = tableId(sheet.name, detected);
+	const firsts = detection.tables.map(({ spec }) => tableId(sheet.name, spec));
+	const found = detection.tables.map(({ spec: detected, reasons: notes }, index) => {
+		const id = tableId(sheet.name, detected, firsts.indexOf(firsts[index]) !== firsts.lastIndexOf(firsts[index]));
 		const { spec, user } = applyUserColumns(detected, overrides.columns?.[id]);
 		const { table, competition }: MaterializedTable = materialize(sheet, spec, 'deterministic', user);
+		table.id = id;
 		const reasons = [...tableSummary(table), ...notes];
 		// How detection found the table goes with the table, ahead of its status, which stays the last reason.
 		table.reasons.splice(-1, 0, ...notes);

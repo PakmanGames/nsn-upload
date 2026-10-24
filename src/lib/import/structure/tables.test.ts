@@ -230,3 +230,67 @@ describe('duplicates between two tables on one sheet', () => {
 		]);
 	});
 });
+
+describe('tables side by side on one sheet', () => {
+	/** Two blocks of `n` rows next to each other, the right one starting at column `left`. */
+	const beside = (header: CellInput[], right: CellInput[], n: number, left: number): CellInput[][] => [
+		[...header, ...Array<CellInput>(left - 1 - header.length).fill(null), ...right],
+		...block(n, 1).map((row, i) => [...row, ...block(n, left, 50)[i].slice(row.length)])
+	];
+
+	it('reads two tables that share rows as two tables, each id naming its first column', () => {
+		const header = ['Part Number', 'NSN', 'Description'];
+		const sheet = sheetOf(beside(header, header, 39, 6));
+		expect(sheet.tables.map((t) => [t.id, rangeToA1(t.range), t.status, mapping(t)])).toEqual([
+			['Parts@1:A', 'A1:C40', 'ready', { A: 'part', B: 'nsn', C: 'description' }],
+			['Parts@1:F', 'F1:H40', 'ready', { F: 'part', G: 'nsn', H: 'description' }]
+		]);
+		const workbook = makeWorkbook('beside.xlsx', [makeSheet('Parts', beside(header, header, 39, 6))]);
+		expect(analyze(workbook, []).records.filter((r) => r.status === 'valid')).toHaveLength(78);
+	});
+
+	it('keeps a notes column beside a table as part of that table, with the id it had', () => {
+		const rows = beside(['Part Number', 'NSN', 'Description'], ['Notes'], 5, 5).map((row, i) =>
+			i === 0 ? row : [...row.slice(0, 3), null, `Checked ${i}`]
+		);
+		const sheet = sheetOf(rows);
+		expect(sheet.tables.map((t) => [t.id, rangeToA1(t.range)])).toEqual([['Parts@1', 'A1:E6']]);
+	});
+
+	it('finds a table stacked under only one of two side-by-side tables', () => {
+		const rows: CellInput[][] = [
+			['Part Number', 'NSN', 'Description', null, 'Part Number', 'NSN', 'Description'],
+			...block(6, 1).map((row, i) => (i < 3 ? [...row, null, ...block(3, 1, 20)[i]] : row)),
+			[null, null, null, null, 'NIIN', 'Item Name', 'CAGE Code'],
+			[null, null, null, null, niin(1), 'Carrier, drive sprocket', '1ABC2'],
+			[null, null, null, null, niin(2), 'Hub assembly, wheel', '1ABC2']
+		];
+		const sheet = sheetOf(rows);
+		expect(sheet.tables.map((t) => [t.id, rangeToA1(t.range)])).toEqual([
+			['Parts@1:A', 'A1:C7'],
+			['Parts@1:E', 'E1:G4'],
+			['Parts@8', 'E8:G10']
+		]);
+	});
+
+	it('keeps plain ids when side-by-side tables start on different rows', () => {
+		const rows: CellInput[][] = [
+			['Part Number', 'NSN', 'Description'],
+			['BRK-1000', nsn(0), 'Screw 0', null, 'NIIN', 'CAGE Code'],
+			...block(4, 1, 1).map((row, i) => [...row, null, niin(10 + i), '1ABC2'])
+		];
+		expect(sheetOf(rows).tables.map((t) => [t.id, rangeToA1(t.range)])).toEqual([
+			['Parts@1', 'A1:C6'],
+			['Parts@2', 'E2:F6']
+		]);
+	});
+
+	it('does not split a table at a hidden blank column', () => {
+		const header = ['Part Number', 'NSN', 'Description'];
+		const [sheet] = analyzeStructure(
+			makeWorkbook('hidden.xlsx', [makeSheet('Parts', beside(header, header, 5, 5), { hiddenCols: [4] })]),
+			{}
+		);
+		expect(sheet.tables.map((t) => t.id)).toEqual(['Parts@1']);
+	});
+});
