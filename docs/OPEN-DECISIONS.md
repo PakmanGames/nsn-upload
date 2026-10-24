@@ -82,4 +82,4 @@ Routed to the owning task and tracked here so they were not lost.
 ## Decided since parking
 
 - **Review window redesign:** decided on 2026-10-24 after the prototype; recorded as D20 in `PLAN.md`, briefed as UX1, and merged (#22).
-- **OD3, two-row header detection:** approved on 2026-10-24 (D22) after a probe showed split labels can import a junk record and lose columns; in progress with T3.
+- **OD3, two-row header detection:** approved on 2026-10-24 (D22) after a probe showed split labels can import a junk record and lose columns; merged (#25).

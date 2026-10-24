@@ -3,8 +3,7 @@
 This is the design note required by `TASK_SPEC.md` ("Deliverables", item 3).
 It describes what is built, why, and what is not supported.
 
-Status (2026-10-24): everything described here is merged and tested: the import pipeline, the summary-first review window, both F1 pending decisions (section 4), the acceptance suites, and the Playwright E2E tests.
-In progress: two-row header detection and two header/footer fixes (T3), and a zip-bomb size guard (T1); section 11 marks them.
+Status (2026-10-24): everything described here is merged and tested; on `main`, 601 tests and 12 Playwright browser tests pass.
 Questions waiting on a product decision are in [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## In one minute
@@ -92,7 +91,7 @@ These are also the regression fixtures; the numbers below are asserted by `tests
 - `NSN Cross-Reference` and `Part Number Intake` are ready tables with headers on row 2, below a merged title. About 26,000 styled empty cells per sheet are ignored.
 - `Search Log` has real part and NSN pairs but only 2 of 3 values pass in each column, so it is "needs review" and held back.
 - `Dashboard`, `Opportunity Matrix`, and `Sources & Notes` mention NSNs (`NSN Matchability (1-5)`, `Likely FSC`) but have no column whose values are identifiers, so they show "no importable table" with the reason.
-- The same two part/NSN pairs appear on both ready sheets with different descriptions. That is a conflict: the import shows "0 records (2 need review)" until the user picks a side or clicks "Accept all suggestions", which prefers the cross-reference record (it has more fields, including CAGE `0BWZ1`).
+- The same two part/NSN pairs appear on both ready sheets with different descriptions. That is a conflict: the button reads "Import 0 records (7 need review)" (the 4 conflicting records plus Search Log's 3 held-back rows) until the user decides; "Accept all suggestions" prefers the cross-reference records (more fields, including CAGE `0BWZ1`), leaves Search Log out, and imports 2 valid records.
 
 More demo files, each with its expected behavior, are in `docs/demo-workbooks/` (see its README): an unfamiliar header that triggers the AI path, an NSN that contradicts its NIIN, a changed copy of a saved PENCOM record, and one file packed with messy cases.
 
@@ -103,6 +102,14 @@ More demo files, each with its expected behavior, are in `docs/demo-workbooks/` 
 **Used area.** The reader computes each sheet's value extent from cells that actually hold values. Excel's own range (`!ref`) is ignored because styled empty cells inflate it (PENCOM reports `A1:Z1000` for about 15 real rows).
 
 **Header row.** Every header-like row (mostly short text) among the first 30 non-empty rows is tried as the header (`structure/detect.ts`). For each candidate, the columns are scored against up to 200 rows below it (section 2), and the candidate earns 3 points for each High column, 2 for Medium, and 1 for Low, plus 1 more for each Part, NSN, or NIIN column. The highest score wins; a tie goes to the earliest row. Title rows lose because they map nothing, and a merged title counts as one cell, not twelve. For Statz, row 1 scores 8: Part High (3 + 1) and NSN High (3 + 1).
+A row that repeats an earlier candidate's labels is never tried on its own, so a stray bad value in the first block cannot make a repeated header win and drop the rows above it.
+
+**Two-row headers.** When a label is split over two rows ("Part" above "Number", "National Stock" above "Number"), the row below a candidate is checked as a possible continuation.
+A continuation row holds only short text (at most 3 words and 30 characters per cell, `-` counting as empty), and none of its cells passes the strict NSN, NIIN, FSC, or CAGE checks or looks like a part number.
+Because short text could still be a first data row ("ABC", "Screw"), the row must also read as a header: a continuation word (`Number`, `No.`, `Name`, `Code`, `#`, `ID`, ...), a bracketed hint such as "(13 digits)", or a join that names a field the first row alone does not.
+The joined header is scored like any other candidate and kept only when it beats the single rows; both rows then count as header rows, so the second one is never imported.
+When the joined label matches worse than the first row alone (a hint row), the first row's label is used for matching while both rows still form the header.
+A merged group label above a full header ("Identifiers" over "Part No.", "NSN", ...) still resolves to the full header on the second row.
 
 **Header vocabulary.** It is deliberately small, because values do the real work:
 
@@ -120,7 +127,7 @@ Modifier words make a match **weak**: `found`, `status`, `date`, `url`, `notes`,
 A label longer than 5 words or 40 characters reads as a sentence, not a header.
 A word containing digits also makes a match weak, because it marks a value rather than a label: a part number such as `PN-4410` starts with the header word `pn` and must not be mistaken for a repeated header. As a side effect, a header such as `Part Number 2` is weak, so its column reaches at most medium confidence.
 
-**Table extent.** Data runs from the row below the header down the used area. Inside it, these rows are skipped and listed with a reason: blank rows, hidden rows, repeated header rows (most mapped columns repeat the header text or name the same field), and rows with values only in unmapped columns (PENCOM's template rows 5-7).
+**Table extent.** Data runs from the row below the header down the used area. Inside it, these rows are skipped and listed with a reason: blank rows, hidden rows, repeated header rows (most mapped columns repeat the header text or name the same field; a repeated two-row header skips both rows), rows with values only in unmapped columns (PENCOM's template rows 5-7), and trailing totals rows ("Total", "Subtotal", "Grand total", "Sum" in an identifier column with no other identifier on the row), which are skipped as footers and left out of the pass rates.
 Data stops early only before a clearly different table's header, so a stacked second table is not read through the first table's mapping.
 
 **One table per sheet.** If a sheet has a second, different table, it is mentioned in the sheet's reasons but not imported (see Tradeoffs).
@@ -175,7 +182,7 @@ Rules that keep this honest:
 
 - Only NSN and NIIN can be mapped from values alone, because only they have strict formats. A part, description, CAGE, or FSC column needs a header.
 - Values that only pass after repair (a number turned into text, a NIIN with restored leading zeros) count only when the header names the field. Otherwise a `Qty` column of small numbers would look like 100% valid NIINs.
-- Excel error cells do not count either way.
+- Excel error cells and trailing totals rows do not count either way.
 - Hidden and zero-width columns are never mapped automatically.
 - Assignment is one-to-one: each column gets at most one field and each field at most one column, best evidence first.
 
@@ -252,7 +259,9 @@ Comparison uses normalized values; the stored values stay as written.
 | NSN contradicts its own NIIN or FSC | Held back; keep the NSN, keep the NIIN and FSC, or exclude the row; suggested: exclude | pending |
 | Already saved, but with a different description or CAGE | Held back; keep saved, replace saved (same id and created date), or keep both; suggested: keep saved | pending |
 
-Same NIIN under different FSCs: a warning on every record involved, no decision, all imported.
+Once the user settles a conflict, the record they kept carries it as a note rather than a warning, so it imports as valid (PENCOM after "Accept all suggestions": 2 valid records).
+
+Same NIIN under different FSCs: a warning on every record involved, no decision, all imported. The message names every FSC and its rows: "NIIN 011066157 (one catalog item) appears with 3 FSCs in this upload: 5210 (row 37), 5220 (this row), 6685 (row 39). An item has one FSC at a time, so at most one of these NSNs is current".
 
 "Accept all suggestions" resolves every pending decision in one click. Pending items never block the rest: the import button always says how many records will import and how many need review.
 A stored choice that no longer applies after a remap (for example, preferring a record that has left its group) falls back to the default policy instead of failing.
@@ -289,7 +298,7 @@ Each decision shows its explanation, a side-by-side comparison (cross-sheet conf
 
 - **Sheets:** "2 ready · 1 needs review · 3 nothing to import". Each sheet has its status badge, include switch, and "Why this classification"; sheets with nothing to import and hidden sheets are folded.
 - **Columns:** the mapped fields per table. Each mapped column shows its header, evidence ("127 of 129 values are valid NSNs"), field picker, and confidence; unmapped columns fold into "3 more columns not imported", each still remappable. Opens by itself when a column is Medium or Low, or was remapped.
-- **Rows:** the preview, with status tabs for non-zero counts, a sheet filter, search across values and cell references, and 100 rows per page; derived values say "derived from E2" and split rows "1 of 2 from D136". Rows of held-back tables fold into "Search Log · 3 rows held back, not importing". Clicking a row opens the provenance drawer: for each field the cell, original text, normalized value, transformations, and origin.
+- **Rows:** titled with the same row count as the summary sentence, with held-back rows counted apart ("Rows (4) · 3 held back"); the preview has status tabs for non-zero counts, a sheet filter, search across values and cell references, and 100 rows per page; derived values say "derived from E2" and split rows "1 of 2 from D136". Rows of held-back tables fold into "Search Log · 3 rows held back, not importing". Clicking a row opens the provenance drawer: for each field the cell, original text, normalized value, transformations, and origin.
 - **Applied automatically:** the automatic decisions grouped by kind, each with undo.
 - **AI assistance:** the opt-in switch, its status, and "How AI assistance works". Opens by itself when a sheet could use AI.
 
@@ -337,7 +346,8 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 - Detection is linear in rows and columns; duplicates are grouped through hash keys.
 - Measured end to end (`readWorkbook` + `analyze`, Node, synthetic 8-column sheets): 10,000 rows in 0.3 s; 50,000 rows (5.5 MB) in 1.4 s, of which 0.8 s is analysis. There is no automated performance test.
 - Analysis runs on the main thread. The window shows "Reading" and "Analyzing" states, but the page is blocked while they run, and every remap re-runs the analysis (0.8 s at 50,000 rows). Moving it to a Web Worker is open decision OD1; the pipeline is pure, so the move is mechanical.
-- Limits, each with a specific error: 20 MB file, 50 sheets, 100,000 rows per sheet, 2,000,000 cells.
+- Limits, each with a specific error: 20 MB file, 200 MB once unzipped, 50 sheets, 100,000 rows per sheet, 2,000,000 cells.
+- Zip bombs are stopped before SheetJS unzips anything: the reader adds up the uncompressed sizes the zip declares and rejects the file above 200 MB, and it caps each entry's actual inflated bytes at its declared size, so a zip that lies about its sizes is reported as damaged. A legitimate workbook at the 2,000,000-cell limit unzips to about 90 MB; unguarded, SheetJS would have inflated a 1 GB bomb.
 - Files are checked by signature before parsing: random bytes are "corrupt", and an encrypted workbook is reported as password-protected.
 - Only `.xlsx` is accepted. Formulas are never evaluated, macros and external links are never run, and cell text is always rendered as text.
 - No network request happens during parsing or import; only the opt-in AI path calls `/api/interpret`.
@@ -345,11 +355,12 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 ## 9. Testing
 
 - Unit tests per module: reader against the 3 real files and synthetic workbooks; normalizers table-driven over every rule above; structure on hand-built sheet shapes and the real files; records, validation, and the AI request builder, verifier, and route.
-- Acceptance suites in `tests/acceptance/` (part of `pnpm test`; 578 tests pass in total on `main`, plus 2 that pin known bugs and are marked as expected failures, see section 11): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
+- Acceptance suites in `tests/acceptance/` (part of `pnpm test`; 601 tests pass in total on `main`): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
 - Every expected number for the example files was checked independently against the raw workbooks.
-- A messy-case suite (`tests/acceptance/messy.test.ts`) adds 14 more unseen workbooks: a part cell merged down across several rows, numeric NSNs and CAGEs, `NSN:` prefixes and dash variants, formulas and `#N/A`, part numbers Excel turned into dates, filtered rows, a header on row 7 below instructions, FSC + NIIN only, and the documented gaps. The demo workbooks in `docs/demo-workbooks/` are tested to behave as their README says.
+- A messy-case suite (`tests/acceptance/messy.test.ts`) adds 14 more unseen workbooks: a part cell merged down across several rows, numeric NSNs and CAGEs, `NSN:` prefixes and dash variants, formulas and `#N/A`, part numbers Excel turned into dates, filtered rows, a header on row 7 below instructions, FSC + NIIN only, a totals row, a malformed value above a repeated header, two stacked tables, and a two-row header. Two-row headers have their own cases in `structure/two-row.test.ts` (split labels, a group label above the header, a hint row, a repeated two-row header, and a guard that keeps a first data row as data). The demo workbooks in `docs/demo-workbooks/` are tested to behave as their README says.
 - The acceptance suites also cover both F1 decisions: an unseen workbook whose NIIN contradicts its NSN, and PENCOM with a saved copy whose description differs, each through every option and the resulting import plan.
 - Playwright E2E tests (`pnpm test:e2e`, Chromium against a production build, `AI_PROVIDER=mock`): each example file is uploaded, its sheet badges, chips, and decisions are checked, "Accept all suggestions" is used where needed, the records are imported and found in the mappings table, and no AI request is sent. A fourth test turns AI on for a synthetic sheet and checks the mock proposal and that exactly one request was made.
+  Eight more (`tests/e2e/review-window.spec.ts`) cover the redesigned window: walking PENCOM's three decisions one at a time with focus moving to the next one, "Review my choices", a chip opening Rows with its filter, held-back rows folded outside the main list, the Columns open-by-default rule (closed on a clean file, open once an uncertain table is included or after a remap), and "Worth a look" for WOW and Statz, including that it stays hidden when nothing imports with a warning.
 
 ## 10. Dependencies
 
@@ -364,15 +375,14 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 ## 11. Tradeoffs and unsupported cases
 
 - **One table per sheet.** A second, different table on the same sheet is mentioned in the sheet's reasons but not imported.
-- **Two-row headers are not detected yet** (fix in progress, T3, decision OD3). When a label is split over two rows ("Part" above "Number"), only the first row is read as the header: the second row can become a record, and columns whose label only makes sense joined are left unmapped. The scoring code already supports two header rows; detection does not propose them yet.
-- **A malformed value above a repeated header** can make detection choose the repeated header and drop every row above it (fix in progress, T3; pinned by a test marked as a known failure).
-- **Totals rows** under a table ("Total" in the part column) are imported as a part and lower the part column's confidence (fix in progress, T3; pinned by a test marked as a known failure).
+- **Headers over three or more rows are not detected**; only the row directly below a candidate is checked as a continuation.
+- **A five-letter word in a header's second row** (`Class`, `Model`, `Notes`) passes the strict CAGE check, so that row is never treated as a continuation and is read as data.
+- **Only trailing totals rows are recognized as footers**, and only the words `Total`, `Totals`, `Subtotal`, `Grand total`, and `Sum`; a "Total" row between two blocks goes through the normal record checks.
 - **Large workbooks block the page** while they are read and analyzed (section 8, OD1).
 - **Derived values are not labeled after import.** The review window labels them; the mappings table does not yet (OD2).
 - **A hidden sheet cannot be included on request** (OD4).
 - **No fill-down of blank cells.** Only explicit merges are filled; a part number written once above several blank rows is not copied down, because that layout is a guess.
 - **ISO date cells** (`t="d"`, which Excel does not write in `.xlsx`) are read as numbers.
-- **No zip-bomb guard** yet: the 20 MB file limit applies to the compressed size (in progress, T1: reject workbooks that expand to more than 200 MB; a legitimate workbook at the 2,000,000-cell limit measured about 90 MB unzipped).
 - **A `no-table` sheet cannot be mapped by hand**; only the AI path can propose a table there.
 - **Storage duplicates with only new information** (the saved record lacks a description that the upload has) are dropped rather than merged into the saved record.
 - **Not interpreted:** cell colors, strikethrough, comments, and Excel Table objects.
@@ -382,8 +392,6 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 
 Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and owner, and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md) for the items waiting on a decision.
 
-- Detect two-row headers (in progress).
-- Reject zip bombs by checking the uncompressed size before parsing (in progress).
 - Calibrate the confidence thresholds on a larger set of real customer workbooks (section 2).
 - Import several tables from one sheet.
 - Run reading and analysis in a Web Worker.
@@ -402,7 +410,7 @@ Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and ow
 | Header below titles, merged titles, repeated headers, blank rows | Header scoring; merged cells count once; skipped rows with reasons | `structure/structure.test.ts`, acceptance (Statz rows 32-34) |
 | Multiple table regions | One table per sheet; a second is reported, not imported | Known gap (section 11) |
 | Header variants, prefixes, line breaks | Token vocabulary with strong/weak matches | `structure/header.test.ts`, unseen line-break header |
-| Header split over two rows | Not detected yet; fix in progress (T3) | Known gap (section 11); `tests/acceptance/messy.test.ts` pins today's behavior |
+| Header split over two rows | Continuation rows joined into one header (section 1) | `structure/two-row.test.ts`, `tests/acceptance/messy.test.ts` |
 | Values decide (UUID `Part` loses) | Pass rates; value-only only for NSN/NIIN | `structure/structure.test.ts`, acceptance (WOW) |
 | UI shows header row, mapping, confidence; lets the user change or exclude; no double mapping | Mapping controls with evidence; one-to-one overrides | `structure/overrides.test.ts`, `components/import/session.test.ts` |
 | Field normalization rules | Per-field normalizers with recorded transforms | `normalize/normalize.test.ts` |
@@ -416,5 +424,5 @@ Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and ow
 | Provenance for every value | `Provenance` on every field value | `records/table.test.ts`, unseen provenance check |
 | Preview, filters, search, import approved only, recompute without rereading | Review window; `analyze()` re-run with overrides | `components/import/session.test.ts`, `tests/e2e/import.spec.ts` |
 | AI: bounded input, structured output, verified, never invents identifiers, opt-in, no hidden content, works without a key, behind an interface | Section 7 | `ai/request.test.ts`, `ai/verify.test.ts`, `routes/api/interpret/server.test.ts` |
-| Lazy parser, linear scans, limits, no network, no formula execution | Section 8 | `reader/reader.test.ts` (limits, file signatures); performance measured by hand |
+| Lazy parser, linear scans, limits, no network, no formula execution | Section 8 | `reader/reader.test.ts` (limits, file signatures), `reader/zip.test.ts` (zip bombs); performance measured by hand |
 | At least one integration test on a real `.xlsx` | All three fixtures end to end | `tests/acceptance/fixtures.test.ts` |

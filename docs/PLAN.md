@@ -22,10 +22,12 @@ For how the importer works, read ARCHITECTURE.md instead.
 | T7 | Review window UI | Merged (#11); F1d and polish (#17); AI panel disclosure (#19) |
 | T8 | Acceptance suites, E2E, README | Merged: wave 1 (#8), wave 2 (#10), wave 3 E2E + README (#16, #18) |
 | F1 | Two new pending decisions ([brief](tasks/F1-decision-followups.md)) | Complete: F1a (#12), F1b (#14), F1c (#15), F1d (#17), F1e (#13) |
-| UX1 | Review window redesign, summary first ([brief](tasks/UX1-review-window-redesign.md), [prototype](prototypes/review-window/index.html)) | Merged (#22); T8 adds E2E coverage next |
-| OD3 | Two-row header detection, plus two header/footer bugs found by T8's messy-case suite (#21) | In progress: T3 |
-| Zip bomb | Reject workbooks that expand to more than 200 MB (D21) | In progress: T1 |
-| Polish | Settled conflicts no longer counted as warnings (T5); Rows title count and tooltips that open on hover of the whole section (T7) | In progress |
+| UX1 | Review window redesign, summary first ([brief](tasks/UX1-review-window-redesign.md), [prototype](prototypes/review-window/index.html)) | Merged (#22); E2E coverage (#29) |
+| OD3 | Two-row header detection, plus two header/footer bugs found by T8's messy-case suite (#21) | Merged (#25) |
+| Zip bomb | Reject workbooks that expand to more than 200 MB (D21) | Merged (#24) |
+| Polish | Settled conflicts counted as valid (#26); Rows title count (#27); tooltips only on their own (i) button (#28) | Merged |
+
+All work items are merged; `main` passes 601 tests and 12 browser tests. What remains is in [Backlog](#backlog-future-ideas) and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## Scope (5-hour build)
 
@@ -85,8 +87,6 @@ Deferred by D15; revisit if time allows. Each is listed as a known gap in ARCHIT
 
 | Idea | Why it matters | Rough size | Owner if picked up |
 | --- | --- | --- | --- |
-| Two-row header detection | TASK_SPEC lists "a header distributed across two adjacent rows". `materializeTable` already joins header rows; detection never proposes two. | ~45 min | T3 |
-| Zip-bomb size guard | Reject workbooks whose uncompressed size is far larger than the file (about 200 MB), before parsing. | ~20 min | T1 |
 | Multiple tables per sheet | TASK_SPEC "strongly preferred". Today only the best table per sheet imports; a second table is mentioned in the sheet's reasons. | ~2 h, touches T3/T5/T7 | T3 |
 | Web Worker parsing | Encouraged, not mandatory. 100k rows x 10 columns analyze in about 1.5 s on the main thread today. | ~1 h | T1 + T7 |
 | Merge compatible new info into saved records | A re-upload that only adds a missing description or CAGE could update the saved record instead of being dropped. | ~30 min after F1 | T5 |
