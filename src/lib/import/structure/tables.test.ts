@@ -120,6 +120,21 @@ describe('several tables on one sheet', () => {
 		expect(sheet.reasons.join('\n')).not.toMatch(/rows above \d+ are not imported/);
 	});
 
+	it('reads a list of NSNs without a header above a table as a table of its own', () => {
+		const sheet = sheetOf([
+			...Array.from({ length: 5 }, (_, i): CellInput[] => [nsn(i)]),
+			[],
+			shifted(3, ['Part Number', 'NSN']),
+			...Array.from({ length: 4 }, (_, i) => shifted(3, [`BRK-${i}`, nsn(20 + i)]))
+		]);
+		expect(sheet.tables.map((t) => [t.id, rangeToA1(t.range), t.headerRows, mapping(t)])).toEqual([
+			['Parts@1', 'A1:A5', [], { A: 'nsn' }],
+			['Parts@7', 'C7:D11', [7], { C: 'part', D: 'nsn' }]
+		]);
+		expect(sheet.tables[0].reasons).toContain('Row 7 starts another table, so this table ends at row 5');
+		expect(sheet).toMatchObject({ status: 'ready', aiTrigger: null });
+	});
+
 	it('does not start a table at a header whose primary column is not high confidence', () => {
 		const sheet = sheetOf([['Part Number', 'NSN'], ...block(3, 1).map((r) => r.slice(0, 2)), [], ['NIIN', 'CAGE'], ['12345', 'X'], ['pending', 'X']]);
 		expect(sheet.tables).toHaveLength(1);

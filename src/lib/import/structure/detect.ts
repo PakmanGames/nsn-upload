@@ -322,6 +322,17 @@ function detectTable(sheet: SheetModel, band: CellRange): BandDetection {
 	// No header row, or the best one holds NSNs or NIINs and is really the first data row: let the values decide.
 	const headerless = detectHeaderless(sheet, extent, sheetSpan, best?.rows[0]);
 	if (headerless) return { spec: headerless.spec, reasons: [...notes, ...headerless.reasons], next: nextRow };
+	// A list of NSNs or NIINs above the header, without a header of its own, is a table of its own: this band
+	// ends above the header, which starts the next band.
+	if (best?.hasPrimary && best.rows[0] > extent.top) {
+		const above = detectHeaderless(sheet, { ...extent, bottom: best.rows[0] - 1 }, sheetSpan);
+		if (above?.spec) {
+			const { range } = above.spec;
+			while (range.bottom > range.top && masterCells(sheet, range.bottom, range).length === 0) range.bottom--;
+			const end = `Row ${best.rows[0]} starts another table, so this table ends at row ${range.bottom}`;
+			return { spec: above.spec, reasons: [...notes, ...above.reasons, end], next: best.rows[0] };
+		}
+	}
 
 	if (!best) {
 		return { spec: null, reasons: [...notes, 'No header row found: no row near the top has at least two short text labels'], next: nextRow };
