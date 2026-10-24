@@ -93,7 +93,9 @@ function readRow(ctx: TableContext, rowNumber: number): Row {
 			row.sources.push({ field, cell, ref, values: result.values });
 			row.issues.push(...result.warnings);
 		} else if (result.kind === 'invalid') {
-			row.rejected[field] = { original: cell.text, cell: ref };
+			// An error cell's text is empty; its code (#N/A) is what Excel shows, so the review shows that.
+			const original = cell.kind === 'error' ? String(cell.raw ?? '') : cell.text;
+			row.rejected[field] = { original, cell: ref };
 			row.issues.push(result.issue);
 		} else if (WARN_WHEN_EMPTY.includes(field)) {
 			const at = qualifiedRef(ctx.sheet.name, cell.ref);
