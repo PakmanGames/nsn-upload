@@ -9,7 +9,8 @@
 	import { onMount } from 'svelte';
 	import ImportReviewWindow from './import/ImportReviewWindow.svelte';
 	import { demoMappings } from '$lib/demo-data';
-	import type { MappingInput, MappingRecord } from '$lib/types';
+	import type { ImportPlan } from '$lib/import/model';
+	import type { MappingRecord } from '$lib/types';
 
 	const storageKey = 'nsn-upload-interview-task:mappings';
 	const pageSize = 8;
@@ -57,19 +58,26 @@
 		currentPage = 0;
 	}
 
-	/** Duplicates against saved records were already resolved in the review window, so every input is added. */
-	function importMappings(inputs: MappingInput[]): number {
+	/**
+	 * Duplicates against saved records were resolved in the review window: new records are added on top, and a
+	 * saved record the user chose to replace keeps its id, creation date, and position but takes the new fields.
+	 */
+	function importPlan(plan: ImportPlan) {
 		const createdAt = new Date().toISOString();
-		const added: MappingRecord[] = inputs.map((input) => ({
+		const added: MappingRecord[] = plan.add.map((input) => ({
 			...input,
 			id: crypto.randomUUID(),
 			createdAt,
 			status: 'Ready'
 		}));
-		save([...added, ...mappings]);
+		const replacements = new Map(plan.replace.map(({ id, input }) => [id, input]));
+		const kept = mappings.map((mapping): MappingRecord => {
+			const input = replacements.get(mapping.id);
+			return input ? { ...input, id: mapping.id, createdAt: mapping.createdAt, status: 'Ready' } : mapping;
+		});
+		save([...added, ...kept]);
 		searchTerm = '';
 		currentPage = 0;
-		return added.length;
 	}
 
 	function statusStyle(status: MappingRecord['status']) {
@@ -254,5 +262,5 @@
 	open={showUpload}
 	existing={mappings}
 	onClose={() => (showUpload = false)}
-	onImport={importMappings}
+	onImport={importPlan}
 />

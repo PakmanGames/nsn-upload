@@ -115,20 +115,21 @@
 				{/each}
 			</select>
 			<label class="relative block">
-				<span class="sr-only">Search values and cells</span>
+				<span class="sr-only">Search values and cell references, such as D136</span>
 				<Search class="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={16} />
 				<input
 					class="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-60"
 					type="search"
-					placeholder="Search values or cells (D136)…"
+					placeholder="Search values or cells"
 					bind:value={query}
 				/>
 			</label>
 		</div>
 	</div>
 
-	<div class="overflow-x-auto border-b border-slate-200">
-		<div class="flex min-w-max gap-1 px-3 py-2" role="tablist" aria-label="Filter by status">
+	<!-- Tabs wrap rather than scroll, so every status stays visible in a narrow pane. -->
+	<div class="border-b border-slate-200">
+		<div class="flex flex-wrap gap-1 px-3 py-2" role="tablist" aria-label="Filter by status">
 			{#each FILTERS as option (option.id)}
 				<button
 					type="button"

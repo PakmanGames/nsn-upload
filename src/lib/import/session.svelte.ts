@@ -18,7 +18,7 @@ import { analyze } from './analyze';
 import {
 	WorkbookReadError,
 	type Field,
-	type MappingInput,
+	type ImportPlan,
 	type Overrides,
 	type SheetAnalysis,
 	type StoredMapping,
@@ -35,7 +35,7 @@ export type ImportPhase = 'idle' | 'reading' | 'analyzing' | 'ready' | 'importin
 export type ImportEngine = {
 	read(file: File): Promise<WorkbookModel>;
 	analyze(model: WorkbookModel, existing: StoredMapping[], overrides: Overrides): WorkbookAnalysis;
-	toMappingInputs(analysis: WorkbookAnalysis): MappingInput[];
+	toImportPlan(analysis: WorkbookAnalysis): ImportPlan;
 	aiAvailability(): Promise<AiAvailability>;
 	/** Sends the sheets that asked for help to the interpreter and verifies its answer against the workbook. */
 	interpret(
@@ -48,8 +48,7 @@ export type ImportEngine = {
 export const pipelineEngine: ImportEngine = {
 	read: async (file) => readWorkbook(await file.arrayBuffer(), file.name),
 	analyze,
-	// Replacing saved records (ImportPlan.replace) is not wired yet; only new records are added.
-	toMappingInputs: (analysis) => toImportPlan(analysis).add,
+	toImportPlan,
 	aiAvailability: () => getAiAvailability(),
 	async interpret(model, sheets, signal) {
 		const request = buildInterpretationRequest(model, sheets);
@@ -80,10 +79,11 @@ export class ImportSession {
 	model = $state.raw<WorkbookModel | null>(null);
 	overrides = $state.raw<Overrides>({});
 	analysis = $state.raw<WorkbookAnalysis | null>(null);
-	importedCount = $state(0);
+	/** What the last import added and replaced; null until an import ran. */
+	imported = $state.raw<ImportPlan | null>(null);
 
 	aiEnabled = $state(false);
-	/** Null until the availability check returns. */
+	/** Null until checked, and it is only checked once the user has AI assistance on. */
 	aiAvailability = $state.raw<AiAvailability | null>(null);
 	aiRun = $state.raw<AiRun | null>(null);
 
@@ -94,21 +94,18 @@ export class ImportSession {
 	#engine: ImportEngine;
 	#existing: StoredMapping[] = [];
 	#aiAbort: AbortController | null = null;
+	#aiChecked: Promise<AiAvailability> | null = null;
+	#aiRestored = false;
 
 	constructor(engine: ImportEngine = pipelineEngine) {
 		this.#engine = engine;
 	}
 
-	/** Restores the AI preference and checks availability once. Browser only. */
-	async initAi() {
-		if (!browser || this.aiAvailability) return;
-		this.aiEnabled = localStorage.getItem(aiPreferenceKey) === 'on';
-		try {
-			this.aiAvailability = await this.#engine.aiAvailability();
-		} catch {
-			this.aiAvailability = { available: false, reason: 'The AI service could not be reached.' };
-		}
-		void this.#interpretIfNeeded();
+	/** Restores the saved AI preference once. Browser only, and no request unless the preference is on. */
+	initAi() {
+		if (!browser || this.#aiRestored) return;
+		this.#aiRestored = true;
+		if (localStorage.getItem(aiPreferenceKey) === 'on') void this.setAiEnabled(true);
 	}
 
 	async load(file: File, existing: StoredMapping[]) {
@@ -143,7 +140,7 @@ export class ImportSession {
 		this.model = null;
 		this.overrides = {};
 		this.analysis = null;
-		this.importedCount = 0;
+		this.imported = null;
 		this.aiRun = null;
 	}
 
@@ -179,11 +176,16 @@ export class ImportSession {
 		this.#apply({ ...this.overrides, decisions });
 	}
 
-	setAiEnabled(enabled: boolean) {
+	async setAiEnabled(enabled: boolean) {
 		this.aiEnabled = enabled;
 		if (browser) localStorage.setItem(aiPreferenceKey, enabled ? 'on' : 'off');
 		if (enabled) {
-			void this.#interpretIfNeeded();
+			// The availability check is a request too, so it waits until the user turns AI on (no transmission before).
+			this.#aiChecked ??= this.#engine.aiAvailability();
+			this.aiAvailability = await this.#aiChecked;
+			// Unavailable: the switch goes back off and shows the reason; the saved preference stays as the user set it.
+			if (!this.aiAvailability.available) this.aiEnabled = false;
+			else await this.#interpretIfNeeded();
 			return;
 		}
 		// Off means deterministic only: stop any request and drop tables the AI proposed.
@@ -195,10 +197,13 @@ export class ImportSession {
 		}
 	}
 
-	async import(onImport: (inputs: MappingInput[]) => number) {
+	/** Hands the plan to the caller, which adds new records and replaces the saved ones the user chose to overwrite. */
+	import(onImport: (plan: ImportPlan) => void) {
 		if (!this.analysis) return;
 		this.phase = 'importing';
-		this.importedCount = onImport(this.#engine.toMappingInputs(this.analysis));
+		const plan = this.#engine.toImportPlan(this.analysis);
+		onImport(plan);
+		this.imported = plan;
 		this.phase = 'done';
 	}
 

@@ -17,6 +17,7 @@ import {
 	type DecisionOption,
 	type Field,
 	type FieldValue,
+	type ImportPlan,
 	type Issue,
 	type MappingInput,
 	type Overrides,
@@ -1303,16 +1304,25 @@ export const mockEngine: ImportEngine = {
 		return { fileName: file.name, sheets: [] };
 	},
 	analyze: (model, _existing, overrides) => buildMockAnalysis(overrides, model.fileName),
-	toMappingInputs: (analysis) =>
-		analysis.records
-			.filter((record) => record.approved)
-			.map(({ fields }) => {
-				const input: MappingInput = {};
-				for (const field of ['part', 'description', 'nsn', 'niin', 'cage'] as const) {
-					if (fields[field]) input[field] = fields[field].value;
-				}
-				return input;
-			}),
+	toImportPlan(analysis) {
+		// A record whose storage conflict was resolved with replace-saved overwrites the first matching saved record.
+		const replaces = new Map(
+			analysis.decisions
+				.filter((decision) => decision.kind === 'resolve-storage-conflict' && decision.chosen === 'replace-saved')
+				.flatMap((decision) => decision.recordIds.map((id) => [id, decision.existingIds![0]]))
+		);
+		const plan: ImportPlan = { add: [], replace: [] };
+		for (const record of analysis.records.filter((record) => record.approved)) {
+			const input: MappingInput = {};
+			for (const field of ['part', 'description', 'nsn', 'niin', 'cage'] as const) {
+				if (record.fields[field]) input[field] = record.fields[field].value;
+			}
+			const id = replaces.get(record.id);
+			if (id) plan.replace.push({ id, input });
+			else plan.add.push(input);
+		}
+		return plan;
+	},
 	aiAvailability: async () => ({ available: true }),
 	async interpret(_model, _sheets, signal) {
 		await delay(1500, signal);

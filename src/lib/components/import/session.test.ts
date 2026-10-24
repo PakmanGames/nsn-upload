@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { decisionId } from '$lib/import/model';
+import { decisionId, type ImportPlan } from '$lib/import/model';
 import { ImportSession, type ImportEngine } from '$lib/import/session.svelte';
 import { mockEngine } from './mock-analysis';
 
 const xlsx = () => new File(['x'], 'parts.xlsx');
 
 function spyEngine() {
-	return { ...mockEngine, read: vi.fn(mockEngine.read), interpret: vi.fn(mockEngine.interpret) };
+	return {
+		...mockEngine,
+		read: vi.fn(mockEngine.read),
+		interpret: vi.fn(mockEngine.interpret),
+		aiAvailability: vi.fn(mockEngine.aiAvailability)
+	};
 }
 
 describe('ImportSession', () => {
@@ -73,14 +78,34 @@ describe('ImportSession', () => {
 		expect(session.analysis!.decisions.find((decision) => decision.id === id)?.state).toBe('pending');
 	});
 
+	it('makes no AI request, not even the availability check, until AI assistance is turned on', async () => {
+		const engine = spyEngine();
+		const session = await loaded(engine);
+		session.initAi();
+		await vi.runAllTimersAsync();
+		expect(engine.aiAvailability).not.toHaveBeenCalled();
+		expect(engine.interpret).not.toHaveBeenCalled();
+		expect(session.aiAvailability).toBeNull();
+	});
+
+	it('turns the switch back off with the reason when AI is unavailable', async () => {
+		const engine = { ...spyEngine(), aiAvailability: vi.fn(async () => ({ available: false, reason: 'No key' })) };
+		const session = await loaded(engine);
+		await session.setAiEnabled(true);
+		expect(session.aiEnabled).toBe(false);
+		expect(session.aiAvailability).toEqual({ available: false, reason: 'No key' });
+		expect(engine.interpret).not.toHaveBeenCalled();
+	});
+
 	it('sends triggered sheets only while AI assistance is on, and drops AI tables when it is turned off', async () => {
 		const engine = spyEngine();
 		const session = await loaded(engine);
 		expect(engine.interpret).not.toHaveBeenCalled();
 
-		session.aiAvailability = { available: true };
-		session.setAiEnabled(true);
+		const enabling = session.setAiEnabled(true);
 		await vi.runAllTimersAsync();
+		await enabling;
+		expect(engine.aiAvailability).toHaveBeenCalledTimes(1);
 		expect(engine.interpret).toHaveBeenCalledTimes(1);
 		expect(session.aiRun).toMatchObject({ status: 'done', sheets: ['Search Log'] });
 		expect(session.overrides.aiTables).toHaveLength(1);
@@ -92,12 +117,26 @@ describe('ImportSession', () => {
 		expect(session.analysis!.sheets.find((sheet) => sheet.name === 'Search Log')!.tables[0].source).toBe('deterministic');
 	});
 
-	it('imports only approved records and reports the count', async () => {
+	it('imports only approved records as additions', async () => {
 		const session = await loaded();
-		const onImport = vi.fn((inputs: unknown[]) => inputs.length);
-		await session.import(onImport);
+		const onImport = vi.fn<(plan: ImportPlan) => void>();
+		session.import(onImport);
 		expect(session.phase).toBe('done');
-		expect(session.importedCount).toBe(session.analysis!.summary.toImport);
-		expect(onImport.mock.calls[0][0]).toHaveLength(session.analysis!.summary.toImport);
+		expect(onImport.mock.calls[0][0].add).toHaveLength(session.analysis!.summary.toImport);
+		expect(onImport.mock.calls[0][0].replace).toEqual([]);
+		expect(session.imported).toBe(onImport.mock.calls[0][0]);
+	});
+
+	it('replaces the saved record when a storage conflict is resolved with replace-saved', async () => {
+		const session = await loaded();
+		const conflict = session.analysis!.decisions.find((decision) => decision.kind === 'resolve-storage-conflict')!;
+		session.choose(conflict.id, 'replace-saved');
+		const onImport = vi.fn<(plan: ImportPlan) => void>();
+		session.import(onImport);
+		const plan = onImport.mock.calls[0][0];
+		expect(plan.replace).toEqual([
+			{ id: 'demo-1', input: expect.objectContaining({ part: 'M30294', description: 'Bolt, hexagon head' }) }
+		]);
+		expect(plan.add.length + plan.replace.length).toBe(session.analysis!.summary.toImport);
 	});
 });
