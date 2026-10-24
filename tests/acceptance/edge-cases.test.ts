@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { analyze } from '../../src/lib/import/analyze';
 import type { WorkbookAnalysis, WorkbookModel } from '../../src/lib/import/model';
 import { readWorkbook } from '../../src/lib/import/reader';
+import { rangeToA1 } from '../../src/lib/import/refs';
 import {
 	expectSummaryConsistent,
 	expectTraceable,
@@ -55,13 +56,16 @@ describe('edge-case workbooks', () => {
 	});
 
 	describe('side-by-side-tables.xlsx', () => {
-		it('holds the sheet back for review instead of importing a half-mapped table', async () => {
+		it('imports the left and right tables as two tables with their own columns (E5)', async () => {
 			const analysis = await analysisOf('side-by-side-tables.xlsx');
-			expect(sheetOf(analysis, 'Parts').status).toBe('needs-review');
-			expect(analysis.summary.toImport).toBe(0);
-			expect(analysis.summary.pendingDecisions).toBe(1);
+			const { tables } = sheetOf(analysis, 'Parts');
+			expect(tables.map((t) => [t.id, rangeToA1(t.range), t.status, mappedColumns(t)])).toEqual([
+				['Parts@2:A', 'A2:C6', 'ready', { part: 'A', nsn: 'B', description: 'C' }],
+				['Parts@2:E', 'E2:G6', 'ready', { part: 'E', nsn: 'F', description: 'G' }]
+			]);
+			expect(analysis.summary.toImport).toBe(8);
+			expect(analysis.summary.pendingDecisions).toBe(0);
 		});
-		it.todo('imports the left and right tables as two tables with their own columns (E5)');
 	});
 
 	describe('hidden-sheet-parts.xlsx', () => {
