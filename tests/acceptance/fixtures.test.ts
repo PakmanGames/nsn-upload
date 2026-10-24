@@ -5,12 +5,18 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/lib/import/analyze';
-import { decisionId, type WorkbookAnalysis, type WorkbookModel } from '../../src/lib/import/model';
+import {
+	decisionId,
+	type StoredMapping,
+	type WorkbookAnalysis,
+	type WorkbookModel
+} from '../../src/lib/import/model';
 import { qualifiedRef } from '../../src/lib/import/refs';
 import { toImportPlan } from '../../src/lib/import/validate';
 import { FIXTURES, pencom, statz, wow } from '../fixtures/expectations';
 import {
 	acceptAllSuggestions,
+	byPart,
 	colOf,
 	expectSummaryConsistent,
 	expectTraceable,
@@ -362,8 +368,79 @@ describe('fixture acceptance', () => {
 			for (const record of approved) {
 				expect(record.fields.cage?.provenance).toMatchObject({ sheet: record.sheet, row: record.sourceRow });
 			}
-			const byPart = (a: { part?: string }, b: { part?: string }) => (a.part ?? '').localeCompare(b.part ?? '');
 			expect(toImportPlan(accepted).add.sort(byPart)).toEqual([...pencom.imported].sort(byPart));
+		});
+	});
+
+	describe(`${pencom.file} with a saved copy whose description differs`, () => {
+		// pencom.imported lists the merged XRef screw first, then SE5826.
+		const [screw, assembly] = pencom.imported;
+		const saved: StoredMapping = { ...screw, id: 'saved-screw', description: 'Machine screw, pan head SEMS' };
+		let model: WorkbookModel;
+		let settled: Record<string, string>;
+		let recordId: string;
+		let storageId: string;
+
+		const analyzeWith = (choice?: string): WorkbookAnalysis =>
+			analyze(model, [saved], { decisions: { ...settled, ...(choice ? { [storageId]: choice } : {}) } });
+
+		beforeAll(async () => {
+			model = await loadFixture(pencom.file);
+			const initial = analyze(model, [saved], {});
+			// Settle the cross-sheet conflicts and Search Log as "Accept all suggestions" would, but leave the storage
+			// decision open: the XRef record only reaches the storage check once no cross-sheet conflict holds it.
+			settled = Object.fromEntries(
+				initial.decisions
+					.filter((decision) => decision.state === 'pending' && decision.kind !== 'resolve-storage-conflict')
+					.map((decision) => [decision.id, decision.suggested])
+			);
+			const xref = recordsOf(initial, pencom.conflicts[0].preferred.sheet);
+			const record = xref.find((candidate) => candidate.fields.part?.value === screw.part);
+			if (!record) throw new Error(`No XRef record for part ${screw.part}`);
+			recordId = record.id;
+			storageId = decisionId('resolve-storage-conflict', `${recordId}+saved:${saved.id}`);
+		});
+
+		it('holds the screw back as a pending storage conflict with "keep-saved" suggested', () => {
+			const analysis = analyzeWith();
+			const decision = analysis.decisions.find((candidate) => candidate.id === storageId);
+			expect(decision).toMatchObject({
+				kind: 'resolve-storage-conflict',
+				state: 'pending',
+				chosen: null,
+				suggested: 'keep-saved',
+				existingIds: [saved.id]
+			});
+			expect(decision?.recordIds).toContain(recordId);
+			expect(decision?.options.map((option) => option.id)).toEqual(
+				expect.arrayContaining(['keep-saved', 'replace-saved', 'keep-both'])
+			);
+			expect(decision?.reason).toMatch(/description/i);
+			expect(analysis.records.find((record) => record.id === recordId)?.approved).toBe(false);
+			expect(analysis.summary.pendingDecisions).toBe(1);
+			expect(toImportPlan(analysis)).toEqual({ add: [assembly], replace: [] });
+			expectSummaryConsistent(analysis);
+			expectTraceable(model, analysis);
+		});
+
+		it.each([
+			{ choice: 'keep-saved', approved: false, plan: { add: [assembly], replace: [] } },
+			{ choice: 'replace-saved', approved: true, plan: { add: [assembly], replace: [{ id: saved.id, input: screw }] } },
+			{ choice: 'keep-both', approved: true, plan: { add: [screw, assembly], replace: [] } }
+		])('$choice -> the expected import plan', ({ choice, approved, plan }) => {
+			const analysis = analyzeWith(choice);
+			const record = analysis.records.find((candidate) => candidate.id === recordId);
+			expect(analysis.decisions.find((candidate) => candidate.id === storageId)).toMatchObject({
+				state: 'user',
+				chosen: choice
+			});
+			expect(record?.approved).toBe(approved);
+			if (choice === 'keep-saved') expect(record?.status).toBe('duplicate');
+			const { add, replace } = toImportPlan(analysis);
+			expect({ add: add.sort(byPart), replace }).toEqual({ add: [...plan.add].sort(byPart), replace: plan.replace });
+			expect(analysis.summary.pendingDecisions).toBe(0);
+			expectSummaryConsistent(analysis);
+			expectTraceable(model, analysis);
 		});
 	});
 });
