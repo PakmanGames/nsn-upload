@@ -4,7 +4,7 @@
  */
 
 /** Whitespace (incl. NBSP), zero-width characters, ASCII hyphen, Unicode dashes and the minus sign. */
-const SEPARATORS = /[\s​-‍﻿‐-―−-]/g;
+const SEPARATORS = /[\s\u200B-\u200D\uFEFF\u2010-\u2015\u2212-]/g;
 
 export function stripSeparators(text: string): string {
 	return text.replace(SEPARATORS, '');
