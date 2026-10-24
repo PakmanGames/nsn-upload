@@ -288,6 +288,9 @@ describe('nothing to import', () => {
 		const manual = { headerRows: [], range: { top: 1, left: 1, bottom: 4, right: 1 }, columns: { 1: 'nsn' as const } };
 		const setUp = run([cover, ready, empty, list], { manualTables: [{ ...manual, sheet: 'List' }] });
 		expect(setupSheets(setUp.analysis.sheets, setUp.analysis.decisions, setUp.model)).toEqual(['Cover']);
+	});
+});
+
 describe('held-back tables', () => {
 	it('say why and how to include them, on their own line', () => {
 		const pencom = fixture(PENCOM);
