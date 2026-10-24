@@ -97,6 +97,11 @@ export function mappedColumns(table: TableCandidate): Partial<Record<Field, stri
 	);
 }
 
+/** Sort comparator for import inputs, whose order the plan does not promise. */
+export function byPart(a: { part?: string }, b: { part?: string }): number {
+	return (a.part ?? '').localeCompare(b.part ?? '');
+}
+
 /** "D" -> 4. */
 export function colOf(letter: string): number {
 	const at = parseA1(`${letter}1`);

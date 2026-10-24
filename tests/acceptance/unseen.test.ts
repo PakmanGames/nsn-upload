@@ -188,6 +188,95 @@ describe('unseen workbooks', () => {
 		});
 	});
 
+	describe('a row whose NIIN contradicts its own NSN', () => {
+		// Row 2: the NSN's NIIN is 016582565, but the NIIN cell says 016698021. The FSC agrees with the NSN.
+		const workbook = useWorkbook('contradiction.xlsx', [
+			{
+				name: 'Catalog',
+				rows: [
+					['Part Number', 'NSN', 'FSC', 'NIIN', 'Description'],
+					['SCR-0001', NSN[0], '5305', '016698021', 'Screw, machine'],
+					['GRD-0003', NSN[2], '5340', '011024535', 'Guard, shock absorber'],
+					['CAR-0004', NSN[3], '3020', '016609619', 'Carrier, drive sprocket'],
+					['HUB-0005', NSN[4], '2530', '009673346', 'Hub assembly, wheel']
+				]
+			}
+		]);
+		const id = decisionId('resolve-identifier-conflict', 'Catalog@1:r2');
+		const partOnly = { part: 'SCR-0001', description: 'Screw, machine' };
+		const withChoice = (choice: string) => analyze(workbook.model, [], { decisions: { [id]: choice } });
+
+		it('holds the row back as a pending decision with "exclude-row" suggested', () => {
+			const { analysis } = workbook;
+			const decision = analysis.decisions.find((candidate) => candidate.id === id);
+			expect(decision).toMatchObject({
+				kind: 'resolve-identifier-conflict',
+				state: 'pending',
+				chosen: null,
+				suggested: 'exclude-row'
+			});
+			expect(decision?.options.map((option) => option.id)).toEqual(
+				expect.arrayContaining(['prefer-nsn', 'prefer-niin-fsc', 'exclude-row'])
+			);
+			expect(decision?.cells).toEqual(expect.arrayContaining(['Catalog!B2', 'Catalog!D2']));
+
+			const record = singleRecordAt(analysis, 'Catalog', 2);
+			expect(record).toMatchObject({ status: 'pending', approved: false });
+			const issue = record.issues.find((candidate) => candidate.code === 'conflict');
+			expect(issue?.cells).toEqual(expect.arrayContaining(['Catalog!B2', 'Catalog!D2']));
+			expect(analysis.summary).toMatchObject({ pendingDecisions: 1, toImport: 3 });
+		});
+
+		it('"Accept all suggestions" never imports the contradicted identifiers', () => {
+			const accepted = analyze(workbook.model, [], acceptAllSuggestions(workbook.analysis));
+			expect(accepted.decisions.find((candidate) => candidate.id === id)).toMatchObject({ chosen: 'exclude-row' });
+			expect(singleRecordAt(accepted, 'Catalog', 2).approved).toBe(false);
+			expect(accepted.summary).toMatchObject({ pendingDecisions: 0, toImport: 3 });
+		});
+
+		it('prefer-nsn keeps the NSN, rejects the NIIN cell, and derives the NIIN', () => {
+			const analysis = withChoice('prefer-nsn');
+			const record = singleRecordAt(analysis, 'Catalog', 2);
+			expect(record).toMatchObject({ status: 'warning', approved: true });
+			expect(record.fields.nsn).toMatchObject({ value: '5305016582565', provenance: { cell: 'B2', origin: 'source' } });
+			expect(record.fields.niin).toMatchObject({ value: '016582565', provenance: { origin: 'derived' } });
+			expect(record.fields.niin?.provenance.derivedFrom).toContain('B2');
+			expect(record.fields.fsc?.value).toBe('5305');
+			expect(record.rejected.niin).toEqual({ original: '016698021', cell: 'D2' });
+			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'warning' }));
+			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016582565', niin: '016582565' });
+			expectSummaryConsistent(analysis);
+			expectTraceable(workbook.model, analysis);
+		});
+
+		it('prefer-niin-fsc keeps the NIIN and FSC, rejects the NSN cell, and derives the NSN', () => {
+			const analysis = withChoice('prefer-niin-fsc');
+			const record = singleRecordAt(analysis, 'Catalog', 2);
+			expect(record).toMatchObject({ status: 'warning', approved: true });
+			expect(record.fields.niin).toMatchObject({ value: '016698021', provenance: { cell: 'D2', origin: 'source' } });
+			expect(record.fields.nsn).toMatchObject({ value: '5305016698021', provenance: { origin: 'derived' } });
+			expect(record.fields.nsn?.provenance.transforms).toContain('derive-nsn-from-fsc-niin');
+			expect(record.fields.nsn?.provenance.derivedFrom).toEqual(expect.arrayContaining(['C2', 'D2']));
+			expect(record.rejected.nsn).toEqual({ original: NSN[0], cell: 'B2' });
+			expect(record.issues).toContainEqual(expect.objectContaining({ code: 'conflict', severity: 'warning' }));
+			expect(toImportPlan(analysis).add).toContainEqual({ ...partOnly, nsn: '5305016698021', niin: '016698021' });
+			expectSummaryConsistent(analysis);
+			expectTraceable(workbook.model, analysis);
+		});
+
+		it('exclude-row imports the other rows only', () => {
+			const analysis = withChoice('exclude-row');
+			expect(analysis.decisions.find((candidate) => candidate.id === id)).toMatchObject({
+				state: 'user',
+				chosen: 'exclude-row'
+			});
+			expect(singleRecordAt(analysis, 'Catalog', 2).approved).toBe(false);
+			expect(toImportPlan(analysis).add.map((input) => input.part)).toEqual(['GRD-0003', 'CAR-0004', 'HUB-0005']);
+			expect(analysis.summary.pendingDecisions).toBe(0);
+			expectSummaryConsistent(analysis);
+		});
+	});
+
 	describe('two visible sheets with the same mapping: one compatible and one conflicting duplicate', () => {
 		const header = ['Part Number', 'NSN', 'Description', 'CAGE'];
 		const workbook = useWorkbook('benches.xlsx', [
