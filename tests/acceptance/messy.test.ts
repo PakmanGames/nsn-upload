@@ -1,11 +1,10 @@
 /**
  * More unseen workbooks: the messy cases from PLAN.md and the design note that neither the fixtures nor
  * unseen.test.ts cover. Each test asserts the specified behavior (design note sections in the comments).
- * Where today's pipeline disagrees, the test is `it.fails` with a comment saying what should happen; the two
- * documented gaps (stacked tables, two-row headers) instead pin today's documented behavior.
+ * Where today's pipeline disagrees, the test is `it.fails` with a comment saying what should happen; the
+ * documented gap (stacked tables) instead pins today's documented behavior.
  */
 import { describe, expect, it } from 'vitest';
-import { decisionId } from '../../src/lib/import/model';
 import { toImportPlan } from '../../src/lib/import/validate';
 import { rows } from '../fixtures/expectations';
 import {
@@ -417,10 +416,9 @@ describe('messy unseen workbooks', () => {
 		});
 	});
 
-	describe('documented gap: a header split over two rows', () => {
-		// Design note §11 and OD3: detection only proposes single-row headers. Today row 1 is the header, row 2's
-		// "Number" cells read as data, the NSN column is not recognized, and the table is held back with an AI
-		// suggestion. If OD3 is built, expect headerRows [1, 2], a ready table, and 4 records instead.
+	describe('a header split over two rows', () => {
+		// OD3: row 2 finishes row 1's labels ("Part" + "Number", "National Stock" + "Number", "Item" + "Name"), so
+		// both rows are the header, the NSN and description columns are recognized, and no "Number" record exists.
 		const workbook = useWorkbook('two-row-header.xlsx', [
 			{
 				name: 'TwoRow',
@@ -435,18 +433,21 @@ describe('messy unseen workbooks', () => {
 			}
 		]);
 
-		it('reads only row 1 as the header and holds the table back for review', () => {
+		it('reads rows 1-2 as one header and imports the 4 data rows', () => {
 			const sheet = sheetOf(workbook.analysis, 'TwoRow');
-			expect(sheet.status).toBe('needs-review');
-			expect(sheet.aiTrigger).not.toBeNull();
+			expect(sheet.status).toBe('ready');
+			expect(sheet.aiTrigger).toBeNull();
 			const table = tableOf(workbook.analysis, 'TwoRow');
-			expect(table.headerRows).toEqual([1]);
-			expect(table.dataRows).toEqual(rows(2, 6));
-			expect(mappedColumns(table)).toEqual({ part: 'A' });
-			const includeId = decisionId('include-table', table.id);
-			const include = workbook.analysis.decisions.find((decision) => decision.id === includeId);
-			expect(include).toMatchObject({ state: 'pending', suggested: 'exclude' });
-			expect(workbook.analysis.summary.toImport).toBe(0);
+			expect(table.headerRows).toEqual([1, 2]);
+			expect(table.dataRows).toEqual(rows(3, 6));
+			expect(mappedColumns(table)).toEqual({ part: 'A', nsn: 'B', description: 'C' });
+			expect(recordsOf(workbook.analysis, 'TwoRow').map((record) => record.fields.part?.value)).toEqual([
+				'BRK-1001',
+				'BRK-1002',
+				'GRD-3001',
+				'CAR-4001'
+			]);
+			expect(workbook.analysis.summary.toImport).toBe(4);
 		});
 	});
 });

@@ -2,18 +2,23 @@
  * Deterministic table detection: which row is the header, which columns map to which field, where data ends.
  *
  * Every header-like row near the top is tried; each is scored by the mapping its columns would get from
- * header text and a sample of the values below it. Title rows lose because they map nothing.
+ * header text and a sample of the values below it. Title rows lose because they map nothing. A header may
+ * continue on the row directly below it (`Part` over `Number`); then both rows are the header.
  */
-import type { CellRange, Field, SheetModel, TableSpec } from '../model';
+import { isPlausiblePart } from '../identifiers';
+import type { Cell, CellRange, Field, SheetModel, TableSpec } from '../model';
 import { colLetter } from '../refs';
 import {
 	assignFields,
+	DASH_ONLY,
 	describeEvidence,
 	evaluateColumns,
 	FIELD_LABEL,
 	isPrimary,
+	readHeader,
 	tierOf,
 	type ColumnEvidence,
+	type ColumnHeader,
 	type FieldEvidence
 } from './columns';
 import { matchHeader, normalizeHeader } from './header';
@@ -28,6 +33,13 @@ export const MAX_COLUMNS = 256;
 /** "Mostly short text": share of a row's cells that must read like header labels. */
 const HEADER_TEXT_SHARE = 0.75;
 const HEADER_TEXT_MAX_LENGTH = 60;
+/** Words that finish a label started on the row above (`Part` / `Number`, `Item` / `Name`). */
+const CONTINUATION_WORDS = new Set(['number', 'no', 'num', 'nbr', '#', 'name', 'code', 'id']);
+const CONTINUATION_MAX_WORDS = 3;
+const CONTINUATION_MAX_LENGTH = 30;
+/** A bracketed hint such as `(13 digits)` annotates the label above it. */
+const BRACKETED = /^[([].*[)\]]$/;
+const STRICT_FIELDS: readonly Field[] = ['nsn', 'niin', 'fsc', 'cage'];
 
 export type Detection = {
 	/** Null when no header row maps a primary field. */
@@ -42,7 +54,8 @@ type Span = { left: number; right: number };
 type HeaderKey = { col: number; key: string; strongFields: ReadonlySet<Field> };
 
 type Trial = {
-	row: number;
+	/** One header row, or two when the header continues on the row below. */
+	rows: number[];
 	span: Span;
 	keys: HeaderKey[];
 	columns: ColumnEvidence[];
@@ -62,7 +75,7 @@ function masterCells(sheet: SheetModel, row: number, span: Span) {
 	return cells;
 }
 
-const isIdentifier = (sheet: SheetModel, cell: ReturnType<SheetModel['cell']>) =>
+const isIdentifier = (sheet: SheetModel, cell: Cell) =>
 	checkValue('nsn', cell, sheet.name) === 'pass' || checkValue('niin', cell, sheet.name) === 'pass';
 
 function isHeaderLike(sheet: SheetModel, row: number, span: Span): boolean {
@@ -105,6 +118,33 @@ function repeatsHeader(sheet: SheetModel, row: number, keys: readonly HeaderKey[
 }
 
 /**
+ * Whether the row below a header candidate finishes its labels. Every cell must be short label text that
+ * fails the strict NSN / NIIN / FSC / CAGE checks and is not a plausible part number (bracketed hints may hold
+ * digits). Short text alone could be a first data row (`ABC`, `Screw`), so the row must also read as header:
+ * a continuation word, a bracketed hint, or a join that names a field the upper label alone does not.
+ */
+function continuesHeader(sheet: SheetModel, row: number, extent: CellRange, span: Span): boolean {
+	const next = row + 1;
+	if (next > extent.bottom || sheet.hiddenRows.has(next)) return false;
+	const cells = masterCells(sheet, next, span).filter((cell) => !DASH_ONLY.test(cell.text.trim()));
+	if (cells.length === 0) return false;
+	for (const cell of cells) {
+		const text = cell.text.trim();
+		if (cell.kind !== 'text' || text.length > CONTINUATION_MAX_LENGTH || text.split(/\s+/).length > CONTINUATION_MAX_WORDS) return false;
+		if (STRICT_FIELDS.some((field) => ['pass', 'repaired'].includes(checkValue(field, cell, sheet.name)))) return false;
+		if (!BRACKETED.test(text) && isPlausiblePart(text)) return false;
+	}
+	return cells.some((cell) => {
+		const text = cell.text.trim();
+		if (BRACKETED.test(text) || CONTINUATION_WORDS.has(normalizeHeader(text))) return true;
+		const above = sheet.cell(row, cell.col).text;
+		const strong = (t: string) => matchHeader(t).filter((m) => m.strength === 'strong').map((m) => m.field);
+		const before = strong(above);
+		return strong(`${above} ${text}`).some((field) => !before.includes(field));
+	});
+}
+
+/**
  * A row that could head a different table: header-like, no NSN/NIIN values, at least two label cells that
  * strongly name a field, and not a repeat of the current header. The bar is high because stopping a table
  * early drops real rows.
@@ -128,42 +168,63 @@ function headerCandidates(sheet: SheetModel, extent: CellRange, span: Span): num
 	return rows;
 }
 
-function tryHeader(sheet: SheetModel, row: number, extent: CellRange, sheetSpan: Span): Trial {
+function tryHeader(sheet: SheetModel, rows: number[], extent: CellRange, sheetSpan: Span): Trial {
 	let left = sheetSpan.right;
 	let right = sheetSpan.left;
 	for (let col = sheetSpan.left; col <= sheetSpan.right; col++) {
-		if (sheet.cell(row, col).kind === 'empty') continue;
+		if (rows.every((row) => sheet.cell(row, col).kind === 'empty')) continue;
 		left = Math.min(left, col);
 		right = col;
 	}
 	const span = { left, right };
-	const keys = headerKeys(sheet, row, span);
+	const keys = headerKeys(sheet, rows[0], span);
 	// The sample ends where another table starts, so a stacked table does not score against this header.
 	const sample: number[] = [];
-	for (let r = row + 1; r <= extent.bottom && sample.length < SAMPLE_ROWS; r++) {
+	for (let r = rows.at(-1)! + 1; r <= extent.bottom && sample.length < SAMPLE_ROWS; r++) {
 		if (sheet.hiddenRows.has(r) || masterCells(sheet, r, span).length === 0) continue;
 		if (startsOtherTable(sheet, r, span, keys)) break;
 		sample.push(r);
 	}
-	const headers = new Map<number, string>();
-	for (let col = left; col <= right; col++) headers.set(col, sheet.cell(row, col).text.trim());
+	const headers = new Map<number, ColumnHeader>();
+	for (let col = left; col <= right; col++) headers.set(col, readHeader(sheet, rows, col));
 	const columns = evaluateColumns(sheet, headers, sample, { skipHeaderEcho: true });
 	const assigned = assignFields(columns);
 	// Each mapped column adds its confidence tier, primary fields one more. Ties go to the earliest row.
 	let score = 0;
 	for (const e of assigned.values()) score += tierOf(e.confidence!) + (isPrimary(e.field) ? 1 : 0);
-	return { row, span, keys, columns, assigned, score, hasPrimary: [...assigned.values()].some((e) => isPrimary(e.field)) };
+	return { rows, span, keys, columns, assigned, score, hasPrimary: [...assigned.values()].some((e) => isPrimary(e.field)) };
+}
+
+/** Scores every header candidate once; a row that continues the header above is not a candidate of its own. */
+function headerTrials(sheet: SheetModel, extent: CellRange, sheetSpan: Span): Trial[] {
+	const candidates = headerCandidates(sheet, extent, sheetSpan);
+	const trials: Trial[] = [];
+	for (const row of candidates) {
+		if (trials.some((t) => t.rows.includes(row))) continue;
+		if (!continuesHeader(sheet, row, extent, sheetSpan)) {
+			trials.push(tryHeader(sheet, [row], extent, sheetSpan));
+			continue;
+		}
+		const joined = tryHeader(sheet, [row, row + 1], extent, sheetSpan);
+		// When the lower row is a full header on its own, the upper row adds nothing: it is a title or a merged
+		// group label ("Identifiers"), and the lower row's own candidate takes over.
+		const lower = candidates.includes(row + 1) ? tryHeader(sheet, [row + 1], extent, sheetSpan) : null;
+		if (!lower || joined.score > lower.score) trials.push(joined);
+	}
+	return trials;
 }
 
 /** First row below the table's header that starts another table with a high-confidence primary column. */
 function nextTable(sheet: SheetModel, trial: Trial, extent: CellRange, sheetSpan: Span): Trial | null {
-	for (let row = trial.row + 1; row <= extent.bottom; row++) {
+	for (let row = trial.rows.at(-1)! + 1; row <= extent.bottom; row++) {
 		if (!startsOtherTable(sheet, row, trial.span, trial.keys)) continue;
-		const next = tryHeader(sheet, row, extent, sheetSpan);
+		const next = tryHeader(sheet, [row], extent, sheetSpan);
 		if ([...next.assigned.values()].some((e) => isPrimary(e.field) && e.confidence === 'high')) return next;
 	}
 	return null;
 }
+
+const rowsLabel = (rows: readonly number[]) => (rows.length > 1 ? `Rows ${rows[0]}-${rows.at(-1)}` : `Row ${rows[0]}`);
 
 function nearMisses(trial: Trial): string[] {
 	return trial.columns
@@ -171,7 +232,7 @@ function nearMisses(trial: Trial): string[] {
 		.flatMap((column) =>
 			[...column.fields.values()]
 				.filter((e) => e.header)
-				.map((e) => `Row ${trial.row}, column ${colLetter(column.col)}: ${describeEvidence(column, e).join('; ')}`)
+				.map((e) => `${rowsLabel(trial.rows)}, column ${colLetter(column.col)}: ${describeEvidence(column, e).join('; ')}`)
 		);
 }
 
@@ -182,7 +243,7 @@ export function detectTable(sheet: SheetModel): Detection {
 	const notes =
 		sheetSpan.right < extent.right ? [`Only columns ${colLetter(sheetSpan.left)}-${colLetter(sheetSpan.right)} were analyzed`] : [];
 
-	const trials = headerCandidates(sheet, extent, sheetSpan).map((row) => tryHeader(sheet, row, extent, sheetSpan));
+	const trials = headerTrials(sheet, extent, sheetSpan);
 	const best = trials.reduce<Trial | null>((b, t) => (!b || t.score > b.score ? t : b), null);
 	if (!best) return { spec: null, reasons: [...notes, 'No header row found: no row near the top has at least two short text labels'] };
 	if (!best.hasPrimary) {
@@ -192,30 +253,31 @@ export function detectTable(sheet: SheetModel): Detection {
 			reasons: [
 				...notes,
 				'No column holds part numbers, NSNs, or NIINs under a matching header',
-				...(misses.length > 0 ? misses : [`Row ${best.row} looks like a header, but none of its columns names Part, NSN, or NIIN`])
+				...(misses.length > 0 ? misses : [`${rowsLabel(best.rows)} looks like a header, but none of its columns names Part, NSN, or NIIN`])
 			]
 		};
 	}
 
+	const top = best.rows[0];
 	for (const other of trials) {
-		if (other.row < best.row && other.hasPrimary) {
-			notes.push(`Row ${other.row} also looks like a header, but row ${best.row} fits the values better; rows above ${best.row} are not imported`);
+		if (other.rows[0] < top && other.hasPrimary) {
+			notes.push(`${rowsLabel(other.rows)} also looks like a header, but row ${top} fits the values better; rows above ${top} are not imported`);
 		}
 	}
 	let bottom = extent.bottom;
 	const next = nextTable(sheet, best, extent, sheetSpan);
 	if (next) {
-		bottom = next.row - 1;
+		bottom = next.rows[0] - 1;
 		const fields = [...next.assigned.values()].map((e) => FIELD_LABEL[e.field]);
 		notes.push(
-			`Row ${next.row} starts another table (${fields.join(', ')}); only one table per sheet is imported, so rows ${next.row}-${extent.bottom} are not`
+			`Row ${next.rows[0]} starts another table (${fields.join(', ')}); only one table per sheet is imported, so rows ${next.rows[0]}-${extent.bottom} are not`
 		);
 	}
 
 	const columns: Record<number, Field> = {};
 	for (const [col, e] of best.assigned) columns[col] = e.field;
 	return {
-		spec: { headerRows: [best.row], range: { top: best.row, left: best.span.left, bottom, right: best.span.right }, columns },
+		spec: { headerRows: best.rows, range: { top, left: best.span.left, bottom, right: best.span.right }, columns },
 		reasons: notes
 	};
 }

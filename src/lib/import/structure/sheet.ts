@@ -4,7 +4,7 @@
 import type { Field, Overrides, SheetAnalysis, SheetModel, TableCandidate, TableSpec } from '../model';
 import { rangeToA1 } from '../refs';
 import { detectTable, MAX_COLUMNS } from './detect';
-import { formatRows, materialize, tableId, type MaterializedTable, type UserColumns } from './table';
+import { headerRowsPhrase, materialize, tableId, type MaterializedTable, type UserColumns } from './table';
 import { checkValue } from './values';
 
 /** NSN/NIIN-shaped cells that make a sheet without a ready table worth an AI look. */
@@ -65,7 +65,7 @@ function tableSummary(table: TableCandidate): string[] {
 	const rows = table.dataRows;
 	const span = rows.length > 1 ? ` (rows ${rows[0]}-${rows.at(-1)})` : rows.length ? ` (row ${rows[0]})` : '';
 	return [
-		`Table ${rangeToA1(table.range)} ${table.headerRows.length ? `with header on row ${formatRows(table.headerRows)}` : 'without a header row'}: ${rows.length} data rows${span}`,
+		`Table ${rangeToA1(table.range)} ${table.headerRows.length ? `with ${headerRowsPhrase(table.headerRows)}` : 'without a header row'}: ${rows.length} data rows${span}`,
 		table.reasons.at(-1)!
 	];
 }
