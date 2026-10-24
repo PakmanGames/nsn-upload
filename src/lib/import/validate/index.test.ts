@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type {
 	CandidateRecord,
+	ColumnMapping,
+	Confidence,
 	DecisionKind,
 	Field,
 	FieldValue,
@@ -79,11 +81,24 @@ function record(
 	};
 }
 
+function column(field: Field, header: string, confidence: Confidence = 'high'): ColumnMapping {
+	return {
+		col: COLUMN[field].charCodeAt(0) - 64,
+		header,
+		field,
+		confidence,
+		reasons: [],
+		alternatives: [],
+		valuePassRate: null,
+		overridden: false
+	};
+}
+
 function sheet(
 	name: string,
 	index: number,
 	status: TableCandidate['status'] = 'ready',
-	reasons: string[] = ["header 'Part Number' matches"]
+	columns: ColumnMapping[] = [column('part', 'Part Number'), column('nsn', 'NSN')]
 ): SheetAnalysis {
 	const table: TableCandidate = {
 		id: `${name}@1`,
@@ -92,10 +107,10 @@ function sheet(
 		range: { top: 1, left: 1, bottom: 200, right: 6 },
 		dataRows: [],
 		skippedRows: [],
-		columns: [],
+		columns,
 		status,
 		confidence: status === 'ready' ? 'high' : 'medium',
-		reasons,
+		reasons: [],
 		source: 'deterministic'
 	};
 	return { name, index, status, reasons: [], tables: [table], aiTrigger: null };
@@ -127,7 +142,11 @@ const issueCodes = (record: CandidateRecord) => record.issues.map((issue) => iss
 describe('table inclusion', () => {
 	const sheets = [
 		sheet('Parts', 0),
-		sheet('Search Log', 1, 'needs-review', ['best part column has medium confidence'])
+		sheet('Search Log', 1, 'needs-review', [
+			column('part', 'Item', 'medium'),
+			column('description', 'Notes', 'low'),
+			column('nsn', 'Stock No', 'low')
+		])
 	];
 	const records = [
 		record('Parts', 2, { part: 'A-1', nsn: '5305016582565' }),
@@ -147,10 +166,27 @@ describe('table inclusion', () => {
 			},
 			{ id: 'include-table:Parts@1', state: 'auto', chosen: 'include', suggested: 'include' }
 		]);
-		expect(analysis.decisions[0].reason).toContain('best part column has medium confidence');
-		expect(find(analysis, 'Search Log@1:r3').approved).toBe(false);
-		expect(find(analysis, 'Parts@1:r2').approved).toBe(true);
-		expect(analysis.summary).toMatchObject({ tablesIncluded: 1, pendingDecisions: 1, toImport: 1 });
+		expect(find(analysis, 'Search Log@1:r3')).toMatchObject({ status: 'pending', approved: false });
+		expect(find(analysis, 'Parts@1:r2')).toMatchObject({ status: 'valid', approved: true });
+		expect(analysis.summary).toMatchObject({
+			tablesIncluded: 1,
+			candidates: 2,
+			valid: 1,
+			pendingDecisions: 1,
+			toImport: 1
+		});
+	});
+
+	it('names the table and its weakest primary column in one line', () => {
+		const [parts, searchLog] = decisionsOf(run(sheets, records), 'include-table').reverse();
+
+		// The description column is weaker still, but it cannot identify a record.
+		expect(searchLog.reason).toBe(
+			'Table on Search Log (A1:F200): weakest primary column is NSN in C ("Stock No"), low confidence.'
+		);
+		expect(parts.reason).toBe(
+			'Table on Parts (A1:F200): weakest primary column is part number in A ("Part Number"), high confidence.'
+		);
 	});
 
 	it('approves the records of a needs-review table once the user includes it', () => {
@@ -162,7 +198,7 @@ describe('table inclusion', () => {
 			state: 'user',
 			chosen: 'include'
 		});
-		expect(find(analysis, 'Search Log@1:r3').approved).toBe(true);
+		expect(find(analysis, 'Search Log@1:r3')).toMatchObject({ status: 'valid', approved: true });
 		expect(analysis.summary).toMatchObject({ tablesIncluded: 2, pendingDecisions: 0, toImport: 2 });
 	});
 
@@ -448,22 +484,158 @@ describe('row decisions', () => {
 		expect(analysis.summary).toMatchObject({ invalid: 1, toImport: 0 });
 	});
 
-	it('holds back a row whose NSN disagrees with its own NIIN', () => {
-		const contradictory = record('Parts', 4, { part: 'P-1', nsn: '5305016582565', niin: '016698021' }, {
-			issues: [
-				{
-					code: 'conflict',
-					severity: 'error',
-					field: 'niin',
-					message: 'NIIN 016698021 does not match NSN 5305016582565',
-					cells: ['Parts!C4', 'Parts!D4']
-				}
-			]
-		});
-		const analysis = run([sheet('Parts', 0)], [contradictory]);
+	describe('identifier conflicts (NSN vs its own NIIN or FSC)', () => {
+		const sheets = [sheet('Parts', 0)];
+		const id = 'resolve-identifier-conflict:Parts@1:r4';
+		const cells = ['Parts!C4', 'Parts!D4'];
 
-		expect(find(analysis, contradictory.id)).toMatchObject({ status: 'conflict', approved: false });
-		expect(analysis.summary.conflicts).toBe(1);
+		/** buildRecords() output for row 4, whose NSN contradicts its NIIN cell, under each choice (F1b). */
+		function contradictory(choice?: 'prefer-nsn' | 'prefer-niin-fsc'): CandidateRecord {
+			const values = { part: 'P-1', nsn: '5305016582565', niin: '016698021', fsc: '5305' };
+			if (choice === 'prefer-nsn') {
+				// record() derives the NIIN from the kept NSN.
+				const { niin, ...kept } = values;
+				return record('Parts', 4, kept, {
+					rejected: { niin: { original: niin, cell: 'D4' } },
+					issues: [
+						{
+							code: 'conflict',
+							severity: 'warning',
+							field: 'niin',
+							message: 'NIIN in D4 disagrees with NSN in C4; kept the NSN',
+							cells
+						}
+					],
+					status: 'warning'
+				});
+			}
+			if (choice === 'prefer-niin-fsc') {
+				const { nsn, ...kept } = values;
+				const preferred = record('Parts', 4, kept, {
+					rejected: { nsn: { original: nsn, cell: 'C4' } },
+					issues: [
+						{
+							code: 'conflict',
+							severity: 'warning',
+							field: 'nsn',
+							message: 'NSN in C4 disagrees with NIIN in D4; kept the NIIN and FSC',
+							cells
+						}
+					],
+					status: 'warning'
+				});
+				preferred.fields.nsn = {
+					value: '5305016698021',
+					provenance: {
+						...preferred.fields.niin!.provenance,
+						transforms: ['derive-nsn-from-fsc-niin'],
+						origin: 'derived',
+						derivedFrom: ['D4', 'F4']
+					}
+				};
+				return preferred;
+			}
+			return record('Parts', 4, values, {
+				issues: [
+					{
+						code: 'conflict',
+						severity: 'error',
+						field: 'niin',
+						message: 'NSN 5305016582565 in Parts!C4 does not match NIIN 016698021 in Parts!D4',
+						cells
+					}
+				],
+				status: 'pending',
+				approved: false
+			});
+		}
+
+		it('holds the row back with exclude-row suggested', () => {
+			const analysis = run(sheets, [contradictory()]);
+
+			const [decision] = decisionsOf(analysis, 'resolve-identifier-conflict');
+			expect(decision).toMatchObject({
+				id,
+				state: 'pending',
+				chosen: null,
+				suggested: 'exclude-row',
+				recordIds: ['Parts@1:r4'],
+				cells
+			});
+			expect(decision.options.map((option) => option.id)).toEqual([
+				'prefer-nsn',
+				'prefer-niin-fsc',
+				'exclude-row'
+			]);
+			expect(decision.reason).toBe(
+				'NSN 5305016582565 in Parts!C4 does not match NIIN 016698021 in Parts!D4. The file does not say which identifier is right, so excluding the row is suggested.'
+			);
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'pending', approved: false });
+			expect(analysis.summary).toMatchObject({ pendingDecisions: 1, toImport: 0 });
+		});
+
+		it('keeps the row out when the suggestion is accepted', () => {
+			const pending = run(sheets, [contradictory()]);
+			const analysis = run(sheets, [contradictory()], { decisions: acceptAll(pending) });
+
+			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0]).toMatchObject({
+				state: 'user',
+				chosen: 'exclude-row'
+			});
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'conflict', approved: false });
+			expect(analysis.summary).toMatchObject({ conflicts: 1, pendingDecisions: 0, toImport: 0 });
+		});
+
+		it.each([
+			['prefer-nsn', { part: 'P-1', nsn: '5305016582565', niin: '016582565' }],
+			['prefer-niin-fsc', { part: 'P-1', nsn: '5305016698021', niin: '016698021' }]
+		] as const)('imports the identifiers the user prefers (%s)', (choice, imported) => {
+			const analysis = run(sheets, [contradictory(choice)], { decisions: { [id]: choice } });
+
+			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0]).toMatchObject({
+				state: 'user',
+				chosen: choice
+			});
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'warning', approved: true });
+			// The rejected identifier belongs to this decision, not to an import-valid-portion one.
+			expect(decisionsOf(analysis, 'import-valid-portion')).toEqual([]);
+			expect(toImportPlan(analysis)).toEqual({ add: [imported], replace: [] });
+		});
+
+		it('keeps the row out if buildRecords has not applied the preferred identifier', () => {
+			const analysis = run(sheets, [contradictory()], { decisions: { [id]: 'prefer-nsn' } });
+
+			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0].state).toBe('user');
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'conflict', approved: false });
+		});
+
+		it('falls back to the policy for a stale choice', () => {
+			const analysis = run(sheets, [contradictory()], { decisions: { [id]: 'keep-as-one' } });
+
+			expect(decisionsOf(analysis, 'resolve-identifier-conflict')[0]).toMatchObject({
+				state: 'pending',
+				chosen: null
+			});
+			expect(find(analysis, 'Parts@1:r4')).toMatchObject({ status: 'pending', approved: false });
+		});
+
+		it('still offers the valid portion for another malformed cell in the row', () => {
+			const preferred = contradictory('prefer-nsn');
+			preferred.rejected.cage = { original: 'ABC', cell: 'E4' };
+			preferred.issues.push({
+				code: 'invalid-identifier',
+				severity: 'error',
+				field: 'cage',
+				message: 'CAGE "ABC" in Parts!E4 has 3 characters, expected 5 letters or digits',
+				cells: ['Parts!E4']
+			});
+			const analysis = run(sheets, [preferred], { decisions: { [id]: 'prefer-nsn' } });
+
+			expect(decisionsOf(analysis, 'import-valid-portion')).toEqual([
+				expect.objectContaining({ state: 'auto', cells: ['Parts!E4'] })
+			]);
+			expect(find(analysis, 'Parts@1:r4').approved).toBe(true);
+		});
 	});
 });
 
@@ -649,15 +821,15 @@ describe('duplicates and conflicts', () => {
 		expect(bridged.records[0].issues[0]).toMatchObject({ code: 'conflict', field: 'cage' });
 	});
 
-	it('drops records already in storage, matching part case and whitespace loosely', () => {
+	it('drops records already in storage when their other fields agree or are missing on one side', () => {
 		const sheets = [sheet('Parts', 0)];
 		const records = [
 			record('Parts', 2, { part: 'MS 51957-3', nsn: '5305016582565' }),
-			record('Parts', 3, { part: 'SE5826', nsn: '5305016698021', cage: '0BWZ1' })
+			record('Parts', 3, { part: 'SE5826', nsn: '5305016698021', cage: '0BWZ1', description: 'Screw' })
 		];
 		const existing: StoredMapping[] = [
-			{ id: 'saved-1', part: ' ms  51957-3', nsn: '5305-01-658-2565' },
-			{ id: 'saved-2', part: 'SE5826', nsn: '5305016698021', cage: '9ZZZ9' }
+			{ id: 'saved-1', part: ' ms  51957-3', nsn: '5305-01-658-2565', description: 'Screw, machine' },
+			{ id: 'saved-2', part: 'SE5826', nsn: '5305016698021', cage: '0bwz1' }
 		];
 		const analysis = run(sheets, records, { existing });
 
@@ -667,18 +839,163 @@ describe('duplicates and conflicts', () => {
 				state: 'auto',
 				chosen: 'drop',
 				cells: ['Parts!A2', 'Parts!C2']
-			})
+			}),
+			expect.objectContaining({ id: 'drop-duplicate:Parts@1:r3', state: 'auto', chosen: 'drop' })
 		]);
+		expect(decisionsOf(analysis, 'resolve-storage-conflict')).toEqual([]);
 		expect(find(analysis, 'Parts@1:r2')).toMatchObject({ status: 'duplicate', approved: false });
 		expect(issueCodes(find(analysis, 'Parts@1:r2'))).toEqual(['duplicate-in-storage']);
-		// A different CAGE code is a different manufacturer's item, not a duplicate.
-		expect(find(analysis, 'Parts@1:r3').approved).toBe(true);
+		expect(find(analysis, 'Parts@1:r3')).toMatchObject({ status: 'duplicate', approved: false });
 
 		const kept = run(sheets, records, {
 			existing,
 			decisions: { 'drop-duplicate:Parts@1:r2': 'keep' }
 		});
 		expect(find(kept, 'Parts@1:r2').approved).toBe(true);
+	});
+});
+
+describe('storage conflicts (saved copy with another description or CAGE)', () => {
+	const sheets = [sheet('Parts', 0)];
+	const PART = '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P';
+	const records = [
+		record('Parts', 3, {
+			part: PART,
+			nsn: '5305016582565',
+			description: 'Screw, Machine',
+			cage: '0BWZ1'
+		})
+	];
+	const savedCopy: StoredMapping = {
+		id: 'saved-1',
+		part: PART,
+		nsn: '5305016582565',
+		niin: '016582565',
+		description: 'Screw, machine, pan head',
+		cage: '0BWZ1'
+	};
+	const id = 'resolve-storage-conflict:Parts@1:r3+saved:saved-1';
+	const input = {
+		part: PART,
+		description: 'Screw, Machine',
+		nsn: '5305016582565',
+		niin: '016582565',
+		cage: '0BWZ1'
+	};
+
+	it('holds the record back with keep-saved suggested', () => {
+		const analysis = run(sheets, records, { existing: [savedCopy] });
+
+		const [decision] = decisionsOf(analysis, 'resolve-storage-conflict');
+		expect(decision).toMatchObject({
+			id,
+			state: 'pending',
+			chosen: null,
+			suggested: 'keep-saved',
+			recordIds: ['Parts@1:r3'],
+			existingIds: ['saved-1'],
+			cells: ['Parts!A3', 'Parts!C3', 'Parts!B3']
+		});
+		expect(decision.options.map((option) => option.id)).toEqual([
+			'keep-saved',
+			'replace-saved',
+			'keep-both'
+		]);
+		expect(decision.reason).toBe(
+			`Parts row 3 has the same part ${PART} and NSN 5305016582565 as a saved mapping but a different description. Keeping the saved mapping is suggested.`
+		);
+		expect(decisionsOf(analysis, 'drop-duplicate')).toEqual([]);
+		expect(find(analysis, 'Parts@1:r3')).toMatchObject({ status: 'pending', approved: false });
+		expect(find(analysis, 'Parts@1:r3').issues).toEqual([
+			{
+				code: 'duplicate-in-storage',
+				severity: 'warning',
+				field: 'description',
+				message: 'Description "Screw, Machine" differs from the saved "Screw, machine, pan head".',
+				cells: ['Parts!B3']
+			}
+		]);
+		expect(toImportPlan(analysis)).toEqual({ add: [], replace: [] });
+	});
+
+	it.each([
+		['keep-saved', { status: 'duplicate', approved: false }, { add: [], replace: [] }],
+		[
+			'replace-saved',
+			{ status: 'warning', approved: true },
+			{ add: [], replace: [{ id: 'saved-1', input }] }
+		],
+		['keep-both', { status: 'warning', approved: true }, { add: [input], replace: [] }]
+	] as const)('applies %s', (choice, outcome, plan) => {
+		const analysis = run(sheets, records, { existing: [savedCopy], decisions: { [id]: choice } });
+
+		expect(decisionsOf(analysis, 'resolve-storage-conflict')[0]).toMatchObject({
+			state: 'user',
+			chosen: choice
+		});
+		expect(find(analysis, 'Parts@1:r3')).toMatchObject(outcome);
+		expect(toImportPlan(analysis)).toEqual(plan);
+	});
+
+	it('keeps the saved mapping when every suggestion is accepted', () => {
+		const pending = run(sheets, records, { existing: [savedCopy] });
+		const analysis = run(sheets, records, { existing: [savedCopy], decisions: acceptAll(pending) });
+
+		expect(find(analysis, 'Parts@1:r3')).toMatchObject({ status: 'duplicate', approved: false });
+		expect(analysis.summary).toMatchObject({ pendingDecisions: 0, toImport: 0 });
+	});
+
+	it('treats another CAGE as a conflict and replaces the first of several saved copies', () => {
+		const existing: StoredMapping[] = [
+			{ ...savedCopy, description: 'screw,  machine', cage: '9ZZZ9' },
+			{ ...savedCopy, id: 'saved-2', description: 'Screw' }
+		];
+		const analysis = run(sheets, records, { existing });
+
+		const [decision] = decisionsOf(analysis, 'resolve-storage-conflict');
+		expect(decision).toMatchObject({ id, existingIds: ['saved-1', 'saved-2'] });
+		expect(decision.reason).toContain('as 2 saved mappings but a different description and CAGE.');
+		expect(find(analysis, 'Parts@1:r3').issues.map((issue) => issue.message)).toEqual([
+			'Description "Screw, Machine" differs from the saved "Screw".',
+			'CAGE "0BWZ1" differs from the saved "9ZZZ9".'
+		]);
+
+		const replaced = run(sheets, records, { existing, decisions: { [id]: 'replace-saved' } });
+		expect(toImportPlan(replaced).replace).toEqual([{ id: 'saved-1', input }]);
+	});
+
+	it('drops the record instead when any saved copy is compatible', () => {
+		const existing: StoredMapping[] = [
+			savedCopy,
+			{ id: 'saved-2', part: PART.toLowerCase(), nsn: '5305-01-658-2565' }
+		];
+		const analysis = run(sheets, records, { existing });
+
+		expect(decisionsOf(analysis, 'resolve-storage-conflict')).toEqual([]);
+		expect(decisionsOf(analysis, 'drop-duplicate')).toEqual([
+			expect.objectContaining({ state: 'auto', chosen: 'drop', recordIds: ['Parts@1:r3'] })
+		]);
+	});
+
+	it('falls back to the policy for a stale choice', () => {
+		const invalid = run(sheets, records, { existing: [savedCopy], decisions: { [id]: 'drop' } });
+		expect(decisionsOf(invalid, 'resolve-storage-conflict')[0]).toMatchObject({
+			state: 'pending',
+			chosen: null
+		});
+
+		// The saved copy the choice named is gone, so the choice no longer applies to anything.
+		const replacedCopy = { ...savedCopy, id: 'saved-9' };
+		const gone = run(sheets, records, {
+			existing: [replacedCopy],
+			decisions: { [id]: 'replace-saved' }
+		});
+		expect(decisionsOf(gone, 'resolve-storage-conflict')[0]).toMatchObject({
+			id: 'resolve-storage-conflict:Parts@1:r3+saved:saved-9',
+			state: 'pending'
+		});
+		expect(find(gone, 'Parts@1:r3').approved).toBe(false);
+		expect(toImportPlan(gone)).toEqual({ add: [], replace: [] });
 	});
 });
 
