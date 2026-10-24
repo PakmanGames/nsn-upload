@@ -83,7 +83,7 @@ export class ImportSession {
 	importedCount = $state(0);
 
 	aiEnabled = $state(false);
-	/** Null until the availability check returns. */
+	/** Null until checked, and it is only checked once the user has AI assistance on. */
 	aiAvailability = $state.raw<AiAvailability | null>(null);
 	aiRun = $state.raw<AiRun | null>(null);
 
@@ -94,21 +94,18 @@ export class ImportSession {
 	#engine: ImportEngine;
 	#existing: StoredMapping[] = [];
 	#aiAbort: AbortController | null = null;
+	#aiChecked: Promise<AiAvailability> | null = null;
+	#aiRestored = false;
 
 	constructor(engine: ImportEngine = pipelineEngine) {
 		this.#engine = engine;
 	}
 
-	/** Restores the AI preference and checks availability once. Browser only. */
-	async initAi() {
-		if (!browser || this.aiAvailability) return;
-		this.aiEnabled = localStorage.getItem(aiPreferenceKey) === 'on';
-		try {
-			this.aiAvailability = await this.#engine.aiAvailability();
-		} catch {
-			this.aiAvailability = { available: false, reason: 'The AI service could not be reached.' };
-		}
-		void this.#interpretIfNeeded();
+	/** Restores the saved AI preference once. Browser only, and no request unless the preference is on. */
+	initAi() {
+		if (!browser || this.#aiRestored) return;
+		this.#aiRestored = true;
+		if (localStorage.getItem(aiPreferenceKey) === 'on') void this.setAiEnabled(true);
 	}
 
 	async load(file: File, existing: StoredMapping[]) {
@@ -179,11 +176,16 @@ export class ImportSession {
 		this.#apply({ ...this.overrides, decisions });
 	}
 
-	setAiEnabled(enabled: boolean) {
+	async setAiEnabled(enabled: boolean) {
 		this.aiEnabled = enabled;
 		if (browser) localStorage.setItem(aiPreferenceKey, enabled ? 'on' : 'off');
 		if (enabled) {
-			void this.#interpretIfNeeded();
+			// The availability check is a request too, so it waits until the user turns AI on (no transmission before).
+			this.#aiChecked ??= this.#engine.aiAvailability();
+			this.aiAvailability = await this.#aiChecked;
+			// Unavailable: the switch goes back off and shows the reason; the saved preference stays as the user set it.
+			if (!this.aiAvailability.available) this.aiEnabled = false;
+			else await this.#interpretIfNeeded();
 			return;
 		}
 		// Off means deterministic only: stop any request and drop tables the AI proposed.

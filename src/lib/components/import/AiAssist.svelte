@@ -28,19 +28,19 @@
 			</p>
 		</div>
 		<Switch
-			checked={session.aiEnabled && !!availability?.available}
+			checked={session.aiEnabled}
 			label="AI assistance"
-			disabled={!availability?.available || session.busy}
-			onchange={(enabled) => session.setAiEnabled(enabled)}
+			disabled={availability?.available === false || session.busy}
+			onchange={(enabled) => void session.setAiEnabled(enabled)}
 		/>
 	</div>
 
 	<div class="mt-2 text-xs leading-5" aria-live="polite">
-		{#if availability === null}
+		{#if session.aiEnabled && availability === null}
 			<p class="flex items-center gap-1.5 text-slate-500">
 				<LoaderCircle size={13} class="animate-spin" /> Checking availability…
 			</p>
-		{:else if !availability.available}
+		{:else if availability?.available === false}
 			<p class="flex gap-1.5 text-slate-500">
 				<CircleAlert size={13} class="mt-1 shrink-0" />
 				<span>Unavailable: {availability.reason ?? 'the AI service is not configured.'}</span>

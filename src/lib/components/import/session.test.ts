@@ -6,7 +6,12 @@ import { mockEngine } from './mock-analysis';
 const xlsx = () => new File(['x'], 'parts.xlsx');
 
 function spyEngine() {
-	return { ...mockEngine, read: vi.fn(mockEngine.read), interpret: vi.fn(mockEngine.interpret) };
+	return {
+		...mockEngine,
+		read: vi.fn(mockEngine.read),
+		interpret: vi.fn(mockEngine.interpret),
+		aiAvailability: vi.fn(mockEngine.aiAvailability)
+	};
 }
 
 describe('ImportSession', () => {
@@ -73,14 +78,34 @@ describe('ImportSession', () => {
 		expect(session.analysis!.decisions.find((decision) => decision.id === id)?.state).toBe('pending');
 	});
 
+	it('makes no AI request, not even the availability check, until AI assistance is turned on', async () => {
+		const engine = spyEngine();
+		const session = await loaded(engine);
+		session.initAi();
+		await vi.runAllTimersAsync();
+		expect(engine.aiAvailability).not.toHaveBeenCalled();
+		expect(engine.interpret).not.toHaveBeenCalled();
+		expect(session.aiAvailability).toBeNull();
+	});
+
+	it('turns the switch back off with the reason when AI is unavailable', async () => {
+		const engine = { ...spyEngine(), aiAvailability: vi.fn(async () => ({ available: false, reason: 'No key' })) };
+		const session = await loaded(engine);
+		await session.setAiEnabled(true);
+		expect(session.aiEnabled).toBe(false);
+		expect(session.aiAvailability).toEqual({ available: false, reason: 'No key' });
+		expect(engine.interpret).not.toHaveBeenCalled();
+	});
+
 	it('sends triggered sheets only while AI assistance is on, and drops AI tables when it is turned off', async () => {
 		const engine = spyEngine();
 		const session = await loaded(engine);
 		expect(engine.interpret).not.toHaveBeenCalled();
 
-		session.aiAvailability = { available: true };
-		session.setAiEnabled(true);
+		const enabling = session.setAiEnabled(true);
 		await vi.runAllTimersAsync();
+		await enabling;
+		expect(engine.aiAvailability).toHaveBeenCalledTimes(1);
 		expect(engine.interpret).toHaveBeenCalledTimes(1);
 		expect(session.aiRun).toMatchObject({ status: 'done', sheets: ['Search Log'] });
 		expect(session.overrides.aiTables).toHaveLength(1);

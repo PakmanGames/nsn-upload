@@ -74,7 +74,7 @@
 	const drawerRecord = $derived(drawerRecordId ? recordsById.get(drawerRecordId) : undefined);
 
 	$effect(() => {
-		if (open) void session.initAi();
+		if (open) session.initAi();
 	});
 
 	function close() {
