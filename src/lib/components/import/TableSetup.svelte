@@ -4,6 +4,7 @@
 	Nothing is stored until "Use this table"; the result is scored by the same rules as a detected table.
 -->
 <script lang="ts">
+	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import { onMount, untrack } from 'svelte';
 	import { PRIMARY_FIELDS, type Field, type SheetModel, type TableCandidate, type TableSpec } from '$lib/import/model';
 	import { colLetter } from '$lib/import/refs';
@@ -133,7 +134,9 @@
 		</select>
 	</div>
 
-	<p class="mt-3 text-xs text-slate-600">Map each column to a field. Columns left on Ignore are not imported.</p>
+	{#if columns.length}
+		<p class="mt-3 text-xs text-slate-600">Map each column to a field. Columns left on Ignore are not imported.</p>
+	{/if}
 	<ul class="mt-1 divide-y divide-blue-100">
 		{#each columns as column (column.col)}
 			{@const letter = colLetter(column.col)}
@@ -168,6 +171,15 @@
 	</ul>
 	<p class="text-xs text-amber-800" role="status">{note}</p>
 
+	<!-- Said before the button, so a setup that cannot import anything never looks ready. -->
+	{#if !canUse}
+		<p id={`${uid}-hint`} class="mt-2 flex items-start gap-1.5 text-xs text-amber-900">
+			<CircleAlert size={14} class="mt-px shrink-0" />
+			{columns.length === 0
+				? `No values below ${headerRows.length > 1 ? `rows ${headerRows.join('-')}` : `row ${headerRows[0]}`}. Choose a header row higher up.`
+				: 'Map at least one column to Part number, NSN, or NIIN: every record needs one of them.'}
+		</p>
+	{/if}
 	<div class="mt-2 flex flex-wrap items-center gap-2">
 		<button
 			type="submit"
@@ -180,8 +192,5 @@
 		<button type="button" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" onclick={onCancel}>
 			Cancel
 		</button>
-		{#if !canUse}
-			<p id={`${uid}-hint`} class="text-xs text-slate-600">Map at least one Part number, NSN, or NIIN column.</p>
-		{/if}
 	</div>
 </form>
