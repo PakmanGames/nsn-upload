@@ -30,6 +30,9 @@
 		onRemoveManualTable: (sheet: string) => void;
 		/** The sheet whose table is being set up by hand, one at a time; the summary bar can open it too. */
 		settingUp?: string | null;
+		/** Hidden sheets the user included anyway (Overrides.includedHiddenSheets). */
+		includedHidden: string[];
+		onHiddenSheet: (name: string, included: boolean) => void;
 	};
 
 	let {
@@ -42,7 +45,9 @@
 		onInclude,
 		onSetManualTable,
 		onRemoveManualTable,
-		settingUp = $bindable(null)
+		settingUp = $bindable(null),
+		includedHidden,
+		onHiddenSheet
 	}: Props = $props();
 	let expanded = $state<Record<string, boolean>>({});
 	const uid = $props.id();
@@ -134,7 +139,11 @@
 	{@const reasonsId = `${uid}-${sheet.index}-${index}`}
 	{@const count = recordCounts.get(table.id) ?? 0}
 	{@const records = plural(count, 'record')}
-	{@const note = heldBackNote(table, decision, count)}
+	<!-- A table on a hidden sheet waits because the sheet is hidden, not because its columns are in doubt. -->
+	{@const note =
+		includedHidden.includes(sheet.name) && decision?.chosen === null
+			? `Not imported yet: this sheet is hidden in Excel. Switch it on to import its ${records}.`
+			: heldBackNote(table, decision, count)}
 	{@const text = decision && explanations.get(decision.id)}
 	<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
 		<p class="min-w-0 text-sm">
@@ -143,13 +152,19 @@
 				<span class="text-slate-500">{`· ${columnsOf(table)} · ${records}`}</span>
 			{:else}
 				<span class="font-medium text-slate-900">{sheet.name}</span>
-				<span class="text-slate-500">{`· ${rangeToA1(table.range)} · ${records}`}</span>
+				<span class="text-slate-500">
+					{`· ${rangeToA1(table.range)} · ${records}`}
+					{includedHidden.includes(sheet.name) ? '· hidden in Excel' : ''}
+				</span>
 			{/if}
 		</p>
 		<div class="flex items-center gap-2">
 			<!-- The AI reads the whole sheet, so a sheet of several tables says so once, on its heading. -->
 			{#if !several && aiReading.has(sheet.name)}
 				{@render reading()}
+			{/if}
+			{#if !several && includedHidden.includes(sheet.name)}
+				{@render hiddenToggle(sheet, true)}
 			{/if}
 			{#if table.source === 'ai'}
 				<span
@@ -221,6 +236,17 @@
 	</span>
 {/snippet}
 
+{#snippet hiddenToggle(sheet: SheetAnalysis, included: boolean)}
+	<button
+		type="button"
+		class="rounded px-1.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 transition hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600"
+		aria-label={included ? `Hide ${sheet.name} again` : `Include ${sheet.name} anyway`}
+		onclick={() => onHiddenSheet(sheet.name, !included)}
+	>
+		{included ? 'Hide again' : 'Include anyway'}
+	</button>
+{/snippet}
+
 {#snippet fold(label: string, list: SheetAnalysis[], open = false)}
 	<details class="group/fold" {open}>
 		<summary
@@ -239,6 +265,11 @@
 						<span class="text-sm font-medium text-slate-700">{sheet.name}</span>
 						{#if aiReading.has(sheet.name)}{@render reading()}{/if}
 						{@render badge(sheet.status)}
+						{#if sheet.status === 'hidden'}
+							{@render hiddenToggle(sheet, false)}
+						{:else if includedHidden.includes(sheet.name)}
+							{@render hiddenToggle(sheet, true)}
+						{/if}
 					</div>
 					<p class="mt-1 text-xs font-medium leading-5 text-slate-700">{plain.headline}</p>
 					{#each plain.lines as line, i (i)}
@@ -260,11 +291,19 @@
 				{#if sheet.tables.length === 1}
 					{@render tableLine(sheet, sheet.tables[0], 0)}
 				{:else}
-					<p class="text-sm">
-						<span class="font-medium text-slate-900">{sheet.name}</span>
-						<span class="text-slate-500">{`· ${plural(sheet.tables.length, 'table')}`}</span>
-						{#if aiReading.has(sheet.name)}{@render reading()}{/if}
-					</p>
+					<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+						<p class="min-w-0 text-sm">
+							<span class="font-medium text-slate-900">{sheet.name}</span>
+							<span class="text-slate-500">
+								{`· ${plural(sheet.tables.length, 'table')}`}
+								{includedHidden.includes(sheet.name) ? '· hidden in Excel' : ''}
+							</span>
+							{#if aiReading.has(sheet.name)}{@render reading()}{/if}
+						</p>
+						{#if includedHidden.includes(sheet.name)}
+							{@render hiddenToggle(sheet, true)}
+						{/if}
+					</div>
 					<ul class="mt-2 space-y-3 border-l-2 border-slate-100 pl-3">
 						{#each sheet.tables as table, index (table.id)}
 							<li>{@render tableLine(sheet, table, index)}</li>

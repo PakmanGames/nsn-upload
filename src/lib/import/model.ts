@@ -337,6 +337,8 @@ export type Overrides = {
 	 * duplicates, conflicts, and decisions are worked out as if they were still in it.
 	 */
 	excludedRecords?: string[];
+	/** Hidden or veryHidden sheets the user chose to include anyway (D26). Their tables still wait on an include decision. */
+	includedHiddenSheets?: string[];
 };
 
 export type ImportSummary = {

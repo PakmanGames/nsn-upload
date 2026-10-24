@@ -31,24 +31,30 @@ import {
 	type TableState
 } from './entry';
 
+/** Leads the include reason for a table on a hidden sheet the user included anyway (D26); explain/ reads it. */
+export const HIDDEN_SHEET_REASON = 'This sheet is hidden in Excel; you asked to include it.';
+
 /**
  * Ready tables are included automatically. Needs-review tables wait for the user, suggested exclude (D5),
  * except a table without a header row whose values identify it: that one is suggested include.
  * A table the user set up by hand is included without a decision, because the user just chose it.
+ * Tables on a hidden sheet the user included anyway always wait, suggested include (D26).
  */
 export function decideTables(
 	log: DecisionLog,
 	sheets: SheetAnalysis[],
-	recordIds: Map<string, string[]>
+	recordIds: Map<string, string[]>,
+	hiddenSheets: ReadonlySet<string> = new Set()
 ): Map<string, TableState> {
 	const states = new Map<string, TableState>();
 	for (const sheet of sheets) {
+		const hidden = hiddenSheets.has(sheet.name);
 		for (const table of sheet.tables) {
 			if (table.source === 'user') {
 				states.set(table.id, 'included');
 				continue;
 			}
-			const ready = table.status === 'ready';
+			const ready = table.status === 'ready' && !hidden;
 			const byValues = !ready && valuesIdentify(table);
 			const { chosen } = log.decide({
 				kind: 'include-table',
@@ -56,9 +62,11 @@ export function decideTables(
 				tableId: table.id,
 				recordIds: recordIds.get(table.id) ?? [],
 				cells: [],
-				suggested: ready || byValues ? 'include' : 'exclude',
+				suggested: ready || byValues || hidden ? 'include' : 'exclude',
 				auto: ready,
-				reason: byValues ? valuesReason(table) : tableReason(table),
+				reason: `${hidden ? `${HIDDEN_SHEET_REASON} ` : ''}${
+					byValues ? valuesReason(table) : tableReason(table)
+				}`,
 				at: [sheet.index, table.range.top]
 			});
 			states.set(

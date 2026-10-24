@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze } from '../../src/lib/import/analyze';
 import { decisionId, type StoredMapping } from '../../src/lib/import/model';
+import { buildInterpretationRequest } from '../../src/lib/import/ai/request';
 import { toImportPlan } from '../../src/lib/import/validate';
 import { rows } from '../fixtures/expectations';
 import {
@@ -356,6 +357,39 @@ describe('unseen workbooks', () => {
 				expect(recordsOf(workbook.analysis, name), name).toEqual([]);
 			}
 			expect(workbook.analysis.summary.toImport).toBe(2);
+		});
+
+		it('holds an included hidden sheet back until its suggested include is accepted (D26)', () => {
+			const overrides = { includedHiddenSheets: ['Archive'] };
+			const included = analyze(workbook.model, [], overrides);
+			const archive = sheetOf(included, 'Archive');
+			expect(archive).toMatchObject({ status: 'ready', aiTrigger: null });
+			expect(archive.reasons[0]).toBe('Hidden in Excel; included because you asked');
+			expect(sheetOf(included, 'Lookup').status).toBe('hidden');
+			const decision = included.decisions.find((d) => d.id === decisionId('include-table', 'Archive@1'));
+			expect(decision).toMatchObject({ state: 'pending', suggested: 'include', chosen: null });
+			expect(decision?.reason).toMatch(/^This sheet is hidden in Excel; you asked to include it\./);
+			expect(included.summary).toMatchObject({ pendingDecisions: 1, toImport: 2 });
+			expectSummaryConsistent(included);
+			expectTraceable(workbook.model, included);
+
+			const accepted = analyze(workbook.model, [], acceptAllSuggestions(included, overrides));
+			expect(accepted.summary).toMatchObject({ pendingDecisions: 0, toImport: 5 });
+			const plan = toImportPlan(accepted).add.filter((input) => input.part?.startsWith('ARC-'));
+			expect(plan.map((input) => input.part)).toEqual(['ARC-1', 'ARC-2', 'ARC-3']);
+			for (const record of recordsOf(accepted, 'Archive')) {
+				expect(record.fields.part?.provenance).toMatchObject({ sheet: 'Archive', file: 'with-archive.xlsx' });
+			}
+			expectSummaryConsistent(accepted);
+		});
+
+		it('never sends a hidden sheet to the AI, included or not', () => {
+			const included = analyze(workbook.model, [], { includedHiddenSheets: ['Archive', 'Lookup'] });
+			expect(included.sheets.map((sheet) => sheet.aiTrigger)).toEqual([null, null, null]);
+			// Even with a trigger on every sheet, the request leaves the hidden ones out.
+			const triggered = included.sheets.map((sheet) => ({ ...sheet, aiTrigger: 'test' }));
+			const request = buildInterpretationRequest(workbook.model, triggered);
+			expect(request.sheets.map((sheet) => sheet.name)).toEqual(['Parts']);
 		});
 	});
 

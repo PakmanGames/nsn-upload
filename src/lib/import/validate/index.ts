@@ -47,7 +47,8 @@ export function finalizeAnalysis(
 			group.map((record) => record.id)
 		])
 	);
-	const tables = decideTables(log, sheets, idsByTable);
+	const hidden = new Set(model.sheets.filter((sheet) => sheet.visibility !== 'visible').map((sheet) => sheet.name));
+	const tables = decideTables(log, sheets, idsByTable, hidden);
 	// Two tables on one sheet are told apart in messages by their ranges.
 	const ranges = new Map(
 		sheets

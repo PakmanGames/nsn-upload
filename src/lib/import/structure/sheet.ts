@@ -1,5 +1,5 @@
 /**
- * Sheet classification: hidden, no table, or the sheet's tables with user remaps and AI proposals applied.
+ * Sheet classification: hidden (unless included anyway), no table, or the sheet's tables with user remaps and AI proposals applied.
  */
 import type { Field, Overrides, SheetAnalysis, SheetModel, TableCandidate, TableSpec } from '../model';
 import { rangeToA1 } from '../refs';
@@ -98,8 +98,17 @@ function manualSheet(sheet: SheetModel, specs: TableSpec[], overrides: Overrides
 }
 
 export function analyzeSheet(sheet: SheetModel, overrides: Overrides): SheetAnalysis {
+	if (sheet.visibility === 'visible') return analyzeVisibleSheet(sheet, overrides);
+	if (!overrides.includedHiddenSheets?.includes(sheet.name)) {
+		return { name: sheet.name, index: sheet.index, status: 'hidden', reasons: ['Hidden in workbook'], tables: [], aiTrigger: null };
+	}
+	// Included anyway (D26): analyzed like a visible sheet, but never offered to the AI, so no trigger.
+	const analysis = analyzeVisibleSheet(sheet, overrides);
+	return { ...analysis, reasons: ['Hidden in Excel; included because you asked', ...analysis.reasons], aiTrigger: null };
+}
+
+function analyzeVisibleSheet(sheet: SheetModel, overrides: Overrides): SheetAnalysis {
 	const base = { name: sheet.name, index: sheet.index };
-	if (sheet.visibility !== 'visible') return { ...base, status: 'hidden', reasons: ['Hidden in workbook'], tables: [], aiTrigger: null };
 	if (!sheet.valueExtent) return { ...base, status: 'no-table', reasons: ['Sheet has no values'], tables: [], aiTrigger: null };
 
 	const manual = (overrides.manualTables ?? []).filter((t) => t.sheet === sheet.name);
