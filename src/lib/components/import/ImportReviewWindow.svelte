@@ -6,7 +6,7 @@
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Upload from '@lucide/svelte/icons/upload';
 	import X from '@lucide/svelte/icons/x';
-	import type { CandidateRecord, ColumnMapping, Field, MappingInput } from '$lib/import/model';
+	import type { CandidateRecord, ColumnMapping, Field, MappingInput, StoredMapping } from '$lib/import/model';
 	import { colLetter } from '$lib/import/refs';
 	import { ImportSession } from '$lib/import/session.svelte';
 	import AiAssist from './AiAssist.svelte';
@@ -20,7 +20,7 @@
 	type Props = {
 		open: boolean;
 		/** Records already saved, so the analysis can flag duplicates against them. */
-		existing: MappingInput[];
+		existing: StoredMapping[];
 		onClose: () => void;
 		/** Saves the approved records and returns how many were added. */
 		onImport: (inputs: MappingInput[]) => number;

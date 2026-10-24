@@ -151,7 +151,7 @@ const STATZ: TableDef = {
 const XREF: TableDef = {
 	sheet: 'NSN Cross-Reference',
 	headerRow: 2,
-	lastRow: 4,
+	lastRow: 5,
 	columns: [
 		{
 			header: 'PENCOM Part Number',
@@ -188,12 +188,19 @@ const XREF: TableDef = {
 			reasons: ['Header has the modifier "equivalent": a competing part column, not mapped'],
 			alternatives: ['part']
 		},
-		{ header: 'Notes', field: null, confidence: 'low', reasons: ['No field matches the header "Notes"'] }
+		{ header: 'Notes', field: null, confidence: 'low', reasons: ['No field matches the header "Notes"'] },
+		{
+			header: 'NIIN',
+			field: 'niin',
+			confidence: 'high',
+			reasons: ['Header "NIIN" matches NIIN', '1 of 1 values are valid NIINs'],
+			passRate: 1
+		}
 	],
 	skippedRows: [],
 	status: 'ready',
 	confidence: 'high',
-	reasons: ['Part number, NSN, Description and CAGE columns recognized with high confidence']
+	reasons: ['Part number, NSN, NIIN, Description and CAGE columns recognized with high confidence']
 };
 
 const INTAKE: TableDef = {
@@ -556,6 +563,7 @@ function activePartsSpecs(choices: Choices): RecordSpec[] {
 	});
 	add({ row: 40, values: { part: 'MS35338-44', nsn: '5310-00-045-3299', description: 'Washer, lock' } });
 	add({ row: 60, values: { part: 'NAS1149F0332P', description: 'Washer, flat' } });
+	add({ row: 70, values: { part: 'M30294', nsn: '1560-00-000-0047', description: 'Bolt, hexagon head' }, status: 'conflict' });
 	add({ row: 89, values: { part: '10931023*92', nsn: '2530-01-123-4567', description: 'Shoe, brake' } });
 	add({ row: 90, values: { part: '10931023*92', nsn: '2530-01-123-4567', description: 'Shoe, brake' } });
 	add({
@@ -802,6 +810,20 @@ const xrefSpecs: RecordSpec[] = [
 		values: { part: 'NAS1352-06-8P', nsn: '5305-00-987-6543', description: 'Screw, Assembly', cage: '0BWZ1' },
 		issues: [conflictIssue(XREF, 4, INTAKE, 4, 'Assembly screw')],
 		status: 'conflict'
+	},
+	{
+		row: 5,
+		values: { part: 'NAS1352-06-10P', nsn: '5305-01-658-2566', niin: '016582565', description: 'Screw, Cap', cage: '0BWZ1' },
+		issues: [
+			{
+				code: 'conflict',
+				severity: 'error',
+				field: 'niin',
+				message: `NSN 5305016582566 in ${at(XREF.sheet, 'B5')} does not match NIIN 016582565 in ${at(XREF.sheet, 'G5')}`,
+				cells: [at(XREF.sheet, 'B5'), at(XREF.sheet, 'G5')]
+			}
+		],
+		status: 'pending'
 	}
 ];
 
@@ -1125,6 +1147,54 @@ export function buildMockAnalysis(overrides: Overrides = {}, fileName = FILE): W
 						cells: [at(ACTIVE_PARTS.sheet, 'D60')]
 					}
 				];
+			}
+		);
+	}
+
+	if (isIncluded(XREF)) {
+		const record = get(`${tableId(XREF)}:r5`);
+		decide(
+			'resolve-identifier-conflict',
+			`${tableId(XREF)}:r5`,
+			'pending',
+			{
+				tableId: tableId(XREF),
+				recordIds: [record.id],
+				cells: [at(XREF.sheet, 'B5'), at(XREF.sheet, 'G5')],
+				options: options(['prefer-nsn', 'Keep the NSN'], ['prefer-niin-fsc', 'Keep the NIIN and FSC'], ['exclude-row', 'Exclude the row']),
+				suggested: 'exclude-row',
+				reason: `NSN 5305016582566 in ${at(XREF.sheet, 'B5')} does not match NIIN 016582565 in ${at(XREF.sheet, 'G5')}`
+			},
+			(chosen) => {
+				if (chosen !== 'prefer-nsn' && chosen !== 'prefer-niin-fsc') return;
+				record.status = 'warning';
+				record.approved = true;
+				// The losing identifier is dropped; the records stage would also derive it again from the winner.
+				const { [chosen === 'prefer-nsn' ? 'niin' : 'nsn']: _, ...fields } = record.fields;
+				record.fields = fields;
+			}
+		);
+	}
+
+	if (isIncluded(ACTIVE_PARTS)) {
+		const record = get(`${tableId(ACTIVE_PARTS)}:r70`);
+		decide(
+			'resolve-storage-conflict',
+			`${record.id}+saved:demo-1`,
+			'pending',
+			{
+				tableId: tableId(ACTIVE_PARTS),
+				recordIds: [record.id],
+				existingIds: ['demo-1'],
+				cells: [at(ACTIVE_PARTS.sheet, 'D70'), at(ACTIVE_PARTS.sheet, 'F70')],
+				options: options(['keep-saved', 'Keep the saved record'], ['replace-saved', 'Replace the saved record'], ['keep-both', 'Keep both records']),
+				suggested: 'keep-saved',
+				reason: 'Part M30294 with NSN 1560000000047 is already saved with a different description ("Bolt, hex head, 1/4-20")'
+			},
+			(chosen) => {
+				if (chosen === null) return;
+				record.status = chosen === 'keep-saved' ? 'duplicate' : 'valid';
+				record.approved = chosen !== 'keep-saved';
 			}
 		);
 	}

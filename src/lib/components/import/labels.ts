@@ -66,7 +66,9 @@ export const DECISION_KIND_LABEL: Record<DecisionKind, string> = {
 	'import-valid-portion': 'Malformed values',
 	'merge-duplicates': 'Duplicates across sheets',
 	'drop-duplicate': 'Duplicates',
-	'resolve-conflict': 'Conflicts'
+	'resolve-conflict': 'Conflicts',
+	'resolve-identifier-conflict': 'Identifier conflicts',
+	'resolve-storage-conflict': 'Conflicts with saved records'
 };
 
 export const TRANSFORM_LABEL: Record<Transform, string> = {

@@ -38,7 +38,9 @@ const DECISION_KINDS = Object.keys({
 	'import-valid-portion': 1,
 	'merge-duplicates': 1,
 	'drop-duplicate': 1,
-	'resolve-conflict': 1
+	'resolve-conflict': 1,
+	'resolve-identifier-conflict': 1,
+	'resolve-storage-conflict': 1
 } satisfies Record<DecisionKind, 1>);
 const DECISION_STATES = Object.keys({ auto: 1, pending: 1, user: 1 } satisfies Record<Decision['state'], 1>);
 

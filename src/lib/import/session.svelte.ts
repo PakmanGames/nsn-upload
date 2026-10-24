@@ -21,19 +21,20 @@ import {
 	type MappingInput,
 	type Overrides,
 	type SheetAnalysis,
+	type StoredMapping,
 	type VerificationResult,
 	type WorkbookAnalysis,
 	type WorkbookModel
 } from './model';
 import { readWorkbook } from './reader';
-import { toMappingInputs } from './validate';
+import { toImportPlan } from './validate';
 
 export type ImportPhase = 'idle' | 'reading' | 'analyzing' | 'ready' | 'importing' | 'done' | 'error';
 
 /** Pipeline entry points the session drives. */
 export type ImportEngine = {
 	read(file: File): Promise<WorkbookModel>;
-	analyze(model: WorkbookModel, existing: MappingInput[], overrides: Overrides): WorkbookAnalysis;
+	analyze(model: WorkbookModel, existing: StoredMapping[], overrides: Overrides): WorkbookAnalysis;
 	toMappingInputs(analysis: WorkbookAnalysis): MappingInput[];
 	aiAvailability(): Promise<AiAvailability>;
 	/** Sends the sheets that asked for help to the interpreter and verifies its answer against the workbook. */
@@ -47,7 +48,8 @@ export type ImportEngine = {
 export const pipelineEngine: ImportEngine = {
 	read: async (file) => readWorkbook(await file.arrayBuffer(), file.name),
 	analyze,
-	toMappingInputs,
+	// Replacing saved records (ImportPlan.replace) is not wired yet; only new records are added.
+	toMappingInputs: (analysis) => toImportPlan(analysis).add,
 	aiAvailability: () => getAiAvailability(),
 	async interpret(model, sheets, signal) {
 		const request = buildInterpretationRequest(model, sheets);
@@ -90,7 +92,7 @@ export class ImportSession {
 	);
 
 	#engine: ImportEngine;
-	#existing: MappingInput[] = [];
+	#existing: StoredMapping[] = [];
 	#aiAbort: AbortController | null = null;
 
 	constructor(engine: ImportEngine = pipelineEngine) {
@@ -109,7 +111,7 @@ export class ImportSession {
 		void this.#interpretIfNeeded();
 	}
 
-	async load(file: File, existing: MappingInput[]) {
+	async load(file: File, existing: StoredMapping[]) {
 		this.reset();
 		this.fileName = file.name;
 		this.#existing = existing;
