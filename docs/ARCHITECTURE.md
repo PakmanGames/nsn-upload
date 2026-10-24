@@ -32,6 +32,113 @@ An optional AI fallback can propose where a table is when the rules are unsure; 
 
 A record needs at least one of part, NSN, or NIIN. One part can legitimately have several NSNs, and one NSN several parts.
 
+## Architecture at a glance
+
+The whole importer runs in the browser.
+The only server code is one stateless route that forwards an AI request after the user turns AI on; there is no database.
+
+Start at the top: the user opens Smart Upload on the NSNs page, picks a file in the review window, and `ImportSession` drives the pipeline.
+On a two-way arrow labeled "a / b", "a" flows down and "b" flows back up.
+Dotted arrows are the optional AI path, the importer's only network traffic.
+
+```mermaid
+flowchart TB
+    User(["User"])
+
+    subgraph Browser["Browser: the whole import runs here"]
+        Page["NSNs page<br/>NsnSettingsTab.svelte<br/>mappings table"]
+        Storage[("localStorage<br/>saved records,<br/>AI on or off")]
+        Window["Review window<br/>ImportReviewWindow.svelte<br/>file picker, summary, decisions"]
+        Session["ImportSession<br/>session.svelte.ts<br/>holds the workbook, overrides,<br/>and latest analysis"]
+
+        subgraph Analyze["analyze(), on every change"]
+            direction TB
+            Structure["structure<br/>tables, headers,<br/>columns, confidence"] --> Records["records + normalize<br/>clean, split, derive,<br/>provenance"] --> Validate["validate<br/>duplicates, conflicts,<br/>decisions, import plan"]
+        end
+
+        subgraph Read["Read once"]
+            direction TB
+            Reader["reader<br/>SheetJS, lazy-loaded"] --> Model[("WorkbookModel<br/>plain cells")]
+        end
+
+        AI["ai<br/>bounded sample,<br/>verifier"]
+    end
+
+    subgraph Server["Server: stateless"]
+        direction TB
+        Env[".env<br/>OPENROUTER_API_KEY"] --> Route["/api/interpret"]
+    end
+
+    OpenRouter["OpenRouter<br/>Claude"]
+    Mock["Mock interpreter<br/>AI_PROVIDER=mock"]
+
+    User -- "Smart Upload" --> Page
+    Page <-- "load on start,<br/>save on import" --> Storage
+    Page -- "opens, with<br/>saved records" --> Window
+    Window -- "ImportPlan" --> Page
+    Window <-- "user changes /<br/>analysis to show" --> Session
+    Session <-- "model + Overrides /<br/>WorkbookAnalysis" --> Analyze
+    Session <-- "file bytes /<br/>WorkbookModel" --> Read
+    Session <-. "only when AI is on<br/>and a sheet needs help" .-> AI
+    AI <-. "sample /<br/>proposed structure" .-> Server
+    Server <-.-> OpenRouter
+    Server <-.-> Mock
+    User -- "picks the file,<br/>makes decisions" --> Window
+```
+
+**What is stored where:**
+
+| Where | What | Lifetime |
+| --- | --- | --- |
+| `localStorage` key `nsn-upload-interview-task:mappings` | The saved mapping records (part, description, NSN, NIIN, CAGE, plus id, created date, and status) as JSON. Read when the page loads, and passed to the pipeline so it can find duplicates of saved records and conflicts with them. Written when the user imports or clicks "Reset demo data"; until the first write, the page shows built-in demo records. | Until the browser's site data is cleared |
+| `localStorage` key `nsn-upload-interview-task:ai-assistance` | Whether the user turned AI assistance on, so the choice survives a reload. | Same |
+| Memory, inside `ImportSession` | The uploaded file's `WorkbookModel`, the user's `Overrides` (remaps, included tables, decisions, accepted AI tables), and the latest `WorkbookAnalysis`. | Until the review window closes or another file is chosen; only the records the user imports are kept |
+| Server | Nothing. The route reads `AI_PROVIDER`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL` from the environment on each request; the key never reaches the browser. | n/a |
+
+The AI sample leaves out hidden sheets, rows, and columns and system metadata columns, and the reply carries structure only (which rows and columns form a table), never values; section 7 has the details.
+
+### A typical session
+
+```mermaid
+%%{init: {"sequence": {"width": 100, "actorMargin": 16, "messageMargin": 30}}}%%
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant P as NSNs page
+    participant S as localStorage
+    participant W as Review window
+    participant E as Pipeline
+    participant R as /api/interpret
+    participant O as OpenRouter
+
+    P->>S: load saved records
+    U->>P: Smart Upload
+    P->>W: open, with saved records
+    U->>W: choose an .xlsx file
+    W->>E: readWorkbook(bytes)
+    E-->>W: WorkbookModel, kept
+    W->>E: analyze(model, saved, {})
+    E-->>W: WorkbookAnalysis
+    loop each remap, decision, or undo
+        U->>W: change something
+        W->>E: analyze(model, saved, overrides)
+        E-->>W: new analysis, no re-read
+    end
+    opt AI is on and a sheet needs help
+        W->>R: bounded sample
+        R->>O: strict JSON schema
+        O-->>R: proposed structure
+        R-->>W: structure only
+        W->>E: verify, then analyze again
+    end
+    U->>W: Import N records
+    W->>E: toImportPlan(analysis)
+    E-->>W: records to add and replace
+    W->>P: the import plan
+    P->>S: save records
+    P-->>U: table shows the records
+```
+
 ## How it works
 
 ```text
