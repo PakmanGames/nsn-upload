@@ -3,7 +3,8 @@
 This is the design note required by `TASK_SPEC.md` ("Deliverables", item 3).
 It describes what is built, why, and what is not supported.
 
-Status (2026-10-24): everything described here is merged and tested; on `main`, 605 tests and 13 Playwright browser tests pass.
+Status (2026-10-24): sections 1-12 describe what is merged and tested; on `main`, 605 tests and 13 Playwright browser tests pass.
+Section 13 describes Wave 2, the changes asked for in the review: the design of each, and whether its code had merged at submission time.
 Questions waiting on a product decision are in [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## In one minute
@@ -17,8 +18,8 @@ Three ideas carry the design:
 2. **Automate what is certain, hold back what is not.** Certain decisions (skip a repeated header, split `12669555 / RVX08212` into two records) are applied and logged with an undo. Uncertain ones (two sheets disagree on a description) are excluded from import and queued with a suggested answer. Nothing uncertain is imported silently.
 3. **Every value is traceable to a cell.** Each imported value records the file, sheet, row, cell, original text, and every transformation applied. Values computed from other cells (a NIIN derived from an NSN) are labeled "derived".
 
-The default path is fully deterministic and makes no network request.
-An optional AI fallback can propose where a table is when the rules are unsure; it never supplies values, and every proposal is verified against the workbook.
+The default path is deterministic, and conventional workbooks never need an AI request.
+An AI fallback proposes where a table is when the rules cannot read a sheet; it never supplies values, and every proposal is verified against the workbook. Wave 2 turns it on by default when the server has a key (D23, section 13).
 
 ## Glossary
 
@@ -413,7 +414,7 @@ The layout works down to phone width without horizontal scrolling.
 
 ## 7. AI fallback boundary
 
-**When it runs.** Only when the user has turned on "AI assistance" (off by default, remembered per browser) and the deterministic analysis flagged a sheet: either at least 3 cells look like NSNs or NIINs but no ready table was found, or two columns compete for a primary field. Conventional workbooks, including all three examples, never trigger it.
+**When it runs.** Only while "AI assistance" is on (Wave 1: off by default; Wave 2 makes it on by default when the server has a key, D23, section 13; turning it off is remembered per browser) and the deterministic analysis flagged a sheet: either at least 3 cells look like NSNs or NIINs but no ready table was found, or two columns compete for a primary field. Conventional workbooks, including all three examples, never trigger it.
 
 **What is sent.** A bounded sample of the flagged sheets only: at most 3 sheets, 60 rows per sheet (the first 40 non-empty rows plus 20 spread over the rest, always including the last), 30 columns, 120 characters per cell, and 3000 cells in total. Hidden sheets, hidden rows and columns, and columns that look like UUIDs, checksums, or timestamps are never sent.
 
@@ -451,7 +452,7 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 - SheetJS is loaded with a dynamic import when the first file is read, so it is not in the initial page bundle.
 - Detection is linear in rows and columns; duplicates are grouped through hash keys.
 - Measured end to end (`readWorkbook` + `analyze`, Node, synthetic 8-column sheets): 10,000 rows in 0.3 s; 50,000 rows (5.5 MB) in 1.4 s, of which 0.8 s is analysis. There is no automated performance test.
-- Analysis runs on the main thread. The window shows "Reading" and "Analyzing" states, but the page is blocked while they run, and every remap re-runs the analysis (0.8 s at 50,000 rows). Moving it to a Web Worker is open decision OD1; the pipeline is pure, so the move is mechanical.
+- Analysis runs on the main thread. The window shows "Reading" and "Analyzing" states, but the page is blocked while they run, and every remap re-runs the analysis (0.8 s at 50,000 rows). The product owner kept this for the submission as a documented limit (D28); the pipeline is pure, so moving it to a Web Worker is mechanical.
 - Limits, each with a specific error: 20 MB file, 200 MB once unzipped, 50 sheets, 100,000 rows per sheet, 2,000,000 cells.
 - Zip bombs are stopped before SheetJS unzips anything: the reader adds up the uncompressed sizes the zip declares and rejects the file above 200 MB, and it caps each entry's actual inflated bytes at its declared size, so a zip that lies about its sizes is reported as damaged. A legitimate workbook at the 2,000,000-cell limit unzips to about 90 MB; unguarded, SheetJS would have inflated a 1 GB bomb.
 - Files are checked by signature before parsing: random bytes are "corrupt", and an encrypted workbook is reported as password-protected.
@@ -480,16 +481,16 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 
 ## 11. Tradeoffs and unsupported cases
 
-- **One table per sheet.** A second, different table on the same sheet is mentioned in the sheet's reasons but not imported.
+- **One table per sheet.** A second, different table on the same sheet is mentioned in the sheet's reasons but not imported. Wave 2 imports stacked tables (E3) and tables side by side (E5); section 13.
 - **Headers over three or more rows are not detected**; only the row directly below a candidate is checked as a continuation.
 - **A five-letter word in a header's second row** (`Class`, `Model`, `Notes`) passes the strict CAGE check, so that row is never treated as a continuation and is read as data.
 - **Only trailing totals rows are recognized as footers**, and only the words `Total`, `Totals`, `Subtotal`, `Grand total`, and `Sum`; a "Total" row between two blocks goes through the normal record checks.
-- **Large workbooks block the page** while they are read and analyzed (section 8, OD1).
-- **Derived values are not labeled after import.** The review window labels them; the mappings table does not yet (OD2).
-- **A hidden sheet cannot be included on request** (OD4).
+- **Large workbooks block the page** while they are read and analyzed (section 8, D28).
+- **Derived values are not labeled after import.** The review window labels them; the mappings table does not yet. Wave 2: L1 (D25), section 13.
+- **A hidden sheet cannot be included on request.** Wave 2: H1 (D26), section 13.
 - **No fill-down of blank cells.** Only explicit merges are filled; a part number written once above several blank rows is not copied down, because that layout is a guess.
 - **ISO date cells** (`t="d"`, which Excel does not write in `.xlsx`) are read as numbers.
-- **A `no-table` sheet cannot be mapped by hand**; only the AI path can propose a table there.
+- **A `no-table` sheet cannot be mapped by hand**; only the AI path can propose a table there. Wave 2: E1, section 13.
 - **Storage duplicates with only new information** (the saved record lacks a description that the upload has) are dropped rather than merged into the saved record.
 - **Not interpreted:** cell colors, strikethrough, comments, and Excel Table objects.
 - **Out of scope per TASK_SPEC:** a backend, authentication, enrichment from external NSN databases, `.xls` / `.xlsm` / CSV.
@@ -499,11 +500,53 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and owner, and [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md) for the items waiting on a decision.
 
 - Calibrate the confidence thresholds on a larger set of real customer workbooks (section 2).
-- Import several tables from one sheet.
-- Run reading and analysis in a Web Worker.
+- Import several tables from one sheet (Wave 2: E3, E5).
+- Run reading and analysis in a Web Worker (kept out of this submission, D28).
 - Merge new information into saved records instead of dropping the upload.
 - Let the AI segment complex multi-value cells (for example `12345 / 67890 (alt)`), verified against the cell text.
-- Let the user draw a table on a `no-table` sheet.
+- Let the user draw a table on a `no-table` sheet (Wave 2: E1 sets one up by hand; drawing it on V1's spreadsheet view is the next step).
+
+## 13. Wave 2: changes from the review
+
+The review on 2026-10-24 asked for more edge cases, clearer messages, and a smoother review.
+It came with four new workbooks, now in `example-excel-uploads/`.
+Each change below was briefed in `docs/tasks/` and built by its own agent in parallel; the Status column says whether its code was merged at submission time.
+Where it was not, this section and the brief are the design.
+
+The bar every change was held to: importing complex or broken data must still feel smooth and obvious.
+No dead ends (every state says what happened and what to do next), nothing misleading (no green "nothing needs you" when nothing will import), the user's language, nothing that jumps under the pointer, and every automatic or bulk action can be undone.
+
+### What the new workbooks exposed
+
+| Workbook | Before Wave 2 | Cause |
+| --- | --- | --- |
+| `Just NSNs (1).xlsx`: 99 NSNs in column A, no header | 0 records | No header row, so no table; the AI verifier also required a header row |
+| `Merged Column, FSC + NIIN NSN Tests (1).xlsx` | 24 correct records plus 9 invalid ones | A supplier form below a blank gap was read as table rows; the NIIN header merged over `B:C` listed column C twice; columns to the right of the header were dropped silently |
+| `ShiftedTable.xlsx`: Statz with its second half moved to `E34:K58` | 30 of 54 records | One table per sheet: the second table was found and skipped |
+| `Substring Headers in Diff Sheet (1).xlsx` | 28 pending decisions, 1 of them real | "Material #" was not mapped as Part (16 false conflicts between rows that differ by part number); one FSC next to several NSNs in one cell was treated as a conflict (11 more) |
+
+### The changes
+
+| Brief | Change | Design in one paragraph | Status |
+| --- | --- | --- | --- |
+| [E1](tasks/E1-headerless-and-manual-tables.md) | Tables without a header row; set up a table by hand | When no header row is found, columns whose values alone pass the NSN/NIIN rule (95% of at least 3 values) form a headerless table, held as one decision suggested "include". Any sheet without an included table offers "Set up table": pick the header row (or none) and each column's field; the spec goes through the same scoring (`source: 'user'`). The AI verifier accepts headerless proposals whose values pass. | See PLAN.md |
+| [E2](tasks/E2-table-edges-and-merged-columns.md) | Where a table ends; merged columns | After a blank gap, a block whose rows fit none of the table's mapped columns ends the table (never at a row with a valid identifier). A header merged across columns whose covered columns hold nothing of their own is one column. Columns with values but no header become "column O (no header)", mapped only by the value-only rule, so nothing is dropped silently. | See PLAN.md |
+| [E3](tasks/E3-several-tables-per-sheet.md) | Several tables on one sheet | The sheet is split into row bands where another table's header starts; each band is detected with its own column span, so a table shifted N columns is found. Each table is its own line in Sheets, with its own decision, columns, and rows; provenance keeps the real sheet name. | See PLAN.md |
+| [E4](tasks/E4-columns-by-values-and-multi-nsn-cells.md) | Part column chosen by its values; one FSC for several NSNs | A part column is mapped from values alone (medium confidence) when exactly one column is clearly part-number-shaped; prices, decimals, platform names, and emails no longer count. When a cell splits into several NSNs and the row's FSC or NIIN matches one of them, it belongs to that record only, so there is no conflict. Headers that only mention a field ("MATCH: NSN/PN Supplier") never outrank the real column. | See PLAN.md |
+| [E5](tasks/E5-side-by-side-tables.md) | Tables side by side | Within each band, columns are split at columns blank in every row; a segment is a table only when its own header maps a primary column with high confidence. Ids gain a column letter only when two tables start on one row. | After E3 |
+| [H1](tasks/H1-include-hidden-sheet.md) | "Include anyway" for hidden sheets (D26) | Hidden sheets stay ignored by default; "Include anyway" analyzes one like a visible sheet and holds its tables on a decision suggested "include". Hidden sheets are never sent to the AI. | See PLAN.md |
+| [L1](tasks/L1-derived-labels-after-import.md) | Derived values labeled after import (D25) | `MappingInput.derived` records which stored fields were worked out (from field provenance), and the saved list shows a "derived" tag. | See PLAN.md |
+| [M1](tasks/M1-plain-language-messages.md) | Messages a user understands | A deterministic layer turns every decision and issue into a short headline and one or two sentences built from computed facts (bare cell references, NSNs written `1680-01-581-8020`, the domain rule when it matters). With AI on, one bounded request rewrites them from the facts only; each answer is checked against its facts (cell references, numbers, no suggestion wording) and falls back per item. The AI explains; options and suggestions stay the pipeline's. | See PLAN.md |
+| [AI1](tasks/AI1-ai-on-by-default.md) | AI on by default (D23) | On unless this browser turned it off; nothing is sent without a server key; the summary says when AI is reading a sheet. | See PLAN.md |
+| [DS1](tasks/DS1-faster-decisions.md) | Faster decisions (D24) | NSN-vs-FSC/NIIN conflicts suggest "Keep the NSN" (NIIN and FSC derived and labeled, disagreeing cells kept as warnings). A choice can be applied to similar pending decisions (same kind, table, and shape) in one re-analysis, and undone as a group. "Apply and continue" stays at the same screen position and applies exactly one decision per click. | See PLAN.md |
+| [V1](tasks/V1-spreadsheet-view.md) | The spreadsheet inside the review window | An Excel-like, virtualized grid drawn from the already parsed workbook, beside the review, with the importer's findings drawn on it (table outlines, header rows, field chips, skipped rows). A shared `focus` state scrolls to and highlights cells; selecting a row or a source cell uses it, and V2 adds hover highlighting from every part of the review. | See PLAN.md |
+| [X1](tasks/X1-edge-case-workbooks.md) | A library of edge-case workbooks | A generator writes small workbooks for each hard case (side-by-side tables, hidden sheets with data, numeric NIINs, split NSN columns, mixed separators, formulas and errors, Unicode, prompt injection) with a README of expected behavior per file. | See PLAN.md |
+
+### Decisions taken for Wave 2
+
+- **D23, AI on by default.** The product owner chose this knowingly against a literal reading of TASK_SPEC's "network transmission must be disabled unless AI parsing is explicitly enabled". Mitigations: nothing is sent unless the server has a key, only sheets the rules cannot read are sent (sampled, never hidden sheets or metadata columns), the AI section says what is sent, and turning it off is remembered.
+- **D24, keep the NSN.** The importer should not lose data from the file, so an NSN that disagrees with its FSC or NIIN is kept by default suggestion, with the other values worked out from it. It stays a decision, because a correct NIIN cell could otherwise be overruled silently. Three other suggestions that leave data out are parked as OD5.
+- **D25-D28.** Derived values labeled after import; hidden sheets on request; side-by-side tables after E3; no Web Worker for this submission.
 
 ## Appendix: TASK_SPEC coverage
 
@@ -514,7 +557,7 @@ Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and ow
 | Tell tables from dashboards, notes, logs | Values must pass; modifiers and sentence-length labels are weak | acceptance (PENCOM statuses), unseen notes sheet |
 | Classify every sheet; choose what to import; never import low confidence silently | Status + reasons per sheet; include decisions; needs-review held back | `validate/index.test.ts`, acceptance |
 | Header below titles, merged titles, repeated headers, blank rows | Header scoring; merged cells count once; skipped rows with reasons | `structure/structure.test.ts`, acceptance (Statz rows 32-34) |
-| Multiple table regions | One table per sheet; a second is reported, not imported | Known gap (section 11) |
+| Multiple table regions | One table per sheet; a second is reported, not imported. Wave 2: stacked (E3) and side-by-side (E5) tables | Known gap (section 11); Wave 2 acceptance suites (section 13) |
 | Header variants, prefixes, line breaks | Token vocabulary with strong/weak matches | `structure/header.test.ts`, unseen line-break header |
 | Header split over two rows | Continuation rows joined into one header (section 1) | `structure/two-row.test.ts`, `tests/acceptance/messy.test.ts` |
 | Values decide (UUID `Part` loses) | Pass rates; value-only only for NSN/NIIN | `structure/structure.test.ts`, acceptance (WOW) |
