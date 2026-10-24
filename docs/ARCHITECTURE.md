@@ -3,9 +3,8 @@
 This is the design note required by `TASK_SPEC.md` ("Deliverables", item 3).
 It describes what is built, why, and what is not supported.
 
-Status (2026-10-24): the import pipeline (reader, detection, normalization, records, validation, AI boundary) is merged and tested, and the acceptance suites run in `pnpm test`.
-Still landing: the review window (T7, PR #11, already checked in a browser against all three example files), the behavior behind two extra pending decisions (F1: the contract is merged; records and validation are in progress), and the E2E tests and README (T8).
-Sections that describe unmerged work say so.
+Status (2026-10-24): everything described here is merged and tested: the import pipeline, the review window, both F1 pending decisions (section 4), the acceptance suites, and the Playwright E2E tests.
+In progress: a summary-first redesign of the review window (UX1, [prototype](prototypes/review-window/index.html)); section 6 describes today's window and what changes.
 Questions waiting on a product decision are in [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## In one minute
@@ -184,9 +183,9 @@ Comparison uses normalized values; the stored values stay as written.
 | Exact duplicate inside one table | Later copies dropped | automatic |
 | Same identity on two sheets, compatible fields | Merged into one record, each field keeping its own source cell | automatic |
 | Same identity on two sheets, conflicting description or CAGE | Held back; suggested: the record with more filled fields | pending |
-| Already saved in the browser, same values | New copy dropped | automatic, undo: keep |
-| NSN contradicts its own NIIN or FSC (F1, landing) | Held back; prefer NSN, prefer NIIN/FSC, or exclude; suggested: exclude | pending |
-| Already saved, but with a different description or CAGE (F1, landing) | Held back; keep saved, replace saved, or keep both; suggested: keep saved | pending |
+| Already saved in the browser, with the same values or only missing ones | New copy dropped | automatic, undo: keep |
+| NSN contradicts its own NIIN or FSC | Held back; keep the NSN, keep the NIIN and FSC, or exclude the row; suggested: exclude | pending |
+| Already saved, but with a different description or CAGE | Held back; keep saved, replace saved (same id and created date), or keep both; suggested: keep saved | pending |
 
 Same NIIN under different FSCs: a warning on every record involved, no decision, all imported.
 
@@ -206,19 +205,20 @@ Issues cite fully qualified cells (`Active Parts!E134`), and the review window s
 
 ## 6. Review window
 
-Status: built (T7, PR #11) and checked in a browser against all three example files; merging after a rebase onto the F1a contract.
+Status: merged and checked in a browser against all three example files.
+Next (UX1, decided): a summary-first layout. The window leads with one sentence ("2 of 6 sheets have importable tables · 7 rows found · 3 decisions need you") and the pending decisions one at a time; Sheets, Columns, Rows, Applied automatically, and AI assistance become collapsed sections that each show a one-line summary, and Columns opens by itself when a mapping is uncertain. See the [prototype](prototypes/review-window/index.html). The list below describes the current window; its controls all carry over.
 
 Smart Upload opens a full-screen window. The file is read once; every change re-runs the analysis on the kept workbook.
 
 - **Upload:** drag and drop or file picker, `.xlsx` only, with "Reading" and "Analyzing" states and specific errors (file too large, not `.xlsx`, password-protected, corrupt, over a limit).
-- **Header:** file name, sheet and table counts, summary chips (candidates, valid, warnings, invalid, duplicates, conflicts, split, pending decisions; clicking a chip filters the preview), and an import button that always says how many records will import and how many need review, for example "Import 0 records (7 need review)".
+- **Header:** file name, sheet and table counts, summary chips ("179 rows → 180 records", valid, warnings, invalid, duplicates, conflicts, split, pending decisions; clicking a chip filters the preview), and an import button that always says how many records will import and how many need review, for example "Import 0 records (7 need review)".
 - **Sheets panel:** every sheet with its status badge (Ready, Needs review, No importable table, Hidden - ignored), record count and range, an include switch per table, and "Why this classification" with the reasons.
-- **AI assistance panel:** the opt-in switch, a plain description of what would be sent, and the outcome ("Every sheet was read without help; nothing would be sent").
+- **AI assistance panel:** the opt-in switch and a status line ("Every sheet was read without help; nothing would be sent"), with "How AI assistance works" collapsed underneath.
 - **Column mapping panel:** the table range, header row, data-row and skipped-row counts, the table's reasons, and one row per column with its header, evidence ("127 of 129 values are valid NSNs"), a field picker that includes "Ignore column", and the confidence. Hidden metadata columns show as "Not imported" with the reason.
 - **Preview:** status tabs (all, valid, warnings, invalid, duplicates, conflicts, split, pending), a sheet filter, search across values and cell references, and 100 rows per page. Derived values say "derived from E2"; split rows say "1 of 2 from D136".
 - **Provenance drawer:** for each field, the cell, original text, normalized value, transformations, and origin; rejected values with their issue; and the row's decisions.
-- **Decisions panel:** "Needs you" (pending, the suggested option preselected, plus "Accept all suggestions"), "Your choices" (revertible), and "Applied automatically" (grouped by kind, each with undo). Cross-sheet conflicts are shown side by side with the differing fields highlighted.
-- **Import:** adds only approved records to browser storage, confirms the result ("54 records added to your NSN table"), and returns to the mappings table.
+- **Decisions panel:** "Needs you" (pending, the suggested option preselected, plus "Accept all suggestions"), "Your choices" (revertible), and "Applied automatically" (grouped by kind, each with undo). Cross-sheet conflicts are shown side by side with the differing fields highlighted; an identifier conflict lines the NSN's FSC and NIIN up against the NIIN and FSC cells; a storage conflict shows the saved record next to the new one.
+- **Import:** adds approved records to browser storage, replaces saved records the user chose to overwrite (keeping their id and created date), confirms the result ("54 records added to your NSN table"), and returns to the mappings table.
 
 ## 7. AI fallback boundary
 
@@ -230,7 +230,7 @@ Smart Upload opens a full-screen window. The file is read once; every change re-
 The request uses a strict JSON schema (`response_format: json_schema`, `strict: true`) and only routes to providers that support it (`require_parameters: true`).
 The default model is `anthropic/claude-opus-5.5`, overridable with `OPENROUTER_MODEL`. The reply is validated with Zod on the server and again in the browser.
 Without a key, the route reports "unavailable" and the toggle is disabled with that reason; everything else works.
-Known issue, being fixed: the review window asks the route whether AI is available as soon as it opens. That request carries no workbook data, but it will move to when the user turns AI on, so nothing at all is sent before then.
+The review window asks the route whether AI is available only when the user turns AI on, so opening the window and analyzing a workbook send nothing; the E2E tests check this.
 
 **What comes back.** Structure only: sheet name, A1 range, header row numbers, and for each mapped field its column number and the header text the model read, plus a confidence and short reasons. No cell values, so the model cannot invent identifiers.
 
@@ -269,9 +269,10 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 ## 9. Testing
 
 - Unit tests per module (about 420): reader against the 3 real files and synthetic workbooks; normalizers table-driven over every rule above; structure on hand-built sheet shapes and the real files; records, validation, and the AI request builder, verifier, and route.
-- Acceptance suites in `tests/acceptance/` (68 tests, part of `pnpm test`; 488 tests in total on `main`): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
+- Acceptance suites in `tests/acceptance/` (part of `pnpm test`; 529 tests in total on `main`): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
 - Every expected number for the example files was checked independently against the raw workbooks.
-- Playwright E2E tests per example file (T8, landing) drive the real review window with `AI_PROVIDER=mock`.
+- The acceptance suites also cover both F1 decisions: an unseen workbook whose NIIN contradicts its NSN, and PENCOM with a saved copy whose description differs, each through every option and the resulting import plan.
+- Playwright E2E tests (`pnpm test:e2e`, Chromium against a production build, `AI_PROVIDER=mock`): each example file is uploaded, its sheet badges, chips, and decisions are checked, "Accept all suggestions" is used where needed, the records are imported and found in the mappings table, and no AI request is sent. A fourth test turns AI on for a synthetic sheet and checks the mock proposal and that exactly one request was made.
 
 ## 10. Dependencies
 
@@ -324,7 +325,7 @@ Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and ow
 | Header variants, prefixes, line breaks | Token vocabulary with strong/weak matches | `structure/header.test.ts`, unseen line-break header |
 | Header split over two rows | Not detected | Known gap (section 11) |
 | Values decide (UUID `Part` loses) | Pass rates; value-only only for NSN/NIIN | `structure/structure.test.ts`, acceptance (WOW) |
-| UI shows header row, mapping, confidence; lets the user change or exclude; no double mapping | Mapping controls with evidence; one-to-one overrides | `structure/overrides.test.ts`; review window (T7) |
+| UI shows header row, mapping, confidence; lets the user change or exclude; no double mapping | Mapping controls with evidence; one-to-one overrides | `structure/overrides.test.ts`, `components/import/session.test.ts` |
 | Field normalization rules | Per-field normalizers with recorded transforms | `normalize/normalize.test.ts` |
 | NSN from FSC + NIIN; NIIN from NSN; labeled derived | Derivation with `derivedFrom` | `records/table.test.ts`, unseen FSC + NIIN |
 | `-` is empty; no number coercion; formulas and rich text; line endings | Normalizer and reader rules | `normalize/normalize.test.ts`, `reader/reader.test.ts` |
@@ -334,7 +335,7 @@ Deferred by the product owner; see the backlog in `docs/PLAN.md` for size and ow
 | Duplicates use normalized values; one part, many NSNs is fine | Identity key; per-NSN records | `validate/index.test.ts`, acceptance (Statz) |
 | Cross-sheet duplicates: prefer neither silently, show cells, choose/merge/exclude | Auto-merge compatible; pending conflict otherwise | `validate/index.test.ts`, acceptance (PENCOM) |
 | Provenance for every value | `Provenance` on every field value | `records/table.test.ts`, unseen provenance check |
-| Preview, filters, search, import approved only, recompute without rereading | Review window; `analyze()` re-run with overrides | `components/import/session.test.ts` (PR #11), E2E (T8) |
+| Preview, filters, search, import approved only, recompute without rereading | Review window; `analyze()` re-run with overrides | `components/import/session.test.ts`, `tests/e2e/import.spec.ts` |
 | AI: bounded input, structured output, verified, never invents identifiers, opt-in, no hidden content, works without a key, behind an interface | Section 7 | `ai/request.test.ts`, `ai/verify.test.ts`, `routes/api/interpret/server.test.ts` |
 | Lazy parser, linear scans, limits, no network, no formula execution | Section 8 | `reader/reader.test.ts` (limits, file signatures); performance measured by hand |
 | At least one integration test on a real `.xlsx` | All three fixtures end to end | `tests/acceptance/fixtures.test.ts` |

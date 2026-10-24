@@ -19,9 +19,10 @@ For how the importer works, read ARCHITECTURE.md instead.
 | T4 | Candidate records with provenance | Merged (#3) |
 | T5 | Validation, duplicates, conflicts, decisions | Merged (#6) |
 | T6 | AI boundary, OpenRouter route, verifier, mock | Merged (#5) |
-| T7 | Review window UI | PR #11 open: verified in a browser; needs a rebase onto the F1a contract. Then F1d plus UI polish |
-| T8 | Acceptance suites, E2E, README | Wave 1 (#8) and wave 2 (#10) merged; wave 3 (E2E, README) not started |
-| F1 | Two new pending decisions ([brief](tasks/F1-decision-followups.md)) | F1a contract merged (#12); F1b (T4), F1c (T5), F1d (T7), F1e (T8) in progress |
+| T7 | Review window UI | Merged (#11); F1d and polish (#17); AI panel disclosure (#19) |
+| T8 | Acceptance suites, E2E, README | Merged: wave 1 (#8), wave 2 (#10), wave 3 E2E + README (#16, #18) |
+| F1 | Two new pending decisions ([brief](tasks/F1-decision-followups.md)) | Complete: F1a (#12), F1b (#14), F1c (#15), F1d (#17), F1e (#13) |
+| UX1 | Review window redesign, summary first ([brief](tasks/UX1-review-window-redesign.md), [prototype](prototypes/review-window/index.html)) | Not started: T7 builds it, then T8 adds E2E coverage |
 
 ## Scope (5-hour build)
 
@@ -71,6 +72,7 @@ For how the importer works, read ARCHITECTURE.md instead.
 | D17 | Excel error cells (`#N/A`) are rejected values with an `invalid-identifier` issue, not empty cells. | T2, accepted |
 | D18 | The planning docs (`PLAN.md`, `OPEN-DECISIONS.md`, `tasks/`) stay in the submitted repo next to the design note. | Product owner |
 | D19 | A word containing digits makes a header match weak (`PN-4410` is a value), so a header like `Part Number 2` reaches at most medium confidence. | T3 (#9), accepted |
+| D20 | The review window becomes summary-first (UX1): one sentence and the pending decision first, everything else in collapsed sections with one-line summaries; all of R1-R9 kept; Columns opens by default only when a column is medium or low confidence or was remapped. Not a "simple mode" setting. | Product owner, after the prototype |
 
 ## Backlog (future ideas)
 

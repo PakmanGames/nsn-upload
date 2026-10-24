@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Smart Upload redesign: summary first, details on demand</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+<style>
+	*, *::before, *::after { box-sizing: border-box; }
+	:where(.grid, .flex) > * { min-width: 0; }
+	:where(p, h1, h2, h3, h4, li, dd) { overflow-wrap: anywhere; }
+	:where(td, th) { overflow-wrap: break-word; }
+	html { background: #eef0f3; color: #172033; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+	body { margin: 0; }
+	.mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+	details > summary { list-style: none; cursor: pointer; }
+	details > summary::-webkit-details-marker { display: none; }
+	details[open] > summary .chev { transform: rotate(90deg); }
+	.chev { transition: transform 120ms ease; }
+	.icon { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+	.phone-frame { width: 390px; }
+	@media (max-width: 460px) { .phone-frame { width: 100%; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ INTRO -->
+<header class="border-b border-slate-200 bg-slate-950 text-white">
+	<div class="mx-auto max-w-6xl px-5 py-8 lg:px-8">
+		<p class="text-xs font-semibold uppercase tracking-wider text-blue-300">Prototype · Smart Upload review window</p>
+		<h1 class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Summary first, details on demand</h1>
+		<p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+			Today the review window shows every panel at once: eight count chips, a card per sheet, every column, every row, and every decision.
+			This prototype leads with one sentence and the one thing the user has to do, and keeps everything else one click away.
+			It uses the real numbers from the three example workbooks. Try it below, then pick a direction at the bottom.
+		</p>
+		<div class="mt-5 grid gap-3 sm:grid-cols-3">
+			<div class="rounded-lg bg-white/5 p-4 ring-1 ring-white/10">
+				<p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Goal</p>
+				<p class="mt-1 text-sm text-slate-200">A new user knows within seconds what will import and what needs them.</p>
+			</div>
+			<div class="rounded-lg bg-white/5 p-4 ring-1 ring-white/10">
+				<p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Keeps</p>
+				<p class="mt-1 text-sm text-slate-200">Every spec-required item stays visible as a one-line summary; nothing is removed.</p>
+			</div>
+			<div class="rounded-lg bg-white/5 p-4 ring-1 ring-white/10">
+				<p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Not a mode switch</p>
+				<p class="mt-1 text-sm text-slate-200">One layout that shrinks for clean files and opens up where something needs attention.</p>
+			</div>
+		</div>
+	</div>
+</header>
+
+<main class="mx-auto max-w-6xl px-5 py-8 lg:px-8">
+
+<!-- ============================================================ PROTOTYPE -->
+<section aria-labelledby="proto-title">
+	<div class="flex flex-wrap items-end justify-between gap-3">
+		<div>
+			<h2 id="proto-title" class="text-lg font-semibold text-slate-950">1. Try the redesign</h2>
+			<p class="mt-1 text-sm text-slate-600">Switch workbooks, make the decisions, open the sections, click a chip or a row.</p>
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			<div role="tablist" aria-label="Example workbook" class="inline-flex rounded-lg border border-slate-200 bg-white p-1 text-sm shadow-sm" id="scenario-tabs"></div>
+			<div role="tablist" aria-label="Viewport" class="inline-flex rounded-lg border border-slate-200 bg-white p-1 text-sm shadow-sm" id="width-tabs"></div>
+			<button type="button" id="reset" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm hover:bg-slate-50">Reset</button>
+		</div>
+	</div>
+
+	<div class="mt-4 rounded-2xl bg-slate-950/55 p-3 sm:p-6">
+		<div id="frame" class="mx-auto">
+			<div id="proto" class="overflow-hidden rounded-xl border border-slate-200 bg-[#f6f7f9] shadow-2xl"></div>
+		</div>
+	</div>
+	<p class="mt-2 text-xs text-slate-500">Prototype only: choices change the counts here but nothing is saved. Including Search Log is not simulated.</p>
+</section>
+
+<!-- ============================================================ BEFORE / AFTER -->
+<section class="mt-12" aria-labelledby="before-title">
+	<h2 id="before-title" class="text-lg font-semibold text-slate-950">2. Today vs the redesign</h2>
+	<p class="mt-1 text-sm text-slate-600">Screenshots of the current window on <code class="mono text-xs">main</code> with PRs #18 and #19 applied, 1440 x 900.</p>
+
+	<div class="mt-4 grid gap-4 lg:grid-cols-2">
+		<figure class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+			<img src="assets/current-pencom.png" alt="Current review window for PENCOM: chips, six sheet cards, column mapping, preview, and decision sidebar all visible at once" class="w-full rounded-lg border border-slate-200" />
+			<figcaption class="mt-2 text-sm text-slate-600"><span class="font-medium text-slate-900">PENCOM today.</span> Three panels compete; the decision the user must make sits in the right sidebar.</figcaption>
+		</figure>
+		<figure class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+			<img src="assets/current-wow.png" alt="Current review window for WOW: a clean file still shows every chip, column, and automatic decision" class="w-full rounded-lg border border-slate-200" />
+			<figcaption class="mt-2 text-sm text-slate-600"><span class="font-medium text-slate-900">WOW today.</span> Nothing needs the user, yet the window looks as busy as one that does.</figcaption>
+		</figure>
+	</div>
+
+	<div class="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+		<table class="w-full min-w-[640px] border-collapse text-left text-sm">
+			<thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+				<tr><th class="px-4 py-3 font-medium">Today</th><th class="px-4 py-3 font-medium">In the redesign</th><th class="px-4 py-3 font-medium">ID</th></tr>
+			</thead>
+			<tbody class="divide-y divide-slate-100 text-slate-700">
+				<tr><td class="px-4 py-3">Eight count chips, most of them 0</td><td class="px-4 py-3">One plain sentence plus only the non-zero chips; chips open the matching rows</td><td class="px-4 py-3 mono text-xs">R1, R2</td></tr>
+				<tr><td class="px-4 py-3">Decisions in a sidebar, all open at once</td><td class="px-4 py-3">The main stage: one decision at a time, "1 of 3", Apply and Next</td><td class="px-4 py-3 mono text-xs">R3</td></tr>
+				<tr><td class="px-4 py-3">A full card for every sheet</td><td class="px-4 py-3">"Sheets" section with a one-line summary; nothing-to-import and hidden sheets folded</td><td class="px-4 py-3 mono text-xs">R4</td></tr>
+				<tr><td class="px-4 py-3">Every column, including "does not name a target field"</td><td class="px-4 py-3">"Columns" section: mapped columns only, the rest folded into "N more not imported"</td><td class="px-4 py-3 mono text-xs">R5</td></tr>
+				<tr><td class="px-4 py-3">Preview mixes held-back tables with importable rows</td><td class="px-4 py-3">"Rows" section; held-back tables grouped and folded; status tabs only when non-zero</td><td class="px-4 py-3 mono text-xs">R6</td></tr>
+				<tr><td class="px-4 py-3">"Applied automatically" sidebar</td><td class="px-4 py-3">Collapsed section with a count; same undo controls inside</td><td class="px-4 py-3 mono text-xs">R7</td></tr>
+				<tr><td class="px-4 py-3">AI card in the sheets column</td><td class="px-4 py-3">Collapsed section; opens automatically only when a sheet could use AI</td><td class="px-4 py-3 mono text-xs">R8</td></tr>
+				<tr><td class="px-4 py-3">Warnings only visible inside the preview</td><td class="px-4 py-3">"Worth a look" line under the summary: what warns, and that it still imports</td><td class="px-4 py-3 mono text-xs">R9</td></tr>
+			</tbody>
+		</table>
+	</div>
+</section>
+
+<!-- ============================================================ OPTIONS -->
+<section class="mt-12" aria-labelledby="options-title">
+	<h2 id="options-title" class="text-lg font-semibold text-slate-950">3. Options and cost</h2>
+	<div class="mt-4 grid gap-4 lg:grid-cols-3">
+		<article class="rounded-xl border-2 border-blue-600 bg-white p-5 shadow-sm">
+			<div class="flex items-center justify-between gap-2"><h3 class="font-semibold text-slate-950">B. Summary-first redesign</h3><span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">Recommended</span></div>
+			<p class="mt-2 text-sm text-slate-600">What you see above. Same data and pipeline; only the review window's layout changes.</p>
+			<dl class="mt-3 space-y-1.5 text-sm">
+				<div class="flex gap-2"><dt class="w-16 shrink-0 text-slate-500">Cost</dt><dd class="text-slate-800">About 3-4 h for T7, plus about 1 h for T8 to update E2E selectors and text</dd></div>
+				<div class="flex gap-2"><dt class="w-16 shrink-0 text-slate-500">Gain</dt><dd class="text-slate-800">Clean files become one sentence and a button; decisions are guided one at a time</dd></div>
+				<div class="flex gap-2"><dt class="w-16 shrink-0 text-slate-500">Risk</dt><dd class="text-slate-800">Largest UI change this late; power users need one click to see mappings (an "Expand all" control covers it)</dd></div>
+			</dl>
+		</article>
+		<article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+			<h3 class="font-semibold text-slate-950">A. Quick wins only</h3>
+			<p class="mt-2 text-sm text-slate-600">Keep today's three-column layout and apply R1, R4, R5, R6 and one-decision-open (R3-lite).</p>
+			<dl class="mt-3 space-y-1.5 text-sm">
+				<div class="flex gap-2"><dt class="w-16 shrink-0 text-slate-500">Cost</dt><dd class="text-slate-800">About 1 h for T7; E2E mostly unchanged</dd></div>
+				<div class="flex gap-2"><dt class="w-16 shrink-0 text-slate-500">Gain</dt><dd class="text-slate-800">Roughly half the visual noise goes away</dd></div>
+				<div class="flex gap-2"><dt class="w-16 shrink-0 text-slate-500">Risk</dt><dd class="text-slate-800">Still three panels at once; a new user still has to find the decision</dd></div>
+			</dl>
+		</article>
+		<article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+			<h3 class="font-semibold text-slate-950">Not recommended: a "simple mode" setting</h3>
+			<p class="mt-2 text-sm text-slate-600">Two layouts behind a toggle.</p>
+			<ul class="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-800">
+				<li>The users who need it are the least likely to find the setting</li>
+				<li>Two layouts to build, test, and keep in sync</li>
+				<li>Reviewers grade the default; a stripped mode risks hiding spec-required items</li>
+			</ul>
+		</article>
+	</div>
+
+	<div class="mt-5 grid gap-4 lg:grid-cols-2">
+		<div class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+			<h3 class="font-semibold text-amber-900">Risks to keep in view</h3>
+			<ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-amber-900">
+				<li>TASK_SPEC asks to "show" sheets, tables, mappings, and totals before import. The summary lines keep each one visible; the details are one click away. Section 4 asks whether Columns should start open.</li>
+				<li>The E2E tests assert today's chip text and panel names, so T8 must update them in the same window as T7's change.</li>
+				<li>Accessibility: sections use native disclosure; the decision stepper must keep focus on the next card after Apply.</li>
+			</ul>
+		</div>
+		<div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+			<h3 class="font-semibold text-slate-950">What does not change</h3>
+			<ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
+				<li>The pipeline, decisions, and counts: this is layout only</li>
+				<li>Every control that exists today (remap a column, undo an automatic decision, include a table, provenance per row)</li>
+				<li>The import button rule: it always says how many import and how many need review</li>
+			</ul>
+		</div>
+	</div>
+</section>
+
+<!-- ============================================================ DECISION INPUT -->
+<section class="mt-12 mb-16" aria-labelledby="decide-title">
+	<h2 id="decide-title" class="text-lg font-semibold text-slate-950">4. Your call</h2>
+	<p class="mt-1 text-sm text-slate-600">Selections stay local until you press "Queue answer". Annotate anything in the prototype to request changes to it.</p>
+
+	<form data-lavish-question="redesign-direction" id="decide-form" class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+		<fieldset class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+			<legend class="px-1 text-sm font-semibold text-slate-950">Direction</legend>
+			<div class="mt-2 space-y-2 text-sm">
+				<label class="flex items-start gap-2 rounded-lg p-2 hover:bg-slate-50"><input type="radio" name="direction" value="Build the summary-first redesign (B) as prototyped" class="mt-1" checked /><span><span class="font-medium text-slate-900">Build B as prototyped</span><span class="block text-slate-500">T7 implements; T8 updates E2E</span></span></label>
+				<label class="flex items-start gap-2 rounded-lg p-2 hover:bg-slate-50"><input type="radio" name="direction" value="Build B with the changes I annotated" class="mt-1" /><span><span class="font-medium text-slate-900">Build B with my annotations</span><span class="block text-slate-500">I will annotate the prototype first</span></span></label>
+				<label class="flex items-start gap-2 rounded-lg p-2 hover:bg-slate-50"><input type="radio" name="direction" value="Quick wins only (A)" class="mt-1" /><span><span class="font-medium text-slate-900">Quick wins only (A)</span><span class="block text-slate-500">Keep today's layout</span></span></label>
+				<label class="flex items-start gap-2 rounded-lg p-2 hover:bg-slate-50"><input type="radio" name="direction" value="Park it in OPEN-DECISIONS.md for now" class="mt-1" /><span><span class="font-medium text-slate-900">Park it</span><span class="block text-slate-500">Record as OD5 and revisit later</span></span></label>
+			</div>
+			<fieldset class="mt-4 border-t border-slate-100 pt-3">
+				<legend class="text-sm font-semibold text-slate-950">Should "Columns" start open?</legend>
+				<div class="mt-2 space-y-1.5 text-sm text-slate-700">
+					<label class="flex items-center gap-2"><input type="radio" name="columns-open" value="Only when a column is medium or low confidence, or was remapped" checked /> Only when something is uncertain</label>
+					<label class="flex items-center gap-2"><input type="radio" name="columns-open" value="Always open" /> Always open</label>
+					<label class="flex items-center gap-2"><input type="radio" name="columns-open" value="Always collapsed" /> Always collapsed</label>
+				</div>
+			</fieldset>
+		</fieldset>
+
+		<fieldset class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+			<legend class="px-1 text-sm font-semibold text-slate-950">Keep or drop each element</legend>
+			<p class="mt-1 text-xs text-slate-500">Uncheck any element you do not want, whichever direction you pick.</p>
+			<div class="mt-2 space-y-1.5 text-sm text-slate-700" id="elements"></div>
+			<label class="mt-3 block text-sm font-medium text-slate-900" for="notes">Notes</label>
+			<textarea id="notes" name="notes" rows="3" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="Anything else (optional)"></textarea>
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				<button type="submit" class="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-800">Queue answer</button>
+				<span id="queued-state" role="status" aria-live="polite" class="text-sm text-slate-500"></span>
+			</div>
+		</fieldset>
+	</form>
+</section>
+</main>
+
+<script>
+// ---------------------------------------------------------------- icons (lucide paths)
+const I = {
+	sheet: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>',
+	x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+	check: '<path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>',
+	warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+	chev: '<path d="m9 18 6-6-6-6"/>',
+	spark: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+	undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/>',
+	cols: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+	rows: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+	layers: '<path d="m12.83 2.18 8.58 3.91a1 1 0 0 1 0 1.83l-8.58 3.9a2 2 0 0 1-1.66 0L2.6 7.93a1 1 0 0 1 0-1.83l8.58-3.9a2 2 0 0 1 1.66 0Z"/><path d="m22 12-9.17 4.17a2 2 0 0 1-1.66 0L2 12"/>',
+	wand: '<path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/>'
+};
+const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${I[name]}</svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// ---------------------------------------------------------------- data: real numbers from the three example workbooks
+const SCENARIOS = {
+	pencom: {
+		label: 'PENCOM',
+		hint: 'needs decisions',
+		file: 'PENCOM_Government_Procurement_Database (2).xlsx',
+		sheetsTotal: 6, tablesReady: 2, sourceRows: 7, records: 7, baseImport: 0,
+		warnings: [],
+		decisions: [
+			{
+				id: 'c1', kind: 'Same part on two sheets', badge: 'Conflict',
+				title: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P · NSN 5305-01-658-2565',
+				why: 'Both sheets list this part with this NSN, but the descriptions differ. Pick the record to keep; compatible fields from the other are merged in.',
+				compare: { cols: ['NSN Cross-Reference row 3', 'Part Number Intake row 4'], rows: [['Description', 'Screw, Machine', '6-32 x 1/4 pan-head SEMS machine screw', true], ['NIIN', '016582565', '016582565', false], ['CAGE', '0BWZ1', '-', false]] },
+				held: 2,
+				options: [
+					{ id: 'a', label: 'Use NSN Cross-Reference row 3', note: 'more filled fields, has CAGE 0BWZ1', suggested: true, imports: 1 },
+					{ id: 'b', label: 'Use Part Number Intake row 4', imports: 1 },
+					{ id: 'both', label: 'Keep both records', imports: 2 },
+					{ id: 'none', label: 'Exclude both', imports: 0 }
+				]
+			},
+			{
+				id: 'c2', kind: 'Same part on two sheets', badge: 'Conflict',
+				title: 'SE5826 · NSN 5305-01-669-8021',
+				why: 'Both sheets list this part with this NSN, but the descriptions differ.',
+				compare: { cols: ['NSN Cross-Reference row 4', 'Part Number Intake row 3'], rows: [['Description', 'Screw, Assembly', 'Assembly screw', true], ['NIIN', '016698021', '016698021', false], ['CAGE', '0BWZ1', '-', false]] },
+				held: 2,
+				options: [
+					{ id: 'a', label: 'Use NSN Cross-Reference row 4', note: 'more filled fields, has CAGE 0BWZ1', suggested: true, imports: 1 },
+					{ id: 'b', label: 'Use Part Number Intake row 3', imports: 1 },
+					{ id: 'both', label: 'Keep both records', imports: 2 },
+					{ id: 'none', label: 'Exclude both', imports: 0 }
+				]
+			},
+			{
+				id: 't1', kind: 'Table needs review', badge: 'Needs review',
+				title: 'Search Log (A2:I5) · 3 rows',
+				why: 'It looks like a table, but its part column B ("Part Number / Family") is only low confidence and 2 of 3 NSN values are valid. It reads like a log of searches, not a parts list.',
+				compare: null,
+				held: 3,
+				options: [
+					{ id: 'ex', label: 'Leave Search Log out', suggested: true, imports: 0 },
+					{ id: 'in', label: 'Include it and review its 3 rows', note: 'not simulated in this prototype', imports: 0 }
+				]
+			}
+		],
+		sheets: {
+			ready: [['NSN Cross-Reference', 'A2:L4 · 2 records'], ['Part Number Intake', 'A2:P7 · 2 records · 3 placeholder rows skipped']],
+			review: [['Search Log', 'A2:I5 · 3 rows · held back']],
+			none: [['Dashboard', 'Metrics and instructions, no identifier columns'], ['Opportunity Matrix', '"NSN Matchability (1-5)" holds scores, not NSNs'], ['Sources & Notes', 'Links and notes']],
+			hidden: []
+		},
+		columns: [
+			{ table: 'NSN Cross-Reference', mapped: [['NSN', 'A', 'NSN', '2 of 2 valid'], ['FSC', 'B', 'FSC', '2 of 2 valid'], ['NIIN', 'C', 'NIIN', '2 of 2 valid'], ['Description', 'D', 'Government Item Name', '2 of 2 text'], ['Part number', 'E', 'PENCOM Part Number', '2 of 2 plausible'], ['CAGE', 'F', 'CAGE', '2 of 2 valid']], ignored: ['G Manufacturer', 'H Verification Status', 'I Verification Date', 'J Primary Source URL', 'K Secondary Source URL', 'L Research Notes'] },
+			{ table: 'Part Number Intake', mapped: [['Part number', 'A', 'PENCOM Part Number', '2 of 2 plausible'], ['Description', 'C', 'Description', '2 of 2 text'], ['NSN', 'J', 'NSN', '2 of 2 valid'], ['FSC', 'K', 'FSC', '2 of 2 valid']], ignored: ['B Product Family', 'D Thread / Size', 'E Material', 'F Finish', 'G Customer / Application', 'H Research Status', 'I NSN Found', 'L MIL/MS/NAS Equivalent', 'M PEM / Competitor Equivalent', 'N Source URL', 'O Verified Date', 'P Notes'] }
+		],
+		rows: [
+			{ src: 'NSN Cross-Reference', row: 3, status: 'conflict', part: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P', desc: 'Screw, Machine', nsn: '5305016582565', dec: 'c1' },
+			{ src: 'NSN Cross-Reference', row: 4, status: 'conflict', part: 'SE5826', desc: 'Screw, Assembly', nsn: '5305016698021', dec: 'c2' },
+			{ src: 'Part Number Intake', row: 3, status: 'conflict', part: 'SE5826', desc: 'Assembly screw', nsn: '5305016698021', dec: 'c2' },
+			{ src: 'Part Number Intake', row: 4, status: 'conflict', part: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P', desc: '6-32 x 1/4 pan-head SEMS machine screw', nsn: '5305016582565', dec: 'c1' },
+			{ src: 'Search Log', row: 3, status: 'held', part: 'PENCOM CAGE', desc: '-', nsn: '-', heldTable: true },
+			{ src: 'Search Log', row: 4, status: 'held', part: '6-32X1/4PH-PN-SQCN-SEMS-MS-SS-P', desc: '-', nsn: '5305016582565', heldTable: true },
+			{ src: 'Search Log', row: 5, status: 'held', part: 'SE5826', desc: '-', nsn: '5305016698021', heldTable: true }
+		],
+		auto: [['Tables', 'Include NSN Cross-Reference', 'Ready: weakest primary column is high confidence'], ['Tables', 'Include Part Number Intake', 'Ready: weakest primary column is high confidence']],
+		ai: 'Every sheet was read without help; nothing would be sent.'
+	},
+	wow: {
+		label: 'WOW',
+		hint: 'clean file',
+		file: 'WOW NSN list 7-20-26 (2).xlsx',
+		sheetsTotal: 2, tablesReady: 1, sourceRows: 179, records: 180, baseImport: 180,
+		warnings: [['2 rows had a malformed NSN', 'rows 134 and 166; the part number imports, the bad NSN does not'], ['1 part number has a note in brackets', 'row 43, "12273108 (EATON M144E)", kept as written'], ['1 record has no description', 'row 180']],
+		decisions: [],
+		sheets: { ready: [['Active Parts', 'A1:F180 · 180 records']], review: [], none: [], hidden: [['hiddenSheet', 'very hidden system metadata']] },
+		columns: [{ table: 'Active Parts', mapped: [['Part number', 'D', 'Part Number', '179 of 179 plausible'], ['NSN', 'E', 'NSN', '127 of 129 valid'], ['Description', 'F', 'Nomenclature', '178 of 178 text']], ignored: ['A (Do Not Modify) Part - hidden, UUIDs', 'B (Do Not Modify) Row Checksum - hidden', 'C (Do Not Modify) Modified On - hidden, dates'] }],
+		rows: [
+			{ src: 'Active Parts', row: 2, status: 'valid', part: '10552364', desc: 'Pin', nsn: '5315219078920', prov: [['Part', 'D2', '"10552364"', 'trimmed'], ['NSN', 'E2', '"5315-21-907-8920"', 'separators removed'], ['NIIN', 'E2', 'derived', 'last 9 digits of the NSN']] },
+			{ src: 'Active Parts', row: 13, status: 'valid', part: '10931023*92', desc: 'Support, Pintle, Machine Gun', nsn: '1025000677921' },
+			{ src: 'Active Parts', row: 43, status: 'warning', part: '12273108 (EATON M144E)', desc: 'Indicator, Sight, Liquid', nsn: '-', note: 'Part number has a note in brackets; kept as written' },
+			{ src: 'Active Parts', row: 134, status: 'warning', part: '12663107', desc: 'Hub, Drive', nsn: '-', note: 'NSN "12663107" in E134 has 8 digits; same value as the part number in D134. Dropped.' },
+			{ src: 'Active Parts', row: 136, status: 'valid', split: '1 of 2 from D136', part: '12669555', desc: 'Sprocket, Final Drive', nsn: '-' },
+			{ src: 'Active Parts', row: 136, status: 'valid', split: '2 of 2 from D136', part: 'RVX08212', desc: 'Sprocket, Final Drive', nsn: '-' },
+			{ src: 'Active Parts', row: 166, status: 'warning', part: 'BH011-HT REV 000', desc: 'MV-75 Wing Strut', nsn: '-', note: 'NSN "280-035-330-101F" in E166 contains letters. Dropped.' },
+			{ src: 'Active Parts', row: 180, status: 'warning', part: 'UTU44013', desc: '-', nsn: '-', note: 'No description' }
+		],
+		moreRows: 172,
+		auto: [['Tables', 'Include Active Parts', 'Ready: weakest primary column is high confidence'], ['Malformed values', 'Import the valid fields of row 134', 'NSN "12663107" has 8 digits, expected 13'], ['Malformed values', 'Import the valid fields of row 166', 'NSN "280-035-330-101F" contains letters'], ['Multi-value cells', 'Split D136 into 2 records', '12669555 and RVX08212 on separate lines']],
+		ai: 'Every sheet was read without help; nothing would be sent.'
+	},
+	statz: {
+		label: 'Statz',
+		hint: 'warnings only',
+		file: 'Statz - List of active Geier and Bluhm parts listed on the NSN listings (1).xlsx',
+		sheetsTotal: 1, tablesReady: 1, sourceRows: 54, records: 54, baseImport: 54,
+		warnings: [['9 records list the same item under different NSNs', '4 NIINs appear with 2-3 FSCs (rows 20/22, 25/26, 37/38/39, 44/45); at most one NSN per item is current']],
+		decisions: [],
+		sheets: { ready: [['Sheet1', 'A1:G58 · 54 records · 2 blank rows and 1 repeated header skipped']], review: [], none: [], hidden: [] },
+		columns: [{ table: 'Sheet1', mapped: [['Part number', 'A', 'G & B P/N', '54 of 54 plausible'], ['NSN', 'C', 'NSN', '54 of 54 valid']], ignored: ['B Dwg Number - also looks like part numbers, no part header', 'D Status', 'E Mfg.', 'F Type', 'G COMMENTS'] }],
+		rows: [
+			{ src: 'Sheet1', row: 2, status: 'valid', part: '1-09001', desc: '-', nsn: '1290007646198' },
+			{ src: 'Sheet1', row: 37, status: 'warning', part: '2-24024', desc: '-', nsn: '5210011066157', note: 'Same item (NIIN 011066157) also listed as 5220-... (row 38) and 6685-... (row 39)' },
+			{ src: 'Sheet1', row: 38, status: 'warning', part: '2-24024', desc: '-', nsn: '5220011066157', note: 'Same item (NIIN 011066157) also listed as 5210-... (row 37) and 6685-... (row 39)' },
+			{ src: 'Sheet1', row: 39, status: 'warning', part: '2-24024', desc: '-', nsn: '6685011066157', note: 'Same item (NIIN 011066157) also listed as 5210-... (row 37) and 5220-... (row 38)' }
+		],
+		moreRows: 50,
+		auto: [['Tables', 'Include Sheet1', 'Ready; skipped 2 blank rows (32-33) and 1 repeated header (34)']],
+		ai: 'Every sheet was read without help; nothing would be sent.'
+	}
+};
+
+const ELEMENTS = [
+	['R1', 'One-sentence summary at the top'],
+	['R2', 'Only non-zero chips; chips open the matching rows'],
+	['R3', 'One decision at a time ("1 of 3", Apply, Next)'],
+	['R4', 'Sheets section; nothing-to-import and hidden sheets folded'],
+	['R5', 'Columns section; unmapped columns folded'],
+	['R6', 'Rows section; held-back tables grouped and folded'],
+	['R7', '"Applied automatically" collapsed with a count'],
+	['R8', 'AI assistance as a collapsed section'],
+	['R9', '"Worth a look" warnings line under the summary']
+];
+
+// ---------------------------------------------------------------- state
+const fresh = () => ({ choices: {}, step: 0, filter: 'all', open: new Set(), expandedRow: null, imported: false });
+let scenarioId = 'pencom';
+let width = 'desktop';
+let st = fresh();
+
+// ---------------------------------------------------------------- derived counts
+function counts(sc) {
+	let importN = sc.baseImport, held = 0, decided = 0;
+	for (const d of sc.decisions) {
+		const choice = st.choices[d.id];
+		if (choice) { decided++; importN += d.options.find((o) => o.id === choice).imports; }
+		else held += d.held;
+	}
+	return { importN, held, decided, pending: sc.decisions.length - decided };
+}
+function rowStatus(sc, r) {
+	if (r.dec && st.choices[r.dec]) return 'decided';
+	return r.status;
+}
+
+// ---------------------------------------------------------------- render pieces
+const BADGE = {
+	conflict: 'bg-orange-50 text-orange-700 ring-orange-600/20',
+	held: 'bg-slate-100 text-slate-600 ring-slate-500/20',
+	warning: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+	valid: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+	decided: 'bg-blue-50 text-blue-700 ring-blue-600/20'
+};
+const STATUS_LABEL = { conflict: 'Conflict', held: 'Held back', warning: 'Warning', valid: 'Valid', decided: 'Decided' };
+const badge = (s, text) => `<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${BADGE[s]}">${esc(text ?? STATUS_LABEL[s])}</span>`;
+
+function header(sc, c) {
+	const sentence = sc.decisions.length
+		? `${sc.tablesReady} of ${sc.sheetsTotal} sheets have importable tables · ${sc.sourceRows} rows found · <span class="font-semibold text-slate-950">${c.pending ? `${c.pending} ${c.pending === 1 ? 'decision needs' : 'decisions need'} you` : 'all decisions made'}</span>`
+		: `${sc.tablesReady} of ${sc.sheetsTotal} ${sc.sheetsTotal === 1 ? 'sheet' : 'sheets'} ${sc.tablesReady === 1 ? 'has an importable table' : 'have importable tables'} · ${sc.sourceRows} rows${sc.records !== sc.sourceRows ? ` → ${sc.records} records` : ''} · <span class="font-semibold text-emerald-700">nothing needs you</span>`;
+	// Only non-zero counts get a chip (R2); each chip opens the matching rows.
+	const chips = [];
+	const rs = sc.rows.map((r) => rowStatus(sc, r));
+	const cnt = (s) => rs.filter((x) => x === s).length;
+	if (scenarioId === 'wow') { chips.push(['valid', '176 valid'], ['warning', '4 warnings'], ['decided', '2 split from D136']); }
+	else if (scenarioId === 'statz') { chips.push(['valid', '45 valid'], ['warning', '9 warnings']); }
+	else {
+		if (cnt('conflict')) chips.push(['conflict', `${cnt('conflict')} in conflict`]);
+		if (cnt('held') && st.choices.t1 !== 'in') chips.push(['held', `${cnt('held')} held back`]);
+		if (c.importN) chips.push(['valid', `${c.importN} ready`]);
+	}
+	const chipHtml = chips.map(([s, t]) => `<button type="button" data-chip="${s}" class="rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${BADGE[s]} hover:brightness-95">${esc(t)}</button>`).join('');
+	const ctaDisabled = c.importN === 0;
+	const ctaText = `Import ${c.importN} ${c.importN === 1 ? 'record' : 'records'}`;
+	return `
+	<div class="border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+		<div class="flex items-start justify-between gap-3">
+			<div class="flex min-w-0 gap-3">
+				<div class="mt-0.5 grid size-10 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700">${icon('sheet', 'size-5')}</div>
+				<div class="min-w-0">
+					<h3 class="text-lg font-semibold text-slate-950">Smart Upload</h3>
+					<p class="truncate text-sm text-slate-500" title="${esc(sc.file)}">${esc(sc.file)}</p>
+				</div>
+			</div>
+			<div class="flex shrink-0 items-center gap-1">
+				${width === 'desktop' ? '<button type="button" class="hidden rounded-md px-2.5 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 sm:inline-flex">Choose another file</button>' : ''}
+				<button type="button" aria-label="Close" class="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">${icon('x', 'size-5')}</button>
+			</div>
+		</div>
+		<div class="mt-3 flex flex-col gap-3 ${width === 'desktop' ? 'lg:flex-row lg:items-center lg:justify-between' : ''}">
+			<div class="min-w-0">
+				<p class="text-sm text-slate-700">${sentence}</p>
+				<div class="mt-2 flex flex-wrap gap-1.5">${chipHtml}</div>
+			</div>
+			<div class="flex shrink-0 flex-wrap items-center gap-2">
+				${c.pending ? `<button type="button" data-act="accept-all" class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">${icon('wand', 'size-4')} Accept all suggestions</button>` : ''}
+				<button type="button" data-act="import" ${ctaDisabled ? 'disabled' : ''} class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm ${ctaDisabled ? 'cursor-not-allowed bg-slate-200 text-slate-500' : 'bg-blue-700 text-white hover:bg-blue-800'}">
+					<span aria-live="polite">${ctaText}</span>${c.held ? `<span class="font-normal opacity-80">(${c.held} need review)</span>` : ''}
+				</button>
+			</div>
+		</div>
+	</div>`;
+}
+
+function warningsLine(sc) {
+	if (!sc.warnings.length) return '';
+	return `
+	<div class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+		<div class="flex items-start gap-2 text-sm text-amber-900">
+			${icon('warn', 'mt-0.5 size-4 text-amber-600')}
+			<div class="min-w-0">
+				<p class="font-medium">Worth a look before importing. These still import.</p>
+				<ul class="mt-1 space-y-0.5 text-amber-900/90">${sc.warnings.map(([t, d]) => `<li><span class="font-medium">${esc(t)}</span> <span class="text-amber-800/80">· ${esc(d)}</span></li>`).join('')}</ul>
+				<button type="button" data-chip="warning" class="mt-1.5 text-sm font-medium text-amber-800 underline decoration-amber-400 underline-offset-2 hover:text-amber-950">Show these rows</button>
+			</div>
+		</div>
+	</div>`;
+}
+
+function decisionStage(sc, c) {
+	if (!sc.decisions.length) return '';
+	if (c.pending === 0) {
+		return `
+		<div class="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+			<div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+				<p class="flex items-center gap-2 font-medium text-emerald-800">${icon('check', 'size-4')} All ${sc.decisions.length} decisions made</p>
+				<button type="button" data-act="review-choices" class="font-medium text-blue-700 hover:text-blue-900">Review my choices</button>
+			</div>
+			<ul class="mt-1.5 space-y-0.5 text-sm text-emerald-900/90">${sc.decisions.map((d) => `<li>${esc(d.title)}: <span class="font-medium">${esc(d.options.find((o) => o.id === st.choices[d.id]).label)}</span></li>`).join('')}</ul>
+		</div>`;
+	}
+	const open = sc.decisions.filter((d) => !st.choices[d.id]);
+	const idx = Math.min(st.step, open.length - 1);
+	const d = open[idx];
+	const position = sc.decisions.indexOf(d) + 1;
+	const compare = d.compare ? `
+		<div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+			<table class="w-full ${width === 'desktop' ? 'min-w-[420px]' : ''} border-collapse text-left text-sm">
+				<thead class="bg-slate-50 text-xs text-slate-500"><tr><th class="px-3 py-2 font-medium"></th>${d.compare.cols.map((h) => `<th class="px-3 py-2 font-medium">${esc(h)}</th>`).join('')}</tr></thead>
+				<tbody class="divide-y divide-slate-100">${d.compare.rows.map(([k, a, b, diff]) => `<tr><td class="whitespace-nowrap px-3 py-2 text-slate-500">${esc(k)}</td><td class="px-3 py-2 ${diff ? 'bg-amber-50 font-medium text-amber-900' : 'text-slate-800'}">${esc(a)}</td><td class="px-3 py-2 ${diff ? 'bg-amber-50 font-medium text-amber-900' : 'text-slate-800'}">${esc(b)}</td></tr>`).join('')}</tbody>
+			</table>
+		</div>` : '';
+	const chosen = st.pick?.[d.id] ?? d.options.find((o) => o.suggested)?.id;
+	return `
+	<section aria-labelledby="dec-title" class="rounded-xl border-2 border-amber-300 bg-white shadow-sm">
+		<div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5">
+			<p class="text-xs font-semibold uppercase tracking-wide text-amber-800">Needs your decision · ${position} of ${sc.decisions.length}</p>
+			<div class="flex items-center gap-1 text-xs text-amber-800">${sc.decisions.map((x) => `<span class="size-2 rounded-full ${st.choices[x.id] ? 'bg-emerald-500' : x === d ? 'bg-amber-600' : 'bg-amber-300'}"></span>`).join('')}</div>
+		</div>
+		<div class="p-4">
+			<div class="flex flex-wrap items-center gap-2">${badge(d.badge === 'Conflict' ? 'conflict' : 'held', d.badge)}<span class="text-xs font-medium text-slate-500">${esc(d.kind)}</span></div>
+			<h4 id="dec-title" class="mt-1.5 break-all font-semibold text-slate-950 sm:break-normal">${esc(d.title)}</h4>
+			<p class="mt-1 text-sm text-slate-600">${esc(d.why)}</p>
+			${compare}
+			<fieldset class="mt-3 space-y-1.5" data-dec="${d.id}">
+				<legend class="sr-only">Choose an option</legend>
+				${d.options.map((o) => `
+				<label class="flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm ${chosen === o.id ? 'border-blue-500 bg-blue-50/60' : 'border-slate-200 hover:bg-slate-50'}">
+					<input type="radio" name="opt-${d.id}" value="${o.id}" ${chosen === o.id ? 'checked' : ''} class="mt-0.5" />
+					<span class="min-w-0 flex-1"><span class="font-medium text-slate-900">${esc(o.label)}</span>${o.note ? `<span class="block text-xs text-slate-500">${esc(o.note)}</span>` : ''}</span>
+					${o.suggested ? '<span class="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">Suggested</span>' : ''}
+				</label>`).join('')}
+			</fieldset>
+			<div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+				<div class="flex gap-2">
+					<button type="button" data-act="prev" ${open.length < 2 ? 'disabled' : ''} class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">Previous</button>
+					<button type="button" data-act="next" ${open.length < 2 ? 'disabled' : ''} class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40">Skip for now</button>
+				</div>
+				<button type="button" data-act="apply" data-dec="${d.id}" class="rounded-md bg-blue-700 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-800">Apply and continue</button>
+			</div>
+		</div>
+	</section>`;
+}
+
+function section(id, iconName, title, summary, body, opts = {}) {
+	const isOpen = st.open.has(id) || opts.forceOpen;
+	return `
+	<details data-sec="${id}" ${isOpen ? 'open' : ''} class="group rounded-xl border border-slate-200 bg-white shadow-sm">
+		<summary class="flex items-center gap-3 rounded-xl px-4 py-3 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-600">
+			${icon('chev', 'chev size-4 text-slate-400')}
+			<span class="grid size-7 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-600">${icon(iconName, 'size-4')}</span>
+			<span class="min-w-0 flex-1">
+				<span class="block text-sm font-semibold text-slate-900">${esc(title)}</span>
+				<span class="block text-xs text-slate-500">${summary}</span>
+			</span>
+			${opts.badge ?? ''}
+		</summary>
+		<div class="border-t border-slate-100 px-4 py-3">${body}</div>
+	</details>`;
+}
+
+function sheetsBody(sc) {
+	const item = (n, d, b) => `<li class="flex flex-wrap items-center justify-between gap-2 py-1.5"><span class="min-w-0"><span class="font-medium text-slate-900">${esc(n)}</span> <span class="text-slate-500">· ${esc(d)}</span></span>${b}</li>`;
+	const sw = (on) => `<span role="switch" aria-checked="${on}" class="inline-flex h-5 w-9 items-center rounded-full ${on ? 'bg-blue-600' : 'bg-slate-300'} p-0.5"><span class="size-4 rounded-full bg-white shadow ${on ? 'translate-x-4' : ''}"></span></span>`;
+	const fold = (label, list) => list.length ? `<details class="mt-1"><summary class="flex items-center gap-1.5 py-1 text-sm text-slate-600 hover:text-slate-900">${icon('chev', 'chev size-3.5')} ${esc(label)}</summary><ul class="ml-5 text-sm">${list.map(([n, d]) => `<li class="py-1"><span class="font-medium text-slate-700">${esc(n)}</span> <span class="text-slate-500">· ${esc(d)}</span></li>`).join('')}</ul></details>` : '';
+	return `
+		<ul class="divide-y divide-slate-100 text-sm">
+			${sc.sheets.ready.map(([n, d]) => item(n, d, `<span class="flex items-center gap-2">${badge('valid', 'Ready')}${sw(true)}</span>`)).join('')}
+			${sc.sheets.review.map(([n, d]) => item(n, d, `<span class="flex items-center gap-2">${badge('warning', 'Needs review')}${sw(st.choices.t1 === 'in')}</span>`)).join('')}
+		</ul>
+		${fold(`${sc.sheets.none.length} ${sc.sheets.none.length === 1 ? 'sheet' : 'sheets'} with nothing to import`, sc.sheets.none)}
+		${fold(`${sc.sheets.hidden.length} hidden ${sc.sheets.hidden.length === 1 ? 'sheet' : 'sheets'}, ignored`, sc.sheets.hidden)}`;
+}
+
+function columnsBody(sc) {
+	return sc.columns.map((t) => `
+		<div class="py-1">
+			${sc.columns.length > 1 ? `<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">${esc(t.table)}</p>` : ''}
+			<ul class="mt-1 grid gap-1.5 ${width === 'desktop' ? 'sm:grid-cols-2' : ''}">
+				${t.mapped.map(([f, col, h, ev]) => `
+				<li class="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+					<span class="min-w-0"><span class="font-medium text-slate-900">${esc(f)}</span> <span class="text-slate-500">← ${esc(col)} "${esc(h)}"</span><span class="block text-xs text-slate-500">${esc(ev)}</span></span>
+					<span class="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">High</span>
+				</li>`).join('')}
+			</ul>
+			<details class="mt-1.5"><summary class="flex items-center gap-1.5 py-1 text-sm text-slate-600 hover:text-slate-900">${icon('chev', 'chev size-3.5')} ${t.ignored.length} more ${t.ignored.length === 1 ? 'column' : 'columns'} not imported</summary>
+				<ul class="ml-5 text-sm text-slate-600">${t.ignored.map((x) => `<li class="py-0.5">${esc(x)}</li>`).join('')}</ul>
+			</details>
+		</div>`).join('<hr class="my-2 border-slate-100" />') + `<p class="mt-2 text-xs text-slate-500">Each mapping keeps today's field picker and "Ignore column"; shown here as read-only for brevity.</p>`;
+}
+
+function rowsBody(sc) {
+	const all = sc.rows.map((r) => ({ ...r, s: rowStatus(sc, r) }));
+	const main = all.filter((r) => !r.heldTable || st.choices.t1 === 'in');
+	const heldT = all.filter((r) => r.heldTable && st.choices.t1 !== 'in');
+	const tabs = [['all', 'All', main.length], ...['conflict', 'warning', 'valid', 'decided'].map((s) => [s, STATUS_LABEL[s], main.filter((r) => r.s === s).length]).filter(([, , n]) => n)];
+	if (!tabs.some(([k]) => k === st.filter)) st.filter = 'all';
+	const shown = st.filter === 'all' ? main : main.filter((r) => r.s === st.filter);
+	const rowHtml = (r, i) => {
+		const key = `${r.src}:${r.row}:${r.part}`;
+		const exp = st.expandedRow === key;
+		return `
+		<tr data-row="${esc(key)}" tabindex="0" class="cursor-pointer align-top hover:bg-slate-50 ${exp ? 'bg-blue-50/40' : ''}">
+			<td class="px-3 py-2 text-slate-600"><span class="block whitespace-nowrap text-slate-800">${esc(r.src)}</span><span class="text-xs">Row ${r.row}${r.split ? ` · ${esc(r.split)}` : ''}</span></td>
+			<td class="px-3 py-2">${badge(r.s)}${r.note ? `<span class="mt-1 block text-xs text-slate-500">${esc(r.note)}</span>` : ''}</td>
+			<td class="px-3 py-2 mono text-xs text-slate-900">${esc(r.part)}</td>
+			<td class="px-3 py-2 text-slate-700">${esc(r.desc)}</td>
+			<td class="whitespace-nowrap px-3 py-2 mono text-xs text-slate-700">${esc(r.nsn)}</td>
+		</tr>
+		${exp ? `<tr><td colspan="5" class="bg-slate-50 px-3 py-2">
+			<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Where each value came from</p>
+			<ul class="mt-1 grid gap-1 text-xs text-slate-700 ${width === 'desktop' ? 'sm:grid-cols-3' : ''}">${(r.prov ?? [['Part', `row ${r.row}`, `"${r.part}"`, 'trimmed']]).map(([f, cell, orig, ch]) => `<li class="rounded border border-slate-200 bg-white px-2 py-1"><span class="font-medium">${esc(f)}</span> · ${esc(cell)} · ${esc(orig)} · <span class="text-blue-700">${esc(ch)}</span></li>`).join('')}</ul>
+			<p class="mt-1 text-xs text-slate-500">Today's provenance drawer, opened inline.</p>
+		</td></tr>` : ''}`;
+	};
+	return `
+		<div role="tablist" aria-label="Filter rows" class="flex flex-wrap gap-1.5">${tabs.map(([k, l, n]) => `<button type="button" role="tab" aria-selected="${st.filter === k}" data-filter="${k}" class="rounded-md px-2.5 py-1 text-sm ${st.filter === k ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'}">${l} <span class="ml-0.5 rounded bg-black/5 px-1 text-xs ${st.filter === k ? 'bg-white/15' : ''}">${n}</span></button>`).join('')}</div>
+		<div class="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+			<table class="w-full min-w-[560px] border-collapse text-left text-sm">
+				<thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-2 font-medium">Source</th><th class="px-3 py-2 font-medium">Status</th><th class="px-3 py-2 font-medium">Part number</th><th class="px-3 py-2 font-medium">Description</th><th class="whitespace-nowrap px-3 py-2 font-medium">NSN</th></tr></thead>
+				<tbody class="divide-y divide-slate-100">${shown.map(rowHtml).join('')}</tbody>
+			</table>
+		</div>
+		${sc.moreRows ? `<p class="mt-1.5 text-xs text-slate-500">+ ${sc.moreRows} more rows, 100 per page (sample shown).</p>` : ''}
+		${heldT.length ? `<details class="mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-2"><summary class="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900">${icon('chev', 'chev size-3.5')} Search Log · ${heldT.length} rows held back, not importing</summary>
+			<ul class="mt-1 text-sm text-slate-600">${heldT.map((r) => `<li class="py-0.5">Row ${r.row} · <span class="mono text-xs">${esc(r.part)}</span>${r.nsn !== '-' ? ` · <span class="mono text-xs">${esc(r.nsn)}</span>` : ''}</li>`).join('')}</ul></details>` : ''}`;
+}
+
+function autoBody(sc) {
+	return `<ul class="divide-y divide-slate-100 text-sm">${sc.auto.map(([group, t, d]) => `
+		<li class="flex items-start justify-between gap-3 py-2">
+			<span class="min-w-0"><span class="text-xs font-medium uppercase tracking-wide text-slate-400">${esc(group)}</span><span class="block font-medium text-slate-900">${esc(t)}</span><span class="block text-xs text-slate-500">${esc(d)}</span></span>
+			<button type="button" class="inline-flex shrink-0 items-center gap-1 text-sm text-blue-700 hover:text-blue-900">${icon('undo', 'size-3.5')} Undo</button>
+		</li>`).join('')}</ul>`;
+}
+
+function aiBody(sc) {
+	return `
+		<div class="flex items-center justify-between gap-3">
+			<p class="text-sm text-slate-700">${esc(sc.ai)}</p>
+			<span role="switch" aria-checked="false" class="inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-slate-300 p-0.5"><span class="size-4 rounded-full bg-white shadow"></span></span>
+		</div>
+		<details class="mt-1"><summary class="flex items-center gap-1.5 py-1 text-sm text-slate-600 hover:text-slate-900">${icon('chev', 'chev size-3.5')} How AI assistance works</summary>
+			<p class="ml-5 text-sm text-slate-600">Sends sampled cells of sheets the importer could not read confidently. The AI proposes structure only; every proposal is checked against the workbook.</p></details>`;
+}
+
+function render() {
+	const sc = SCENARIOS[scenarioId];
+	const c = counts(sc);
+	const proto = document.getElementById('proto');
+	document.getElementById('frame').className = width === 'phone' ? 'phone-frame mx-auto' : 'mx-auto';
+
+	if (st.imported) {
+		proto.innerHTML = `${header(sc, c)}
+		<div class="px-6 py-12 text-center">
+			<div class="mx-auto grid size-12 place-items-center rounded-full bg-emerald-50 text-emerald-600">${icon('check', 'size-6')}</div>
+			<p class="mt-3 text-lg font-semibold text-slate-950">${c.importN} ${c.importN === 1 ? 'record' : 'records'} added to your NSN table</p>
+			<p class="mt-1 text-sm text-slate-500">Prototype end state. The real window returns to the mappings table.</p>
+			<button type="button" data-act="back" class="mt-4 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Back to the review</button>
+		</div>`;
+		return;
+	}
+
+	const sheetSummary = [
+		`${sc.sheets.ready.length} ready`,
+		sc.sheets.review.length ? `${sc.sheets.review.length} needs review` : '',
+		sc.sheets.none.length ? `${sc.sheets.none.length} nothing to import` : '',
+		sc.sheets.hidden.length ? `${sc.sheets.hidden.length} hidden` : ''
+	].filter(Boolean).join(' · ');
+	const colSummary = sc.columns.map((t) => `${sc.columns.length > 1 ? `${esc(t.table)}: ` : ''}${t.mapped.map((m) => m[0]).join(', ')}`).join(' · ');
+	const rowSummary = `${scenarioId === 'pencom' ? '4 importable after decisions · 3 held back' : scenarioId === 'wow' ? '180 records · 4 warnings · 2 split from D136' : '54 records · 9 warnings'}`;
+
+	proto.innerHTML = `
+		${header(sc, c)}
+		<div class="space-y-3 p-3 sm:p-5">
+			${decisionStage(sc, c)}
+			${warningsLine(sc)}
+			<div class="flex items-center justify-between gap-2 pt-1">
+				<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</p>
+				<button type="button" data-act="toggle-all" class="text-xs font-medium text-blue-700 hover:text-blue-900">${st.open.size >= 5 ? 'Collapse all' : 'Expand all'}</button>
+			</div>
+			${section('sheets', 'layers', `Sheets (${sc.sheetsTotal})`, sheetSummary, sheetsBody(sc))}
+			${section('columns', 'cols', 'Columns', colSummary, columnsBody(sc))}
+			${section('rows', 'rows', `Rows (${scenarioId === 'pencom' ? 7 : sc.records})`, rowSummary, rowsBody(sc))}
+			${section('auto', 'check', `Applied automatically (${sc.auto.length})`, 'Certain cases handled by policy; each can be undone', autoBody(sc))}
+			${section('ai', 'spark', 'AI assistance', 'Off · every sheet was read without help', aiBody(sc))}
+		</div>`;
+}
+
+// ---------------------------------------------------------------- top controls
+function renderTabs() {
+	const tab = (on, attrs, label, sub) => `<button type="button" role="tab" aria-selected="${on}" ${attrs} class="rounded-md px-3 py-1.5 ${on ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'}">${label}${sub ? ` <span class="${on ? 'text-slate-300' : 'text-slate-400'} text-xs">${sub}</span>` : ''}</button>`;
+	document.getElementById('scenario-tabs').innerHTML = Object.entries(SCENARIOS).map(([id, s]) => tab(id === scenarioId, `data-scenario="${id}"`, s.label, s.hint)).join('');
+	document.getElementById('width-tabs').innerHTML = [['desktop', 'Desktop'], ['phone', '390 px']].map(([id, l]) => tab(id === width, `data-width="${id}"`, l)).join('');
+}
+
+document.addEventListener('click', (e) => {
+	const t = e.target.closest('[data-scenario],[data-width],[data-act],[data-chip],[data-filter],[data-row],#reset');
+	if (!t) return;
+	const sc = SCENARIOS[scenarioId];
+	if (t.dataset.scenario) { scenarioId = t.dataset.scenario; st = fresh(); renderTabs(); render(); return; }
+	if (t.dataset.width) { width = t.dataset.width; renderTabs(); render(); return; }
+	if (t.id === 'reset') { st = fresh(); render(); return; }
+	if (t.dataset.chip) { st.open.add('rows'); st.filter = t.dataset.chip === 'held' ? 'all' : t.dataset.chip; render(); document.querySelector('[data-sec="rows"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+	if (t.dataset.filter) { st.filter = t.dataset.filter; render(); return; }
+	if (t.dataset.row) { st.expandedRow = st.expandedRow === t.dataset.row ? null : t.dataset.row; render(); return; }
+	const act = t.dataset.act;
+	if (act === 'apply') {
+		const id = t.dataset.dec;
+		const val = document.querySelector(`input[name="opt-${id}"]:checked`)?.value;
+		if (val) { st.choices[id] = val; st.step = 0; render(); document.querySelector('#dec-title')?.focus?.(); }
+	} else if (act === 'accept-all') {
+		for (const d of sc.decisions) if (!st.choices[d.id]) st.choices[d.id] = d.options.find((o) => o.suggested).id;
+		render();
+	} else if (act === 'next') { st.step = (st.step + 1) % sc.decisions.filter((d) => !st.choices[d.id]).length; render(); }
+	else if (act === 'prev') { const n = sc.decisions.filter((d) => !st.choices[d.id]).length; st.step = (st.step - 1 + n) % n; render(); }
+	else if (act === 'review-choices') { st.pick = { ...st.choices }; st.choices = {}; render(); }
+	else if (act === 'toggle-all') { st.open = st.open.size >= 5 ? new Set() : new Set(['sheets', 'columns', 'rows', 'auto', 'ai']); render(); }
+	else if (act === 'import') { st.imported = true; render(); }
+	else if (act === 'back') { st.imported = false; render(); }
+});
+document.addEventListener('keydown', (e) => {
+	const r = e.target.closest?.('[data-row]');
+	if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); r.click(); }
+});
+document.addEventListener('change', (e) => {
+	const fs = e.target.closest('fieldset[data-dec]');
+	if (fs) { st.pick = { ...(st.pick ?? {}), [fs.dataset.dec]: e.target.value }; render(); }
+});
+// Remember which sections are open across re-renders.
+document.addEventListener('toggle', (e) => {
+	const d = e.target;
+	if (d instanceof HTMLDetailsElement && d.dataset.sec) { d.open ? st.open.add(d.dataset.sec) : st.open.delete(d.dataset.sec); }
+}, true);
+
+// ---------------------------------------------------------------- decision form (local until queued)
+document.getElementById('elements').innerHTML = ELEMENTS.map(([id, label]) => `<label class="flex items-start gap-2"><input type="checkbox" name="element" value="${id}" data-label="${esc(label)}" checked class="mt-1" /><span><span class="mono text-xs text-slate-500">${id}</span> ${esc(label)}</span></label>`).join('');
+document.getElementById('decide-form').addEventListener('submit', (e) => {
+	e.preventDefault();
+	const f = new FormData(e.currentTarget);
+	const direction = f.get('direction');
+	const columnsOpen = f.get('columns-open');
+	const boxes = [...e.currentTarget.querySelectorAll('input[name=element]')];
+	const items = boxes.map((b) => ({ id: b.value, label: b.dataset.label, disposition: b.checked ? 'keep' : 'drop' }));
+	const notes = (f.get('notes') || '').trim();
+	const text = `Redesign direction: ${direction}. Columns section open: ${columnsOpen}. Elements kept: ${items.filter((i) => i.disposition === 'keep').map((i) => i.id).join(', ') || 'none'}; dropped: ${items.filter((i) => i.disposition === 'drop').map((i) => i.id).join(', ') || 'none'}.${notes ? ` Notes: ${notes}` : ''}`;
+	const state = document.getElementById('queued-state');
+	if (window.lavish?.queuePrompt) {
+		window.lavish.queuePrompt(`${text} Account for every element ID (R1-R9) in the follow-up brief.`, { tag: 'tracked-batch', text: `Direction: ${direction}`, element: e.currentTarget, queueKey: 'redesign-direction', data: { question: 'redesign-direction', direction, columnsOpen, notes, items } });
+		state.textContent = 'Queued. Press "Send to Agent" in the Lavish bar when ready.';
+	} else {
+		navigator.clipboard?.writeText(text).then(() => { state.textContent = 'Lavish is not running; the answer was copied to your clipboard.'; }, () => { state.textContent = text; });
+	}
+});
+
+renderTabs();
+render();
+</script>
+</body>
+</html>

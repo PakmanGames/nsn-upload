@@ -68,13 +68,17 @@ Progress is a phase label ("Reading", "Analyzing"), not a percentage.
 
 **Recommendation:** option 2 unless time remains.
 
-## Spec fixes in progress (no decision needed)
+## Spec fixes (no decision needed)
 
-These are routed to the owning task and tracked here so they are not lost.
+Routed to the owning task and tracked here so they were not lost.
 
 | Fix | TASK_SPEC | Owner | State |
 | --- | --- | --- | --- |
-| Rewrite the README: run commands, `.env` with `OPENROUTER_API_KEY`, `AI_PROVIDER=mock`, `pnpm test:acceptance`, link to the design note | Deliverable 4 | T8 (wave 3) | Not started |
-| Check AI availability only when the user turns AI on (or on the server at page load), not when the review window opens | "Network transmission must be disabled unless AI parsing is explicitly enabled" | T7 | To route after #11 merges |
-| Header chip: "179 rows -> 180 records" instead of "180 candidates", so it reads against the spec's "179 candidate data rows" | Acceptance case (WOW) | T7 | To route after #11 merges |
-| Playwright E2E per example file | Testing expectations | T8 (wave 3) | Not started |
+| Rewrite the README: run commands, `.env` with `OPENROUTER_API_KEY`, `AI_PROVIDER=mock`, `pnpm test:acceptance`, link to the design note | Deliverable 4 | T8 | Done (#16) |
+| Check AI availability only when the user turns AI on, not when the review window opens | "Network transmission must be disabled unless AI parsing is explicitly enabled" | T7 | Done (#17) |
+| Header chip: "179 rows -> 180 records" instead of "180 candidates", so it reads against the spec's "179 candidate data rows" | Acceptance case (WOW) | T7, T8 | Done (#17, #18) |
+| Playwright E2E per example file | Testing expectations | T8 | Done (#16, #18) |
+
+## Decided since parking
+
+- **Review window redesign:** decided on 2026-10-24 after the prototype; recorded as D20 in `PLAN.md` and briefed as UX1.
