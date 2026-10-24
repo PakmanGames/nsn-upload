@@ -59,7 +59,9 @@ describe('fixture acceptance', () => {
 
 				it(`${sheet.name}: header, mapping, and rows`, () => {
 					const table = tableOf(analysis, sheet.name);
-					expect(table.id).toBe(`${sheet.name}@${expected.headerRows[0]}`);
+					// A table without a header row starts, and is named, at its first data row.
+					const top = expected.headerRows[0] ?? expected.dataRows?.[0];
+					expect(table.id).toBe(`${sheet.name}@${top}`);
 					expect(table.status).toBe(sheet.status);
 					expect(table.headerRows).toEqual(expected.headerRows);
 					if (expected.mapping) expect(mappedColumns(table)).toEqual(expected.mapping);
@@ -71,7 +73,7 @@ describe('fixture acceptance', () => {
 						// Rows below the table are listed as skipped but lie outside its range.
 						const inTable = expected.skippedRows.filter(({ reason }) => reason !== 'below-table');
 						const lastRow = Math.max(...expected.dataRows, ...inTable.map(({ row }) => row));
-						expect(table.range).toMatchObject({ top: expected.headerRows[0], bottom: lastRow });
+						expect(table.range).toMatchObject({ top, bottom: lastRow });
 					}
 					if (expected.records !== undefined) {
 						expect(analysis.records.filter((record) => record.tableId === table.id)).toHaveLength(
