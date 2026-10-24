@@ -39,10 +39,13 @@ const OPTIONAL_FIELDS: readonly Field[] = ['description', 'cage'];
 
 /**
  * `${sheet}@${first header row}`; a table without a header row uses the first row of its range, its first data
- * row. Neither depends on the column mapping, so the id survives remaps.
+ * row. Neither depends on the column mapping, so the id survives remaps. Only when tables side by side start on
+ * the same row is their first column added (`Parts@1:F`), so every other id, and the choices stored under it,
+ * stays as it was.
  */
-export function tableId(sheet: string, spec: Pick<TableSpec, 'headerRows' | 'range'>): string {
-	return `${sheet}@${spec.headerRows.length > 0 ? Math.min(...spec.headerRows) : spec.range.top}`;
+export function tableId(sheet: string, spec: Pick<TableSpec, 'headerRows' | 'range'>, sharesFirstRow = false): string {
+	const id = `${sheet}@${spec.headerRows.length > 0 ? Math.min(...spec.headerRows) : spec.range.top}`;
+	return sharesFirstRow ? `${id}:${colLetter(spec.range.left)}` : id;
 }
 
 /** "3", "3-5", "3-5, 9, 12-14", capped so a reason stays one readable line. */

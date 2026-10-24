@@ -43,15 +43,24 @@ export function activeRecords(analysis: WorkbookAnalysis): CandidateRecord[] {
 	return analysis.records.filter((record) => !held.has(record.tableId));
 }
 
-/** "rows 34-58": tables on one sheet never share rows, so their rows tell them apart where a user looks in Excel. */
+/** "rows 34-58": stacked tables never share rows, so their rows tell them apart where a user looks in Excel. */
 export function tableRows({ range }: TableCandidate): string {
 	return range.top === range.bottom ? `row ${range.top}` : `rows ${range.top}-${range.bottom}`;
 }
 
-/** The table's sheet, plus its rows when the sheet has several tables: "Sheet1, rows 34-58". */
+/** Its rows, plus its columns when a table beside it shares some of those rows: "rows 1-40, columns F-I". */
+function tablePlace(table: TableCandidate, sheets: SheetAnalysis[]): string {
+	const { top, bottom, left, right } = table.range;
+	const tables = sheets.find((sheet) => sheet.name === table.sheet)?.tables ?? [];
+	const beside = tables.some((other) => other.id !== table.id && other.range.top <= bottom && top <= other.range.bottom);
+	if (!beside) return tableRows(table);
+	return `${tableRows(table)}, ${left === right ? `column ${colLetter(left)}` : `columns ${colLetter(left)}-${colLetter(right)}`}`;
+}
+
+/** The table's sheet, plus where it is when the sheet has several tables: "Sheet1, rows 34-58". */
 export function tableLabel(table: TableCandidate, sheets: SheetAnalysis[]): string {
 	const several = (sheets.find((sheet) => sheet.name === table.sheet)?.tables.length ?? 0) > 1;
-	return several ? `${table.sheet}, ${tableRows(table)}` : table.sheet;
+	return several ? `${table.sheet}, ${tablePlace(table, sheets)}` : table.sheet;
 }
 
 const PRIMARY_NOUN: Partial<Record<Field, string>> = { part: 'part numbers', nsn: 'NSNs', niin: 'NIINs' };
@@ -230,9 +239,9 @@ export function columnsSummary(analysis: WorkbookAnalysis): string {
 	const tables = analysis.sheets.flatMap((sheet) => sheet.tables).filter((table) => !held.has(table.id));
 	if (tables.length === 0) return 'No table is included';
 	if (tables.length === 1) return mappedFields(tables[0]).join(', ');
-	// Tables of one sheet need only their rows; the sheet name would repeat on every one.
+	// Tables of one sheet need only where they are; the sheet name would repeat on every one.
 	const oneSheet = new Set(tables.map((table) => table.sheet)).size === 1;
-	const label = (table: TableCandidate) => (oneSheet ? capitalize(tableRows(table)) : tableLabel(table, analysis.sheets));
+	const label = (table: TableCandidate) => (oneSheet ? capitalize(tablePlace(table, analysis.sheets)) : tableLabel(table, analysis.sheets));
 	return tables.map((table) => `${label(table)}: ${mappedFields(table).join(', ')}`).join(' · ');
 }
 

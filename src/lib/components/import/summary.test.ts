@@ -133,6 +133,23 @@ describe('R4 and R5 section summaries', () => {
 		expect(tableLabel(wow.sheets[0].tables[0], wow.sheets)).toBe('Active Parts');
 	});
 
+	it('adds the columns of tables side by side, which share their rows', () => {
+		const header = ['Part Number', 'NSN', 'Description'];
+		const nsn = (i: number) => `5305-01-${String(100 + i).padStart(3, '0')}-${String(2000 + i)}`;
+		const rows = [
+			[...header, null, ...header],
+			...[1, 2, 3].map((i) => [`BRK-${i}`, nsn(i), `Screw ${i}`, null, `BRK-${50 + i}`, nsn(50 + i), `Nut ${i}`])
+		];
+		const analysis = analyze(makeWorkbook('beside.xlsx', [makeSheet('Parts', rows)]), []);
+		expect(analysis.sheets[0].tables.map((table) => tableLabel(table, analysis.sheets))).toEqual([
+			'Parts, rows 1-4, columns A-C',
+			'Parts, rows 1-4, columns E-G'
+		]);
+		expect(columnsSummary(analysis)).toBe(
+			'Rows 1-4, columns A-C: Part number, NSN, Description · Rows 1-4, columns E-G: Part number, NSN, Description'
+		);
+	});
+
 	it('opens Columns only for an uncertain mapping of an included table or a user remap', () => {
 		expect(columnsOpenByDefault(fixture(WOW))).toBe(false);
 		expect(columnsOpenByDefault(fixture(STATZ))).toBe(false);
