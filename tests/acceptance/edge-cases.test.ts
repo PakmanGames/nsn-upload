@@ -11,6 +11,7 @@ import { analyze } from '../../src/lib/import/analyze';
 import type { WorkbookAnalysis, WorkbookModel } from '../../src/lib/import/model';
 import { readWorkbook } from '../../src/lib/import/reader';
 import {
+	acceptAllSuggestions,
 	expectSummaryConsistent,
 	expectTraceable,
 	mappedColumns,
@@ -71,7 +72,20 @@ describe('edge-case workbooks', () => {
 			expect(recordsOf(analysis, 'Archive')).toHaveLength(0);
 			expect(analysis.summary.toImport).toBe(2);
 		});
-		it.todo('offers "Include anyway" for the hidden sheet, held back for confirmation (H1)');
+		it('offers "Include anyway" for the hidden sheet, held back for confirmation (H1)', async () => {
+			const { model } = await load('hidden-sheet-parts.xlsx');
+			const overrides = { includedHiddenSheets: ['Archive'] };
+			const included = analyze(model, [], overrides);
+			expect(sheetOf(included, 'Archive')).toMatchObject({ status: 'ready', aiTrigger: null });
+			expect(included.decisions.find((d) => d.tableId === 'Archive@1')).toMatchObject({ state: 'pending', suggested: 'include' });
+			expect(included.summary).toMatchObject({ pendingDecisions: 1, toImport: 2 });
+
+			const accepted = analyze(model, [], acceptAllSuggestions(included, overrides));
+			expect(accepted.summary).toMatchObject({ pendingDecisions: 0, toImport: 6 });
+			expect(recordsOf(accepted, 'Archive')).toHaveLength(4);
+			expectTraceable(model, accepted);
+			expectSummaryConsistent(accepted);
+		});
 	});
 
 	describe('headerless-niins-as-numbers.xlsx', () => {
