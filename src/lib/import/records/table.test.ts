@@ -345,7 +345,7 @@ describe('derivation and consistency', () => {
 		expect(badNiin.fields.niin).toBeUndefined();
 	});
 
-	it('flags an NSN that disagrees with its NIIN or FSC as a conflict naming both cells', () => {
+	it('holds an NSN that disagrees with its NIIN or FSC as a pending conflict naming both cells', () => {
 		const sheet = sheetOf(['NSN', 'NIIN', 'FSC'], {
 			2: ['5305-01-658-2565', '016582566', null],
 			3: ['5305-01-658-2565', null, '5310'],
@@ -356,12 +356,125 @@ describe('derivation and consistency', () => {
 		expect(niinConflict.issues).toEqual([
 			expect.objectContaining({ code: 'conflict', severity: 'error', field: 'niin', cells: [`${SHEET}!A2`, `${SHEET}!B2`] })
 		]);
-		expect(niinConflict).toMatchObject({ status: 'invalid', approved: false });
+		expect(niinConflict).toMatchObject({ status: 'pending', approved: false });
 		expect(fscConflict.issues).toEqual([
 			expect.objectContaining({ code: 'conflict', field: 'fsc', cells: [`${SHEET}!A3`, `${SHEET}!C3`] })
 		]);
 		expect(fscConflict.fields.niin?.provenance.origin).toBe('derived');
+		expect(fscConflict).toMatchObject({ status: 'pending', approved: false });
 		expect(consistent).toMatchObject({ issues: [], status: 'valid' });
+	});
+});
+
+describe('identifier conflict decisions', () => {
+	const HEADER = ['Part', 'NSN', 'NIIN', 'FSC', 'Nomenclature', 'CAGE'];
+	const FIELDS: Field[] = ['part', 'nsn', 'niin', 'fsc', 'description', 'cage'];
+	// The NSN implies NIIN 016582565 and FSC 5305; the row's own NIIN and FSC cells say otherwise.
+	const ROW = ['MS51957-3', '5305-01-658-2565', '016698021', '5310', 'Screw, machine', '0bwz1'];
+	const choose = (choice: string) => ({
+		decisions: { [decisionId('resolve-identifier-conflict', `${TABLE_ID}:r2`)]: choice }
+	});
+
+	it('keeps the NSN with prefer-nsn, rejecting the cells that disagree and deriving the NIIN', () => {
+		const [record] = build(sheetOf(HEADER, { 2: ROW }), FIELDS, choose('prefer-nsn'));
+
+		expect(record.fields.nsn?.value).toBe('5305016582565');
+		expect(record.fields.niin).toMatchObject({
+			value: '016582565',
+			provenance: { origin: 'derived', derivedFrom: ['B2'] }
+		});
+		expect(record.fields.fsc).toBeUndefined();
+		expect(record.rejected).toEqual({
+			niin: { original: '016698021', cell: 'C2' },
+			fsc: { original: '5310', cell: 'D2' }
+		});
+		expect(record.issues).toEqual([
+			{
+				code: 'conflict',
+				severity: 'warning',
+				field: 'niin',
+				message: `NIIN in ${SHEET}!C2 disagrees with NSN in ${SHEET}!B2; kept the NSN`,
+				cells: [`${SHEET}!C2`, `${SHEET}!B2`]
+			},
+			{
+				code: 'conflict',
+				severity: 'warning',
+				field: 'fsc',
+				message: `FSC in ${SHEET}!D2 disagrees with NSN in ${SHEET}!B2; kept the NSN`,
+				cells: [`${SHEET}!D2`, `${SHEET}!B2`]
+			}
+		]);
+		expect(record).toMatchObject({ status: 'warning', approved: true });
+	});
+
+	it('keeps the NIIN and FSC with prefer-niin-fsc, deriving the NSN from them', () => {
+		const [record] = build(sheetOf(HEADER, { 2: ROW }), FIELDS, choose('prefer-niin-fsc'));
+
+		expect(record.fields.nsn).toMatchObject({
+			value: '5310016698021',
+			provenance: { origin: 'derived', derivedFrom: ['C2', 'D2'] }
+		});
+		expect(record.fields.niin).toMatchObject({ value: '016698021', provenance: { origin: 'source' } });
+		expect(record.fields.fsc?.value).toBe('5310');
+		expect(record.rejected).toEqual({ nsn: { original: '5305-01-658-2565', cell: 'B2' } });
+		expect(record.issues).toEqual([
+			{
+				code: 'conflict',
+				severity: 'warning',
+				field: 'nsn',
+				message: `NSN in ${SHEET}!B2 disagrees with NIIN in ${SHEET}!C2 and FSC in ${SHEET}!D2; kept the NIIN and FSC`,
+				cells: [`${SHEET}!B2`, `${SHEET}!C2`, `${SHEET}!D2`]
+			}
+		]);
+		expect(record).toMatchObject({ status: 'warning', approved: true });
+	});
+
+	it('leaves a NIIN and no NSN when prefer-niin-fsc has no FSC column to derive from', () => {
+		const sheet = sheetOf(['Part', 'NSN', 'NIIN'], { 2: ROW.slice(0, 3) });
+		const [record] = build(sheet, ['part', 'nsn', 'niin'], choose('prefer-niin-fsc'));
+
+		expect(record.fields.nsn).toBeUndefined();
+		expect(record.fields.niin?.value).toBe('016698021');
+		expect(record.rejected).toEqual({ nsn: { original: '5305-01-658-2565', cell: 'B2' } });
+		expect(issue(record, 'conflict')?.message).toBe(
+			`NSN in ${SHEET}!B2 disagrees with NIIN in ${SHEET}!C2; kept the NIIN`
+		);
+		expect(record).toMatchObject({ status: 'warning', approved: true });
+	});
+
+	it.each(['exclude-row', 'prefer-fsc'])('builds the undecided records for %s', (choice) => {
+		const sheet = sheetOf(HEADER, { 2: ROW });
+		const undecided = build(sheet, FIELDS);
+
+		expect(undecided[0]).toMatchObject({ status: 'pending', approved: false });
+		expect(build(sheet, FIELDS, choose(choice))).toEqual(undecided);
+	});
+
+	it('leaves part, description, and CAGE alone whichever side is chosen', () => {
+		const sheet = sheetOf(HEADER, { 2: ROW });
+		const { part, description, cage } = build(sheet, FIELDS)[0].fields;
+
+		for (const choice of ['prefer-nsn', 'prefer-niin-fsc', 'exclude-row']) {
+			expect(build(sheet, FIELDS, choose(choice))[0].fields).toMatchObject({ part, description, cage });
+		}
+	});
+
+	it('applies the choice only to the split records whose NSN conflicts', () => {
+		const sheet = sheetOf(['NSN', 'NIIN'], { 2: ['5305-01-658-2565\n5305-01-658-2566', '016582565'] });
+		expect(build(sheet, ['nsn', 'niin']).map((r) => r.status)).toEqual(['valid', 'pending']);
+
+		const [agrees, conflicts] = build(sheet, ['nsn', 'niin'], choose('prefer-nsn'));
+		expect(agrees).toMatchObject({ rejected: {}, status: 'valid', approved: true });
+		expect(agrees.fields.niin?.provenance.origin).toBe('source');
+		expect(conflicts.rejected).toEqual({ niin: { original: '016582565', cell: 'B2' } });
+		expect(conflicts.fields.niin).toMatchObject({ value: '016582566', provenance: { origin: 'derived' } });
+		expect(conflicts).toMatchObject({ status: 'warning', approved: true });
+	});
+
+	it('ignores a stored choice on a row whose identifiers agree', () => {
+		const sheet = sheetOf(HEADER, { 2: ['MS51957-3', '5305-01-658-2565', '016582565', '5305', 'Screw', '0bwz1'] });
+
+		expect(build(sheet, FIELDS, choose('prefer-niin-fsc'))).toEqual(build(sheet, FIELDS));
 	});
 });
 
