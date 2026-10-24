@@ -238,6 +238,12 @@ describe('fixture acceptance', () => {
 		it('approves every candidate record', () => {
 			expect(analysis.records.filter((record) => !record.approved).map((record) => record.id)).toEqual([]);
 		});
+
+		it('saves the worked-out NIIN labeled derived, and the NSN read from the file unlabeled (D25)', () => {
+			const { add } = toImportPlan(analysis);
+			expect(add).toHaveLength(analysis.summary.toImport);
+			for (const input of add) expect(input.derived, input.part).toEqual(input.nsn ? ['niin'] : undefined);
+		});
 	});
 
 	describe(statz.file, () => {
@@ -303,6 +309,15 @@ describe('fixture acceptance', () => {
 				record.issues.filter((issue) => issue.code === 'missing-optional')
 			);
 			expect(warnings).toEqual([]);
+		});
+
+		it('saves all 54 records with the NIIN labeled derived, since Statz has no NIIN column (D25)', () => {
+			const { add } = toImportPlan(analysis);
+			expect(add).toHaveLength(54);
+			for (const input of add) {
+				expect(input.niin, input.part).toBe(input.nsn?.slice(4));
+				expect(input.derived, input.part).toEqual(['niin']);
+			}
 		});
 	});
 

@@ -14,6 +14,8 @@
 
 	const storageKey = 'nsn-upload-interview-task:mappings';
 	const pageSize = 8;
+	/** What the importer worked each identifier out from, for the "derived" tag (D25). */
+	const derivedFrom = { nsn: 'Worked out from the FSC and NIIN', niin: 'Worked out from the NSN' };
 
 	let mappings = $state<MappingRecord[]>(demoMappings.map((mapping) => ({ ...mapping })));
 	let searchTerm = $state('');
@@ -202,8 +204,8 @@
 							<tr class="transition hover:bg-slate-50/80">
 								<td class="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{mapping.part ?? '—'}</td>
 								<td class="max-w-72 truncate px-4 py-3 text-slate-600">{mapping.description ?? '—'}</td>
-								<td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">{mapping.nsn ?? '—'}</td>
-								<td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">{mapping.niin ?? '—'}</td>
+								{@render identifier(mapping, 'nsn')}
+								{@render identifier(mapping, 'niin')}
 								<td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">{mapping.cage ?? '—'}</td>
 								<td class="px-4 py-3">
 									<span class={['inline-flex rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset', statusStyle(mapping.status)]}>
@@ -257,6 +259,20 @@
 		</p>
 	</div>
 </div>
+
+{#snippet identifier(mapping: MappingRecord, field: 'nsn' | 'niin')}
+	<td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+		{mapping[field] ?? '—'}
+		{#if mapping[field] && mapping.derived?.includes(field)}
+			<span
+				class="ml-1.5 rounded bg-slate-50 px-1.5 py-0.5 font-sans text-[11px] font-medium text-slate-500 ring-1 ring-inset ring-slate-200"
+				title={derivedFrom[field]}
+			>
+				derived
+			</span>
+		{/if}
+	</td>
+{/snippet}
 
 <ImportReviewWindow
 	open={showUpload}

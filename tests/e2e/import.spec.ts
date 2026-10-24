@@ -29,14 +29,14 @@ const CHIPS: Array<[keyof ImportSummary, (count?: number) => RegExp]> = [
 	['splitRecords', (n) => new RegExp(String.raw`^${n ?? String.raw`\d+`} split\b`)]
 ];
 
-type SavedRow = Partial<Record<'part' | 'description' | 'nsn' | 'niin' | 'cage', string>>;
+type SavedRow = Partial<Record<'part' | 'description' | 'nsn' | 'niin' | 'cage', string>> & Pick<MappingInput, 'derived'>;
 
 /** Records to find in the mappings table after import: the search text, then every row it must show. */
 const SAVED: Record<string, Array<{ search: string; rows: SavedRow[] }>> = {
 	[wow.file]: [
 		{
 			search: '10552364',
-			rows: [{ part: '10552364', description: 'Pin', nsn: '5315219078920', niin: '219078920' }]
+			rows: [{ part: '10552364', description: 'Pin', nsn: '5315219078920', niin: '219078920', derived: ['niin'] }]
 		},
 		// D136 holds two part numbers; each becomes its own record.
 		{ search: '12669555', rows: [{ part: '12669555', description: 'Sprocket, Final Drive' }] },
@@ -51,7 +51,8 @@ const SAVED: Record<string, Array<{ search: string; rows: SavedRow[] }>> = {
 			rows: ['5210011066157', '5220011066157', '6685011066157'].map((nsn) => ({
 				part: '2-24024',
 				nsn,
-				niin: '011066157'
+				niin: '011066157',
+				derived: ['niin' as const]
 			}))
 		}
 	],
@@ -105,7 +106,10 @@ async function expectSaved(page: Page, search: string, rows: SavedRow[]) {
 	for (const [i, row] of rows.entries()) {
 		const cells = body.nth(i).getByRole('cell');
 		for (const [col, key] of (['part', 'description', 'nsn', 'niin', 'cage'] as const).entries()) {
-			await expect(cells.nth(col), `${search} row ${i + 1} ${key}`).toHaveText(row[key] ?? '—');
+			const derived = (key === 'nsn' || key === 'niin') && row.derived?.includes(key);
+			await expect(cells.nth(col), `${search} row ${i + 1} ${key}`).toHaveText(
+				derived ? `${row[key]} derived` : (row[key] ?? '—')
+			);
 		}
 	}
 }
@@ -138,6 +142,41 @@ for (const fixture of FIXTURES) {
 		expect(posts, 'AI requests without AI assistance turned on').toEqual([]);
 	});
 }
+
+test('keeps the NIIN worked out from the NSN labeled derived after importing Statz (D25)', async ({ page }) => {
+	// A record saved before the label existed has no `derived` field, and still shows as it always did.
+	const saved = {
+		id: 'old-1',
+		part: 'OLD-1',
+		nsn: '5305016582565',
+		niin: '016582565',
+		createdAt: '2026-10-01T00:00:00.000Z',
+		status: 'Ready'
+	};
+	await page.addInitScript((record) => {
+		if (!localStorage.getItem('nsn-upload-interview-task:mappings')) {
+			localStorage.setItem('nsn-upload-interview-task:mappings', JSON.stringify([record]));
+		}
+	}, saved);
+	const dialog = await upload(page, `${FIXTURE_DIR}${statz.file}`);
+	await importButton(dialog, statz.afterAcceptAll.toImport).click();
+	await dialog.getByRole('button', { name: 'Back to mappings' }).click();
+
+	await expectSaved(page, 'OLD-1', [saved]);
+	const rows = page.getByRole('table').locator('tbody tr');
+	await expect(rows.getByText('derived', { exact: true })).toHaveCount(0);
+
+	await page.getByPlaceholder('Search mappings…').fill('');
+	await expect(page.getByText(`of ${statz.afterAcceptAll.toImport + 1} mappings`)).toBeVisible();
+	// The first page shows 8 Statz records: each NIIN carries the tag, and no NSN does, since Statz has an NSN column.
+	const statzRows = rows.filter({ hasNotText: 'OLD-1' });
+	await expect(statzRows).toHaveCount(8);
+	for (const row of await statzRows.all()) {
+		const [nsn, niin] = [row.getByRole('cell').nth(2), row.getByRole('cell').nth(3)];
+		await expect(niin.getByText('derived', { exact: true })).toHaveAttribute('title', 'Worked out from the NSN');
+		await expect(nsn.getByText('derived', { exact: true })).toHaveCount(0);
+	}
+});
 
 /** A sheet the importer only half understands: NSNs under a header it does not know, and no part header. */
 async function stockExport(): Promise<Buffer> {
