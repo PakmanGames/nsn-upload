@@ -123,11 +123,15 @@ describe('end of the table', () => {
 	});
 
 	it('leaves trailing blank rows in the range when nothing follows them', () => {
-		// detectTable stops a table above a stacked second one, which can leave blank rows at the bottom.
-		const rows: CellInput[][] = [['Part Number', 'NSN'], ...parts(2), [], ['NIIN', 'CAGE'], ['016582565', '0BWZ1']];
+		// A note further down, outside the table's columns, makes the sheet's last row the table's last row, so
+		// blank rows close the range. (A stacked second table is a table of its own, with the gap in neither.)
+		const rows: CellInput[][] = [['Part Number', 'NSN'], ...parts(2), [], [null, null, null, 'Prices valid until March']];
 		const table = tableFor(rows);
-		expect(table.range.bottom).toBe(4);
-		expect(table.skippedRows).toEqual([{ row: 4, reason: 'blank' }]);
+		expect(table.range.bottom).toBe(5);
+		expect(table.skippedRows).toEqual([
+			{ row: 4, reason: 'blank' },
+			{ row: 5, reason: 'blank' }
+		]);
 	});
 });
 
