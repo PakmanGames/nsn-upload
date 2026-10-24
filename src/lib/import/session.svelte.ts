@@ -4,9 +4,17 @@
  *
  * The workbook is read once. Every correction (column remap, decision choice, verified AI table) builds new
  * Overrides and re-runs analyze() on the kept model, so the preview recomputes without rereading the file.
- * The pipeline sits behind ImportEngine so the window can run on mock data until the real modules land.
+ * The pipeline sits behind ImportEngine so the session can be tested against a mock without SheetJS or a network.
  */
 import { browser } from '$app/environment';
+import {
+	buildInterpretationRequest,
+	createHttpInterpreter,
+	getAiAvailability,
+	verifyInterpretation,
+	type AiAvailability
+} from './ai';
+import { analyze } from './analyze';
 import {
 	WorkbookReadError,
 	type Field,
@@ -17,10 +25,10 @@ import {
 	type WorkbookAnalysis,
 	type WorkbookModel
 } from './model';
+import { readWorkbook } from './reader';
+import { toMappingInputs } from './validate';
 
 export type ImportPhase = 'idle' | 'reading' | 'analyzing' | 'ready' | 'importing' | 'done' | 'error';
-
-export type AiAvailability = { available: boolean; reason?: string };
 
 /** Pipeline entry points the session drives. */
 export type ImportEngine = {
@@ -29,7 +37,26 @@ export type ImportEngine = {
 	toMappingInputs(analysis: WorkbookAnalysis): MappingInput[];
 	aiAvailability(): Promise<AiAvailability>;
 	/** Sends the sheets that asked for help to the interpreter and verifies its answer against the workbook. */
-	interpret(model: WorkbookModel, sheets: SheetAnalysis[], signal: AbortSignal): Promise<VerificationResult>;
+	interpret(
+		model: WorkbookModel,
+		sheets: SheetAnalysis[],
+		signal: AbortSignal
+	): Promise<{ sent: string[]; result: VerificationResult }>;
+};
+
+export const pipelineEngine: ImportEngine = {
+	read: async (file) => readWorkbook(await file.arrayBuffer(), file.name),
+	analyze,
+	toMappingInputs,
+	aiAvailability: () => getAiAvailability(),
+	async interpret(model, sheets, signal) {
+		const request = buildInterpretationRequest(model, sheets);
+		const sent = request.sheets.map((sheet) => sheet.name);
+		// Sampling can leave nothing worth sending (e.g. every triggered sheet is empty); skip the request then.
+		if (sent.length === 0) return { sent, result: { tables: [], rejected: [] } };
+		const interpretation = await createHttpInterpreter().interpret(request, signal);
+		return { sent, result: verifyInterpretation(model, request, interpretation) };
+	}
 };
 
 export type AiRun = {
@@ -66,7 +93,7 @@ export class ImportSession {
 	#existing: MappingInput[] = [];
 	#aiAbort: AbortController | null = null;
 
-	constructor(engine: ImportEngine) {
+	constructor(engine: ImportEngine = pipelineEngine) {
 		this.#engine = engine;
 	}
 
@@ -196,9 +223,9 @@ export class ImportSession {
 		};
 		this.aiRun = run;
 		try {
-			const result = await this.#engine.interpret(model, analysis.sheets, abort.signal);
+			const { sent, result } = await this.#engine.interpret(model, analysis.sheets, abort.signal);
 			if (abort.signal.aborted) return;
-			this.aiRun = { ...run, status: 'done', result };
+			this.aiRun = { ...run, status: 'done', sheets: sent, result };
 			this.#apply({ ...this.overrides, aiTables: result.tables });
 		} catch (error) {
 			if (abort.signal.aborted) return;

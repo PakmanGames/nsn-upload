@@ -90,7 +90,9 @@
 								</span>
 							{/if}
 						</div>
-						<p class="mt-1 whitespace-pre-line break-words font-mono text-sm text-slate-900">{value.value}</p>
+						<p class={['mt-1 whitespace-pre-line break-words text-sm text-slate-900', field !== 'description' && 'font-mono']}>
+							{value.value}
+						</p>
 						<dl class="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
 							<dt class="text-slate-500">Cell</dt>
 							<dd class="font-mono text-slate-800">{qualifiedRef(provenance.sheet, provenance.cell)}</dd>

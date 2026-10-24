@@ -1,5 +1,5 @@
 /**
- * Mock pipeline for building the review window before the real modules land (wave 1).
+ * Mock pipeline for exercising the review window and its session without SheetJS or a network.
  *
  * One workbook combines the shapes of the three fixtures (WOW, Statz, PENCOM) so every sheet status, record
  * status, issue code, and decision kind and state appears. buildMockAnalysis() honors Overrides in a simplified
@@ -1223,7 +1223,7 @@ const delay = (ms: number, signal?: AbortSignal) =>
 		});
 	});
 
-/** Stands in for the pipeline: any .xlsx file yields the mock analysis. */
+/** Test double for the pipeline: any .xlsx file yields the mock analysis. */
 export const mockEngine: ImportEngine = {
 	async read(file) {
 		await delay(500);
@@ -1246,6 +1246,6 @@ export const mockEngine: ImportEngine = {
 	aiAvailability: async () => ({ available: true }),
 	async interpret(_model, _sheets, signal) {
 		await delay(1500, signal);
-		return MOCK_AI_RESULT;
+		return { sent: ['Search Log'], result: MOCK_AI_RESULT };
 	}
 };

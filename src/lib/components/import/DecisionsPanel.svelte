@@ -22,6 +22,11 @@
 	/** The option picked in a pending decision's control before it is applied; defaults to the suggestion. */
 	let picks = $state<Record<string, string>>({});
 	let collapsed = $state<Record<string, boolean>>({});
+	let showAll = $state<Record<string, boolean>>({});
+
+	// A re-uploaded workbook can produce hundreds of storage drops; big groups start closed and list a page at a time.
+	const OPEN_UP_TO = 5;
+	const LIST_UP_TO = 25;
 
 	const pending = $derived(decisions.filter((decision) => decision.state === 'pending'));
 	const chosenByUser = $derived(decisions.filter((decision) => decision.state === 'user'));
@@ -190,7 +195,7 @@
 						<div class="min-w-0">
 							{@render kindTag(decision)}
 							<p class="mt-0.5 text-sm font-medium text-slate-900">{label(decision, decision.chosen)}</p>
-							<p class="mt-0.5 text-xs text-slate-500">{decision.reason}</p>
+							<p class="mt-0.5 line-clamp-3 text-xs text-slate-500" title={decision.reason}>{decision.reason}</p>
 							{@render recordLinks(decision)}
 						</div>
 						<button
@@ -220,7 +225,8 @@
 		{/if}
 		<div class="mt-2 space-y-2">
 			{#each automatic as [kind, group] (kind)}
-				{@const isCollapsed = collapsed[kind] ?? false}
+				{@const isCollapsed = collapsed[kind] ?? group.length > OPEN_UP_TO}
+				{@const shown = showAll[kind] ? group : group.slice(0, LIST_UP_TO)}
 				<div class="rounded-lg border border-slate-200 bg-white">
 					<button
 						type="button"
@@ -236,12 +242,14 @@
 					</button>
 					{#if !isCollapsed}
 						<ul class="divide-y divide-slate-100 border-t border-slate-100">
-							{#each group as decision (decision.id)}
+							{#each shown as decision (decision.id)}
 								{@const others = decision.options.filter((option) => option.id !== decision.chosen)}
 								<li class="flex items-start justify-between gap-3 px-3 py-2.5">
 									<div class="min-w-0">
 										<p class="text-sm text-slate-800">{label(decision, decision.chosen)}</p>
-										<p class="mt-0.5 break-words text-xs text-slate-500">{decision.reason}</p>
+										<p class="mt-0.5 line-clamp-3 break-words text-xs text-slate-500" title={decision.reason}>
+											{decision.reason}
+										</p>
 										{@render recordLinks(decision)}
 									</div>
 									{#if others.length === 1}
@@ -269,6 +277,17 @@
 									{/if}
 								</li>
 							{/each}
+							{#if shown.length < group.length}
+								<li class="px-3 py-2">
+									<button
+										type="button"
+										class="text-xs font-medium text-blue-700 hover:text-blue-900"
+										onclick={() => (showAll[kind] = true)}
+									>
+										Show all {group.length}
+									</button>
+								</li>
+							{/if}
 						</ul>
 					{/if}
 				</div>

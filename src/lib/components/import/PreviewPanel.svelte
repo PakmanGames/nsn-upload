@@ -13,11 +13,14 @@
 		filter: RecordFilter;
 		/** 'all' or a sheet name. */
 		scope: string;
+		/** Ids of records held back until a pending decision is made; the Pending tab lists them. */
+		heldBack: Set<string>;
 		activeRecordId: string | null;
 		onOpen: (record: CandidateRecord) => void;
 	};
 
-	let { records, sheetNames, filter = $bindable(), scope = $bindable(), activeRecordId, onOpen }: Props = $props();
+	let { records, sheetNames, filter = $bindable(), scope = $bindable(), heldBack, activeRecordId, onOpen }: Props =
+		$props();
 
 	const pageSize = 100;
 	let query = $state('');
@@ -42,8 +45,13 @@
 		{ id: 'pending', label: 'Pending' }
 	];
 
-	const matches = (record: CandidateRecord, id: RecordFilter) =>
-		id === 'all' || (id === 'split' ? !!record.split : record.status === id);
+	function matches(record: CandidateRecord, id: RecordFilter) {
+		if (id === 'all') return true;
+		if (id === 'split') return !!record.split;
+		// Pending covers every record waiting on a decision, e.g. a conflict or a table that needs review.
+		if (id === 'pending') return record.status === 'pending' || heldBack.has(record.id);
+		return record.status === id;
+	}
 
 	const scoped = $derived(scope === 'all' ? records : records.filter((record) => record.sheet === scope));
 
@@ -152,10 +160,10 @@
 				<tr>
 					<th class="w-10 px-3 py-2.5 font-medium"><span class="sr-only">Imports</span></th>
 					<th class="px-3 py-2.5 font-medium">Source</th>
+					<th class="px-3 py-2.5 font-medium">Status</th>
 					{#each COLUMNS as column (column.field)}
 						<th class="px-3 py-2.5 font-medium">{column.label}</th>
 					{/each}
-					<th class="px-3 py-2.5 font-medium">Status</th>
 				</tr>
 			</thead>
 			<tbody class="divide-y divide-slate-100">
@@ -198,16 +206,31 @@
 								{/if}
 							</button>
 						</td>
+						<td class="px-3 py-2.5">
+							<span class={['inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', status.style]}>
+								{status.label}
+							</span>
+							{#if issue}
+								<span class="mt-1 block max-w-52 truncate text-xs text-slate-500" title={issue.message}>
+									{issue.message}
+								</span>
+								{#if record.issues.length > 1}
+									<span class="block text-[11px] text-slate-400">+{record.issues.length - 1} more</span>
+								{/if}
+							{/if}
+						</td>
 						{#each COLUMNS as column (column.field)}
 							{@const value = record.fields[column.field]}
 							{@const rejected = record.rejected[column.field]}
-							<td class={['px-3 py-2.5', column.field === 'description' ? 'max-w-64' : 'whitespace-nowrap']}>
+							<td class={['px-3 py-2.5', column.field === 'description' ? 'min-w-40 max-w-64' : 'whitespace-nowrap']}>
 								{#if value}
 									<span
 										class={[
 											'block',
-											column.mono ? 'font-mono text-xs' : 'whitespace-pre-line',
-											column.field === 'description' && 'line-clamp-2',
+											column.mono && 'font-mono text-xs',
+											// Part numbers never wrap at their hyphens; a kept multi-line cell shows its lines.
+											column.field === 'part' && 'max-w-64 truncate whitespace-pre',
+											column.field === 'description' && 'line-clamp-2 whitespace-pre-line',
 											record.approved ? 'text-slate-800' : 'text-slate-500'
 										]}
 									>
@@ -219,7 +242,10 @@
 										</span>
 									{/if}
 								{:else if rejected}
-									<span class="block font-mono text-xs text-red-700 line-through decoration-red-400" title="Rejected value">
+									<span
+										class="block max-w-40 truncate font-mono text-xs text-red-700 line-through decoration-red-400"
+										title={`Rejected: ${rejected.original}`}
+									>
 										{rejected.original || 'Excel error'}
 									</span>
 									<span class="mt-0.5 block text-[11px] text-red-700">rejected · {rejected.cell}</span>
@@ -228,19 +254,6 @@
 								{/if}
 							</td>
 						{/each}
-						<td class="px-3 py-2.5">
-							<span class={['inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', status.style]}>
-								{status.label}
-							</span>
-							{#if issue}
-								<span class="mt-1 block max-w-64 truncate text-xs text-slate-500" title={issue.message}>
-									{issue.message}
-								</span>
-								{#if record.issues.length > 1}
-									<span class="block text-[11px] text-slate-400">+{record.issues.length - 1} more</span>
-								{/if}
-							{/if}
-						</td>
 					</tr>
 				{:else}
 					<tr>

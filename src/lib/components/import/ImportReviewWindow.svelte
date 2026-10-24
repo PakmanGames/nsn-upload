@@ -2,6 +2,7 @@
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import CircleCheck from '@lucide/svelte/icons/circle-check-big';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
+	import FileUp from '@lucide/svelte/icons/file-up';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Upload from '@lucide/svelte/icons/upload';
 	import X from '@lucide/svelte/icons/x';
@@ -15,8 +16,6 @@
 	import ProvenanceDrawer from './ProvenanceDrawer.svelte';
 	import SheetsPanel from './SheetsPanel.svelte';
 	import { FIELD_LABEL, plural, type RecordFilter } from './labels';
-	// Wave 1: the window runs on mock data until the pipeline modules land.
-	import { mockEngine } from './mock-analysis';
 
 	type Props = {
 		open: boolean;
@@ -30,7 +29,7 @@
 	let { open, existing, onClose, onImport }: Props = $props();
 
 	// The session outlives the dialog, so closing mid-review and reopening keeps the user's corrections.
-	const session = new ImportSession(mockEngine);
+	const session = new ImportSession();
 
 	let selectedSheet = $state<string | null>(null);
 	let previewScope = $state('all');
@@ -71,6 +70,7 @@
 		const tables = new Set(pending.filter((decision) => decision.kind === 'include-table').map((decision) => decision.tableId));
 		return (analysis?.records ?? []).filter((record) => !record.approved && (ids.has(record.id) || tables.has(record.tableId)));
 	});
+	const heldBackIds = $derived(new Set(heldBack.map((record) => record.id)));
 	const drawerRecord = $derived(drawerRecordId ? recordsById.get(drawerRecordId) : undefined);
 
 	$effect(() => {
@@ -92,11 +92,20 @@
 		remapNotice = '';
 	}
 
-	function onCancel(event: Event) {
-		// Escape closes the innermost layer first, and never interrupts reading or importing.
-		event.preventDefault();
+	/** Escape closes the innermost layer first, and never interrupts reading or importing. */
+	function dismiss() {
 		if (drawerRecordId) closeDrawer();
 		else close();
+	}
+
+	function onKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape' || event.defaultPrevented) return;
+		// Let a search box clear itself first.
+		if (event.target instanceof HTMLInputElement && event.target.type === 'search' && event.target.value) return;
+		// Handled on keydown: the dialog's own cancel event is not cancelable without a fresh user activation,
+		// so preventing it there could still close the whole window when only the drawer should close.
+		event.preventDefault();
+		dismiss();
 	}
 
 	function selectFile(file: File | undefined) {
@@ -151,12 +160,11 @@
 
 	/** Why each record that will not be imported stays out, for the result screen. */
 	function notImported(records: CandidateRecord[]) {
-		const held = new Set(heldBack.map((record) => record.id));
 		const reasons = { review: 0, invalid: 0, duplicate: 0, excluded: 0 };
 		for (const record of records) {
 			if (record.approved) continue;
 			if (excludedTables.has(record.tableId)) reasons.excluded++;
-			else if (held.has(record.id)) reasons.review++;
+			else if (heldBackIds.has(record.id)) reasons.review++;
 			else if (record.status === 'invalid') reasons.invalid++;
 			else if (record.status === 'duplicate') reasons.duplicate++;
 			else reasons.excluded++;
@@ -178,14 +186,19 @@
 {#if open}
 	<dialog
 		{@attach (dialog: HTMLDialogElement) => dialog.showModal()}
-		class="m-0 h-dvh max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-slate-950/55 backdrop:backdrop-blur-[2px] sm:p-4"
+		class="m-0 h-dvh max-h-none w-full max-w-none overflow-clip bg-transparent p-0 backdrop:bg-slate-950/55 backdrop:backdrop-blur-[2px] sm:p-4"
 		aria-labelledby="import-title"
-		oncancel={onCancel}
+		onkeydown={onKeydown}
+		oncancel={(event) => {
+			event.preventDefault();
+			dismiss();
+		}}
 		onclose={onClose}
 		ondragover={(event) => event.preventDefault()}
 		ondrop={(event) => event.preventDefault()}
 	>
-		<div class="relative flex h-full flex-col overflow-hidden bg-[#f6f7f9] sm:rounded-xl sm:border sm:border-slate-200 sm:shadow-2xl">
+		<!-- overflow-clip, not hidden: a hidden container still scrolls for scrollIntoView and would shift the header away. -->
+		<div class="relative flex h-full flex-col overflow-clip bg-[#f6f7f9] sm:rounded-xl sm:border sm:border-slate-200 sm:shadow-2xl">
 			<header class="border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
 				<div class="flex items-start justify-between gap-3">
 					<div class="flex min-w-0 gap-3">
@@ -196,7 +209,12 @@
 							<h2 id="import-title" class="text-lg font-semibold text-slate-950">Smart Upload</h2>
 							<p class="mt-0.5 truncate text-sm text-slate-500">
 								{#if session.fileName}
-									{session.fileName}{#if analysis}<span class="text-slate-400"> · {plural(analysis.summary.sheets, 'sheet')}, {plural(analysis.summary.tablesIncluded, 'table')} included</span>{/if}
+									{session.fileName}
+									{#if analysis}
+										<span class="text-slate-400">
+											{`· ${plural(analysis.summary.sheets, 'sheet')}, ${plural(analysis.summary.tablesIncluded, 'table')} included`}
+										</span>
+									{/if}
 								{:else}
 									Upload an Excel workbook. Every sheet is checked for importable tables.
 								{/if}
@@ -207,11 +225,13 @@
 						{#if reviewing}
 							<button
 								type="button"
-								class="hidden rounded-md px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:text-slate-300 sm:inline-flex"
+								class="inline-flex items-center gap-2 rounded-md p-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:text-slate-300 sm:px-3"
+								aria-label="Choose another file"
 								disabled={session.busy}
 								onclick={reset}
 							>
-								Choose another file
+								<FileUp size={17} class="sm:hidden" />
+								<span class="hidden sm:inline">Choose another file</span>
 							</button>
 						{/if}
 						<button
@@ -228,7 +248,11 @@
 
 				{#if reviewing && analysis}
 					<div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-						<ul class="flex flex-wrap gap-1.5" aria-label="Summary">
+						<!-- One scrolling row on phones keeps the fixed header short. -->
+						<ul
+							class="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&>li]:shrink-0"
+							aria-label="Summary"
+						>
 							{#each CHIPS as chip (chip.key)}
 								{@const value = analysis.summary[chip.key]}
 								<li>
@@ -271,7 +295,7 @@
 							{#if session.phase === 'importing'}<LoaderCircle class="animate-spin" size={16} />{/if}
 							Import {plural(analysis.summary.toImport, 'record')}
 							{#if heldBack.length}
-								<span class="font-normal text-blue-100">({heldBack.length} need review)</span>
+								<span class="font-normal opacity-80">({heldBack.length} need review)</span>
 							{/if}
 						</button>
 					</div>
@@ -281,15 +305,15 @@
 			{#if session.phase === 'done' && analysis}
 				{@const reasons = notImported(analysis.records)}
 				{@const bySheet = Object.entries(Object.groupBy(analysis.records.filter((record) => record.approved), (record) => record.sheet))}
-				<div class="flex-1 overflow-y-auto px-4 py-10">
-					<div class="mx-auto max-w-lg rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+				<div class="flex flex-1 flex-col overflow-y-auto px-4 py-10 sm:justify-center sm:pb-24">
+					<div class="mx-auto w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
 						<div class="mx-auto grid size-12 place-items-center rounded-full bg-emerald-50 text-emerald-600">
 							<CircleCheck size={24} />
 						</div>
 						<h3 class="mt-4 text-lg font-semibold text-slate-950">
 							{plural(session.importedCount, 'record')} added to your NSN table
 						</h3>
-						<p class="mt-1 text-sm text-slate-500">Saved in this browser. No network request was made.</p>
+						<p class="mt-1 text-sm text-slate-500">Saved in this browser.</p>
 						<dl class="mt-6 divide-y divide-slate-100 rounded-lg border border-slate-200 text-left text-sm">
 							{#each bySheet as [sheet, records] (sheet)}
 								<div class="flex justify-between gap-3 px-4 py-2">
@@ -317,7 +341,7 @@
 				</div>
 			{:else if reviewing && analysis}
 				<div class="relative min-h-0 flex-1">
-					<div class="h-full overflow-y-auto xl:grid xl:grid-cols-[18rem_minmax(0,1fr)_24rem] xl:overflow-hidden">
+					<div class="h-full overflow-y-auto xl:grid xl:grid-cols-[18rem_minmax(0,1fr)_24rem] xl:overflow-clip">
 						<div class="space-y-4 border-b border-slate-200 p-4 xl:overflow-y-auto xl:border-b-0 xl:border-r">
 							<SheetsPanel
 								sheets={analysis.sheets}
@@ -355,6 +379,7 @@
 								sheetNames={analysis.sheets.filter((sheet) => sheet.tables.length && !excludedTables.has(sheet.tables[0].id)).map((sheet) => sheet.name)}
 								bind:filter
 								bind:scope={previewScope}
+								heldBack={heldBackIds}
 								activeRecordId={drawerRecordId}
 								onOpen={(record) => openRecord(record.id)}
 							/>
@@ -380,8 +405,8 @@
 					{/if}
 				</div>
 			{:else}
-				<div class="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
-					<div class="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[1fr_1.15fr]">
+				<div class="flex flex-1 flex-col overflow-y-auto px-4 py-6 sm:justify-center sm:px-6 sm:pb-24">
+					<div class="mx-auto grid w-full max-w-4xl gap-4 lg:grid-cols-[1fr_1.15fr]">
 						<div class="rounded-lg border border-slate-200 bg-white p-4">
 							<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">What happens</p>
 							<ul class="mt-3 space-y-2 text-sm text-slate-700">
@@ -457,7 +482,7 @@
 					</div>
 
 					{#if session.phase === 'error'}
-						<div class="mx-auto mt-4 flex max-w-4xl gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+						<div class="mx-auto mt-4 flex w-full max-w-4xl gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
 							<CircleAlert class="mt-0.5 shrink-0" size={17} />
 							<div>
 								<p class="font-medium">This workbook could not be read</p>

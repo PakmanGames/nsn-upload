@@ -50,12 +50,11 @@
 			</h3>
 			{#if table}
 				<p class="mt-0.5 text-xs text-slate-500">
-					Range <span class="font-mono text-slate-700">{rangeToA1(table.range)}</span> · header row{table.headerRows.length > 1
-						? 's'
-						: ''}
-					<span class="font-mono text-slate-700">{table.headerRows.join(', ')}</span> · {plural(table.dataRows.length, 'data row')}
-					· {plural(recordCount, 'record')}{#if skipped.length}
-						· skipped {skipped.join(', ')}{/if}
+					Range <span class="font-mono text-slate-700">{rangeToA1(table.range)}</span>
+					{`· header ${table.headerRows.length > 1 ? 'rows' : 'row'}`}
+					<span class="font-mono text-slate-700">{table.headerRows.join(', ')}</span>
+					{`· ${plural(table.dataRows.length, 'data row')} · ${plural(recordCount, 'record')}`}
+					{#if skipped.length}{`· skipped ${skipped.join(', ')}`}{/if}
 				</p>
 			{/if}
 		</div>
@@ -96,7 +95,7 @@
 		</div>
 	{:else}
 		{#if table.reasons.length}
-			<ul class="flex flex-wrap gap-x-4 gap-y-1 border-b border-slate-100 px-4 py-2 text-xs text-slate-600">
+			<ul class="list-disc space-y-0.5 border-b border-slate-100 py-2 pl-8 pr-4 text-xs leading-5 text-slate-600 marker:text-slate-300" aria-label="Table evidence">
 				{#each table.reasons as reason, i (i)}
 					<li>{reason}</li>
 				{/each}
@@ -121,7 +120,7 @@
 		{/if}
 
 		<div
-			class="hidden grid-cols-[3.25rem_minmax(0,1fr)_11rem_7.5rem] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-500 md:grid"
+			class="hidden grid-cols-[3.25rem_minmax(0,1fr)_11rem_8.5rem] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-500 md:grid"
 			aria-hidden="true"
 		>
 			<span>Column</span>
@@ -135,7 +134,7 @@
 				{@const hidden = model?.hiddenCols.has(column.col) ?? false}
 				{@const groups = fieldGroups(column)}
 				<li
-					class="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-4 py-2.5 md:grid-cols-[3.25rem_minmax(0,1fr)_11rem_7.5rem]"
+					class="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-4 py-2.5 md:grid-cols-[3.25rem_minmax(0,1fr)_11rem_8.5rem]"
 				>
 					<span class="font-mono text-xs font-medium text-slate-500">{letter}</span>
 					<div class="min-w-0">
@@ -175,7 +174,9 @@
 					</div>
 					<div class="col-start-2 flex items-center gap-1.5 md:col-start-auto">
 						{#if column.overridden}
-							<span class="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
+							<span
+								class="inline-flex whitespace-nowrap rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20"
+							>
 								Set by you
 							</span>
 							<button
