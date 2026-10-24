@@ -8,7 +8,7 @@ import ExcelJS from 'exceljs';
 import { demoMappings } from '../../src/lib/demo-data';
 import type { ImportSummary, MappingInput, SheetStatus } from '../../src/lib/import/model';
 import { FIXTURES, pencom, statz, wow } from '../fixtures/expectations';
-import { FIXTURE_DIR, importButton, openSection, section, upload, XLSX_TYPE } from './helpers';
+import { FIXTURE_DIR, importButton, openSection, recordAiRequests, section, turnAiOff, upload, XLSX_TYPE } from './helpers';
 
 /** What each sheet card's badge says. */
 const BADGE: Record<SheetStatus, string> = {
@@ -59,15 +59,6 @@ const SAVED: Record<string, Array<{ search: string; rows: SavedRow[] }>> = {
 	[pencom.file]: pencom.imported.map((input: MappingInput) => ({ search: input.part ?? '', rows: [input] }))
 };
 
-/** POSTs to the AI route; parsing and importing must never send one. */
-function recordAiPosts(page: Page): string[] {
-	const posts: string[] = [];
-	page.on('request', (request) => {
-		if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/interpret') posts.push(request.url());
-	});
-	return posts;
-}
-
 async function sheetCard(dialog: Locator, name: string): Promise<Locator> {
 	const sheets = await openSection(dialog, 'sheets');
 	return sheets.getByRole('listitem').filter({ has: dialog.page().getByText(name, { exact: true }) });
@@ -116,7 +107,9 @@ async function expectSaved(page: Page, search: string, rows: SavedRow[]) {
 
 for (const fixture of FIXTURES) {
 	test(`${fixture.file}: review, resolve, import, and see the records`, async ({ page }) => {
-		const posts = recordAiPosts(page);
+		// The deterministic flow: with AI on (the default), PENCOM's Search Log would get an AI table mid-test.
+		await turnAiOff(page);
+		const requests = recordAiRequests(page);
 		const dialog = await upload(page, `${FIXTURE_DIR}${fixture.file}`);
 
 		for (const sheet of fixture.sheets) {
@@ -139,7 +132,7 @@ for (const fixture of FIXTURES) {
 
 		await expect(page.getByText(`of ${demoMappings.length + imported} mappings`)).toBeVisible();
 		for (const { search, rows } of SAVED[fixture.file]) await expectSaved(page, search, rows);
-		expect(posts, 'AI requests without AI assistance turned on').toEqual([]);
+		expect(requests, 'AI requests after AI assistance was turned off').toEqual([]);
 	});
 }
 
@@ -193,8 +186,9 @@ async function stockExport(): Promise<Buffer> {
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
-test('AI assistance sends nothing until turned on, then shows the mock proposal with an AI badge', async ({ page }) => {
-	const posts = recordAiPosts(page);
+test('AI assistance turned off sends nothing; turned on, it shows the mock proposal with an AI badge', async ({ page }) => {
+	await turnAiOff(page);
+	const requests = recordAiRequests(page);
 	const dialog = await upload(page, { name: 'stock-export.xlsx', mimeType: XLSX_TYPE, buffer: await stockExport() });
 	const card = await sheetCard(dialog, 'Stock');
 	// AI assistance opens by itself when a sheet could use it.
@@ -203,13 +197,14 @@ test('AI assistance sends nothing until turned on, then shows the mock proposal 
 
 	await expect(card).toContainText(BADGE['needs-review']);
 	await expect(card.getByText('AI', { exact: true })).toHaveCount(0);
-	await expect(ai).toContainText('Could help with Stock');
-	expect(posts).toEqual([]);
+	await expect(ai).toContainText('Could help with Stock. It is off, so nothing is sent.');
+	expect(requests).toEqual([]);
 
 	await ai.getByRole('switch', { name: 'AI assistance' }).click();
 	await expect(ai).toContainText('Sent Stock. Accepted 1 table.');
 	await expect(card.getByText('AI', { exact: true })).toBeVisible();
-	expect(posts).toHaveLength(1);
+	// The availability check, then one interpretation.
+	expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
 
 	// The mock's confidence is below the auto-apply threshold, so its table waits for the user, marked as AI.
 	const tableDecision = dialog.getByRole('region', { name: /^Needs your decision/ });
