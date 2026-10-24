@@ -75,11 +75,11 @@
 
 	/** Visible columns with at least one value below the header, each with its first few values. */
 	const columns = $derived.by(() => {
-		const start = headerRows.length ? Math.max(...headerRows) + 1 : extent.top;
+		const firstDataRow = headerRows.length ? Math.max(...headerRows) + 1 : extent.top;
 		const samples = new Map<number, string[]>();
 		for (let col = extent.left; col <= right; col++) if (!sheet.hiddenCols.has(col)) samples.set(col, []);
 		let open = samples.size;
-		for (let row = start; row <= extent.bottom && open > 0; row++) {
+		for (let row = firstDataRow; row <= extent.bottom && open > 0; row++) {
 			if (sheet.hiddenRows.has(row)) continue;
 			for (const [col, values] of samples) {
 				if (values.length === SAMPLES) continue;
