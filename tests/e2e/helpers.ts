@@ -5,7 +5,8 @@ import { expect, type Locator, type Page } from '@playwright/test';
 export const FIXTURE_DIR = fileURLToPath(new URL('../../example-excel-uploads/', import.meta.url));
 export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-export async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
+/** Opens the Smart Upload window from the mappings page. */
+export async function openSmartUpload(page: Page): Promise<Locator> {
 	await page.goto('/');
 	const dialog = page.getByRole('dialog', { name: 'Smart Upload' });
 	// The page is server-rendered, and a click that lands before hydration does nothing (seen on a loaded
@@ -14,6 +15,11 @@ export async function upload(page: Page, file: string | { name: string; mimeType
 		if (!(await dialog.isVisible())) await page.getByRole('button', { name: 'Smart Upload' }).click();
 		await expect(dialog).toBeVisible({ timeout: 2_000 });
 	}).toPass({ timeout: 20_000 });
+	return dialog;
+}
+
+export async function upload(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }) {
+	const dialog = await openSmartUpload(page);
 	await dialog.locator('input[type=file]').setInputFiles(file);
 	await expect(importButton(dialog)).toBeVisible();
 	return dialog;
