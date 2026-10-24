@@ -1,14 +1,16 @@
 <script lang="ts">
 	import Check from '@lucide/svelte/icons/check';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Minus from '@lucide/svelte/icons/minus';
 	import Search from '@lucide/svelte/icons/search';
-	import type { CandidateRecord, Field } from '$lib/import/model';
+	import type { CandidateRecord, Field, TableCandidate } from '$lib/import/model';
 	import { qualifiedRef } from '$lib/import/refs';
 	import { RECORD_STATUS, plural, type RecordFilter } from './labels';
 
 	type Props = {
-		/** Records of included and pending tables; excluded tables are left out, as in the summary. */
+		/** Records of tables that are not held back; held-back tables fold into one line each below the table. */
 		records: CandidateRecord[];
+		held: Array<{ table: TableCandidate; records: CandidateRecord[] }>;
 		sheetNames: string[];
 		filter: RecordFilter;
 		/** 'all' or a sheet name. */
@@ -19,7 +21,7 @@
 		onOpen: (record: CandidateRecord) => void;
 	};
 
-	let { records, sheetNames, filter = $bindable(), scope = $bindable(), heldBack, activeRecordId, onOpen }: Props =
+	let { records, held, sheetNames, filter = $bindable(), scope = $bindable(), heldBack, activeRecordId, onOpen }: Props =
 		$props();
 
 	const pageSize = 100;
@@ -54,6 +56,10 @@
 	}
 
 	const scoped = $derived(scope === 'all' ? records : records.filter((record) => record.sheet === scope));
+	// A field no record has (CAGE in most files) only costs width, so its column is left out.
+	const columns = $derived(
+		COLUMNS.filter(({ field }) => scoped.some((record) => record.fields[field] || record.rejected[field]))
+	);
 
 	/** Values, rejected originals, and cell refs (bare and sheet-qualified), lowercased for search. */
 	const searchText = $derived(
@@ -97,40 +103,11 @@
 	}
 </script>
 
-<section id="preview" aria-labelledby="preview-heading" class="rounded-lg border border-slate-200 bg-white shadow-sm">
-	<div class="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-		<div>
-			<h3 id="preview-heading" class="text-sm font-semibold text-slate-950">Preview</h3>
-			<p class="mt-0.5 text-xs text-slate-500">Select a row to see where each value came from.</p>
-		</div>
-		<div class="flex flex-col gap-2 sm:flex-row">
-			<select
-				class="rounded-md border border-slate-300 bg-white py-2 pl-3 pr-8 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-				aria-label="Sheet"
-				bind:value={scope}
-			>
-				<option value="all">All sheets</option>
-				{#each sheetNames as name (name)}
-					<option value={name}>{name}</option>
-				{/each}
-			</select>
-			<label class="relative block">
-				<span class="sr-only">Search values and cell references, such as D136</span>
-				<Search class="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={16} />
-				<input
-					class="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-60"
-					type="search"
-					placeholder="Search values or cells"
-					bind:value={query}
-				/>
-			</label>
-		</div>
-	</div>
-
-	<!-- Tabs wrap rather than scroll, so every status stays visible in a narrow pane. -->
-	<div class="border-b border-slate-200">
-		<div class="flex flex-wrap gap-1 px-3 py-2" role="tablist" aria-label="Filter by status">
-			{#each FILTERS as option (option.id)}
+<div>
+	<div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+		<!-- Only statuses that occur get a tab; tabs wrap rather than scroll so none is hidden in a narrow pane. -->
+		<div class="flex flex-wrap gap-1" role="tablist" aria-label="Filter by status">
+			{#each FILTERS.filter((option) => option.id === 'all' || option.id === filter || counts[option.id] > 0) as option (option.id)}
 				<button
 					type="button"
 					role="tab"
@@ -153,16 +130,41 @@
 				</button>
 			{/each}
 		</div>
+		<div class="flex flex-col gap-2 sm:flex-row">
+			{#if sheetNames.length > 1}
+				<select
+					class="rounded-md border border-slate-300 bg-white py-1.5 pl-3 pr-8 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+					aria-label="Sheet"
+					bind:value={scope}
+				>
+					<option value="all">All sheets</option>
+					{#each sheetNames as name (name)}
+						<option value={name}>{name}</option>
+					{/each}
+				</select>
+			{/if}
+			<label class="relative block">
+				<span class="sr-only">Search values and cell references, such as D136</span>
+				<Search class="pointer-events-none absolute left-3 top-2 text-slate-400" size={16} />
+				<input
+					class="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-60"
+					type="search"
+					placeholder="Search values or cells"
+					bind:value={query}
+				/>
+			</label>
+		</div>
 	</div>
+	<p class="mt-2 text-xs text-slate-500">Select a row to see where each value came from.</p>
 
-	<div class="overflow-x-auto">
-		<table class="w-full min-w-[56rem] border-collapse text-left text-sm">
+	<div class="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+		<table class="w-full min-w-[44rem] border-collapse text-left text-sm">
 			<thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
 				<tr>
 					<th class="w-10 px-3 py-2.5 font-medium"><span class="sr-only">Imports</span></th>
 					<th class="px-3 py-2.5 font-medium">Source</th>
 					<th class="px-3 py-2.5 font-medium">Status</th>
-					{#each COLUMNS as column (column.field)}
+					{#each columns as column (column.field)}
 						<th class="px-3 py-2.5 font-medium">{column.label}</th>
 					{/each}
 				</tr>
@@ -212,7 +214,7 @@
 								{status.label}
 							</span>
 							{#if issue}
-								<span class="mt-1 block max-w-52 truncate text-xs text-slate-500" title={issue.message}>
+								<span class="mt-1 block max-w-44 truncate text-xs text-slate-500" title={issue.message}>
 									{issue.message}
 								</span>
 								{#if record.issues.length > 1}
@@ -220,7 +222,7 @@
 								{/if}
 							{/if}
 						</td>
-						{#each COLUMNS as column (column.field)}
+						{#each columns as column (column.field)}
 							{@const value = record.fields[column.field]}
 							{@const rejected = record.rejected[column.field]}
 							<td class={['px-3 py-2.5', column.field === 'description' ? 'min-w-40 max-w-64' : 'whitespace-nowrap']}>
@@ -230,7 +232,7 @@
 											'block',
 											column.mono && 'font-mono text-xs',
 											// Part numbers never wrap at their hyphens; a kept multi-line cell shows its lines.
-											column.field === 'part' && 'max-w-64 truncate whitespace-pre',
+											column.field === 'part' && 'max-w-52 truncate whitespace-pre',
 											column.field === 'description' && 'line-clamp-2 whitespace-pre-line',
 											record.approved ? 'text-slate-800' : 'text-slate-500'
 										]}
@@ -258,7 +260,7 @@
 					</tr>
 				{:else}
 					<tr>
-						<td colspan={COLUMNS.length + 3} class="px-4 py-12 text-center">
+						<td colspan={columns.length + 3} class="px-4 py-12 text-center">
 							<p class="text-sm font-medium text-slate-700">No records match</p>
 							<p class="mt-1 text-xs text-slate-500">Try another status, sheet, or search.</p>
 						</td>
@@ -268,7 +270,7 @@
 		</table>
 	</div>
 
-	<div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+	<div class="mt-2 flex flex-wrap items-center justify-between gap-2">
 		<p class="text-xs text-slate-500">
 			{#if visible.length}
 				Showing {page * pageSize + 1}-{page * pageSize + pageRows.length} of {plural(visible.length, 'record')}
@@ -296,4 +298,27 @@
 			</button>
 		</div>
 	</div>
-</section>
+
+	{#each held as group (group.table.id)}
+		<details class="group/held mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-2">
+			<summary
+				class="flex cursor-pointer list-none items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
+			>
+				<ChevronRight size={14} class="shrink-0 transition group-open/held:rotate-90" />
+				{group.table.sheet} · {plural(new Set(group.records.map((record) => record.sourceRow)).size, 'row')} held back, not importing
+			</summary>
+			<ul class="mt-1 divide-y divide-slate-100 text-sm text-slate-600">
+				{#each group.records as record (record.id)}
+					<li>
+						<button type="button" class="flex w-full flex-wrap gap-x-2 py-1 text-left hover:text-slate-900" onclick={() => onOpen(record)}>
+							<span>Row {record.sourceRow}</span>
+							{#each [record.fields.part?.value, record.fields.nsn?.value].filter(Boolean) as value, i (i)}
+								<span class="font-mono text-xs leading-5">· {value}</span>
+							{/each}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</details>
+	{/each}
+</div>

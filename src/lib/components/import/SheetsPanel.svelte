@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import type { Decision, SheetAnalysis } from '$lib/import/model';
 	import { rangeToA1 } from '$lib/import/refs';
@@ -11,13 +11,12 @@
 		decisions: Decision[];
 		/** Candidate records per table id. */
 		recordCounts: Map<string, number>;
-		selected: string | null;
-		onSelect: (sheet: string) => void;
 		onInclude: (decisionId: string, include: boolean) => void;
 	};
 
-	let { sheets, decisions, recordCounts, selected, onSelect, onInclude }: Props = $props();
+	let { sheets, decisions, recordCounts, onInclude }: Props = $props();
 	let expanded = $state<Record<string, boolean>>({});
+	const uid = $props.id();
 
 	const includeDecisions = $derived(
 		new Map(
@@ -26,6 +25,9 @@
 				.map((decision) => [decision.tableId!, decision])
 		)
 	);
+	const withTables = $derived(sheets.filter((sheet) => sheet.status === 'ready' || sheet.status === 'needs-review'));
+	const nothing = $derived(sheets.filter((sheet) => sheet.status === 'no-table'));
+	const hidden = $derived(sheets.filter((sheet) => sheet.status === 'hidden'));
 
 	function details(sheet: SheetAnalysis): string[] {
 		const table = sheet.tables[0];
@@ -37,93 +39,96 @@
 	}
 </script>
 
-<section aria-labelledby="sheets-heading">
-	<h3 id="sheets-heading" class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-		Sheets <span class="font-normal normal-case tracking-normal text-slate-400">({sheets.length})</span>
-	</h3>
-	<ul class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1">
-		{#each sheets as sheet (sheet.name)}
+{#snippet badge(sheet: SheetAnalysis)}
+	<span class={['inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', SHEET_STATUS[sheet.status].style]}>
+		{SHEET_STATUS[sheet.status].label}
+	</span>
+{/snippet}
+
+{#snippet fold(label: string, list: SheetAnalysis[])}
+	<details class="group/fold">
+		<summary
+			class="flex cursor-pointer list-none items-center gap-1.5 rounded py-1.5 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden"
+		>
+			<ChevronRight size={14} class="transition group-open/fold:rotate-90" />
+			{label}
+		</summary>
+		<ul class="ml-5 divide-y divide-slate-100">
+			{#each list as sheet (sheet.name)}
+				<li class="py-2">
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="text-sm font-medium text-slate-700">{sheet.name}</span>
+						{@render badge(sheet)}
+					</div>
+					<ul class="mt-1 list-disc space-y-0.5 pl-5 text-xs leading-5 text-slate-600">
+						{#each sheet.reasons as reason, i (i)}
+							<li>{reason}</li>
+						{/each}
+					</ul>
+				</li>
+			{/each}
+		</ul>
+	</details>
+{/snippet}
+
+{#if withTables.length}
+	<ul class="divide-y divide-slate-100">
+		{#each withTables as sheet (sheet.name)}
 			{@const table = sheet.tables[0]}
 			{@const decision = table && includeDecisions.get(table.id)}
-			{@const status = SHEET_STATUS[sheet.status]}
 			{@const isOpen = expanded[sheet.name] ?? false}
-			<li
-				class={[
-					'rounded-lg border bg-white transition',
-					selected === sheet.name ? 'border-blue-400 ring-1 ring-blue-400' : 'border-slate-200',
-					sheet.status === 'hidden' && 'bg-slate-50'
-				]}
-			>
-				<div class="flex items-start gap-2 p-3">
-					<button
-						type="button"
-						class="min-w-0 flex-1 rounded text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-						aria-current={selected === sheet.name}
-						onclick={() => onSelect(sheet.name)}
-					>
-						<span
-							class={[
-								'block truncate text-sm font-medium',
-								sheet.status === 'hidden' ? 'text-slate-500' : 'text-slate-900'
-							]}
-						>
-							{sheet.name}
+			{@const reasonsId = `${uid}-${sheet.index}`}
+			<li class="py-2 first:pt-0">
+				<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+					<p class="min-w-0 text-sm">
+						<span class="font-medium text-slate-900">{sheet.name}</span>
+						<span class="text-slate-500">
+							{`· ${rangeToA1(table.range)} · ${plural(recordCounts.get(table.id) ?? 0, 'record')}`}
 						</span>
-						<span class="mt-1.5 flex flex-wrap items-center gap-1.5">
-							<span class={['inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', status.style]}>
-								{status.label}
+					</p>
+					<div class="flex items-center gap-2">
+						{#if table.source === 'ai'}
+							<span
+								class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"
+							>
+								<Sparkles size={11} /> AI
 							</span>
-							{#if table?.source === 'ai'}
-								<span
-									class="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"
-								>
-									<Sparkles size={11} /> AI
-								</span>
-							{/if}
-						</span>
-						<span class="mt-1.5 block text-xs text-slate-500">
-							{#if table}
-								{plural(recordCounts.get(table.id) ?? 0, 'record')} · {rangeToA1(table.range)}
-							{:else if sheet.status === 'hidden'}
-								Not read
-							{:else}
-								Nothing to import
-							{/if}
-						</span>
-					</button>
-					{#if decision}
-						<div class="flex flex-col items-end gap-1 pt-0.5">
+						{/if}
+						{@render badge(sheet)}
+						{#if decision}
 							<Switch
 								checked={decision.chosen === 'include'}
 								label={`Include ${sheet.name}`}
 								onchange={(include) => onInclude(decision.id, include)}
 							/>
-							<span class="text-[11px] text-slate-500">
-								{decision.state === 'pending' ? 'Pending' : decision.chosen === 'include' ? 'Included' : 'Excluded'}
-							</span>
-						</div>
-					{/if}
+						{/if}
+					</div>
 				</div>
 				<button
 					type="button"
-					class="flex w-full items-center gap-1 border-t border-slate-100 px-3 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-blue-600"
+					class="mt-1 flex items-center gap-1 rounded text-xs text-slate-500 transition hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-blue-600"
 					aria-expanded={isOpen}
+					aria-controls={reasonsId}
 					onclick={() => (expanded[sheet.name] = !isOpen)}
 				>
-					<ChevronDown size={13} class={['transition', !isOpen && '-rotate-90']} />
+					<ChevronRight size={13} class={['transition', isOpen && 'rotate-90']} />
 					Why this classification
 				</button>
-				{#if isOpen}
-					<ul class="list-disc space-y-1 px-3 pb-3 pl-7 text-xs leading-5 text-slate-600">
-						{#each details(sheet) as reason, i (i)}
-							<li>{reason}</li>
-						{/each}
-						{#if sheet.aiTrigger}
-							<li class="text-violet-700">AI could help: {sheet.aiTrigger}</li>
-						{/if}
-					</ul>
-				{/if}
+				<ul id={reasonsId} hidden={!isOpen} class="mt-1 list-disc space-y-1 pl-7 text-xs leading-5 text-slate-600">
+					{#each details(sheet) as reason, i (i)}
+						<li>{reason}</li>
+					{/each}
+					{#if sheet.aiTrigger}
+						<li class="text-violet-700">AI could help: {sheet.aiTrigger}</li>
+					{/if}
+				</ul>
 			</li>
 		{/each}
 	</ul>
-</section>
+{/if}
+{#if nothing.length}
+	{@render fold(`${plural(nothing.length, 'sheet')} with nothing to import`, nothing)}
+{/if}
+{#if hidden.length}
+	{@render fold(`${hidden.length} hidden ${hidden.length === 1 ? 'sheet' : 'sheets'}, ignored`, hidden)}
+{/if}
