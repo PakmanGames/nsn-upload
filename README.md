@@ -1,53 +1,111 @@
-# NSN Smart Upload — Standalone Interview Project
+# NSN Smart Upload
 
-This is a self-contained extraction of the **Settings → NSNs** smart-upload workflow. It
-keeps the page context, Excel upload modal, header detection, normalization, validation,
-preview, import results, search, and mappings table.
+A standalone **Settings -> NSNs** page whose Smart Upload imports real-world Excel workbooks: several sheets, titles above the table, repeated headers, metadata columns, two part numbers in one cell, and sheets that only mention NSNs.
+Every sheet is classified, columns are mapped from headers and values, identifiers are normalized with full provenance, and a review window shows every decision before anything is saved.
+Imported records stay in the browser's `localStorage`; there is no backend.
 
-The candidate-facing extension brief is in [`TASK_SPEC.md`](./TASK_SPEC.md). It covers
-multi-sheet discovery, complex headers, unstructured workbooks, multiline identifiers,
-provenance, and an optional AI-assisted interpretation boundary.
-
-It deliberately has no application backend:
-
-- no Supabase client or query
-- no tRPC client or firm identifier
-- no authentication, analytics, or application-wide UI dependencies
-- imported rows are stored in browser `localStorage`
+- Design note (how and why it works, tradeoffs, unsupported cases): [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Exercise brief: [`TASK_SPEC.md`](TASK_SPEC.md)
+- Example workbooks: [`example-excel-uploads/`](example-excel-uploads/)
 
 ## Run it
 
+Requires Node 20.19+ or 22.12+ and pnpm.
+
 ```bash
 pnpm install
-pnpm run dev
+pnpm dev
 ```
 
-Then open the local URL printed by Vite. The upload modal can generate its own sample
-`.xlsx` workbook.
+Open the URL Vite prints, click **Smart Upload**, and choose an `.xlsx` file, for example one from `example-excel-uploads/`.
 
-## Useful checks
+To run the production build locally:
 
 ```bash
-pnpm test
-pnpm check
 pnpm build
+pnpm preview
 ```
+
+## Optional AI assistance
+
+The importer is deterministic and needs no key or network.
+AI assistance is an optional fallback for sheets it cannot read confidently; it is off until the user turns it on in the review window, and it only ever proposes structure (which rows and columns form a table), which is then verified against the workbook.
+
+To configure it, copy the example env file; `.env` is gitignored:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | For live AI | OpenRouter API key. Read only by the server route `/api/interpret`; it never reaches the browser. Without it, the AI switch is disabled with the reason, and everything else works. |
+| `OPENROUTER_MODEL` | No | OpenRouter model slug. Defaults to `anthropic/claude-opus-5.5`; the model must support structured outputs. |
+| `AI_PROVIDER` | No | `mock` uses the built-in mock interpreter instead of OpenRouter: no key and no network. The E2E tests use it, and it is handy for demos. It takes precedence over `OPENROUTER_API_KEY`. |
+
+To see the AI path without a key:
+
+```bash
+AI_PROVIDER=mock pnpm dev
+```
+
+None of the three example workbooks needs AI; for them the panel says every sheet was read without help.
+It is offered for a sheet that has NSN- or NIIN-shaped values but no confidently recognized table, such as NSNs under an unfamiliar header like `National Stock No.`.
+
+## Tests and checks
+
+| Command | What it runs |
+| --- | --- |
+| `pnpm test` | All Vitest suites: unit tests per pipeline stage and the acceptance suites. |
+| `pnpm test:acceptance` | Only `tests/acceptance/`: the three example workbooks end to end through the real reader and pipeline, plus synthetic "unseen" workbooks written with ExcelJS. |
+| `pnpm test:e2e` | Playwright in Chromium against a production build (`pnpm build`, then `pnpm preview` on port 4173) with `AI_PROVIDER=mock`. |
+| `pnpm check` | Svelte and TypeScript type checks. |
+| `pnpm build` | Production build. |
+
+Before the first E2E run, install the browser once:
+
+```bash
+pnpm exec playwright install chromium
+```
+
+The expected numbers for the example workbooks live in [`tests/fixtures/expectations.ts`](tests/fixtures/expectations.ts) and are shared by the acceptance and E2E suites.
+
+## How it works
+
+```text
+.xlsx -> reader -> structure -> records -> validate -> review window -> localStorage
+         cells     tables,      normalize, duplicates, correct mappings,
+                   headers,     split,     conflicts,  make decisions,
+                   mappings     derive     decisions   import
+```
+
+1. **Read.** SheetJS turns the file into a plain workbook model: every sheet with its cells, merges, and hidden rows and columns.
+   Formulas are never evaluated.
+2. **Find tables.** Each visible sheet is checked for a header row, which may sit below titles.
+   Header text only nominates a column; the values below decide whether it really holds part numbers, NSNs, NIINs, CAGE codes, or descriptions.
+3. **Build records.** Each data row is normalized field by field.
+   Several part numbers in one cell become one record each, a NIIN is derived from a valid NSN, and every value keeps its source cell and transformations.
+4. **Validate.** Duplicates, conflicts across sheets, and matches against saved records are found by normalized identity.
+   Certain cases are applied automatically with an undo; uncertain ones are held back with a suggested answer, and "Accept all suggestions" resolves them in one click.
+5. **Review and import.** The review window shows sheet statuses, mappings, a filterable preview, and where every value came from.
+   Only approved records are imported.
+
+The pipeline is a pure function, `analyze(model, existing, overrides)` in `src/lib/import/`, so every correction re-runs it without reading the file again.
+The design note covers each step in detail.
 
 ## Project map
 
-- `src/lib/components/NsnSettingsTab.svelte` — settings-page context and local repository
-- `src/lib/components/SmartUploadModal.svelte` — upload, analysis, preview, and results UI
-- `src/lib/smart-upload.ts` — Excel parsing, header detection, normalization, and validation
-- `src/lib/smart-upload.test.ts` — focused parser tests
-- `src/lib/demo-data.ts` — hardcoded NSN table seed data
-
-## Current behavior
-
-The first worksheet of an `.xlsx` file is read in the browser with ExcelJS. Column names
-such as `Part Number`, `P/N`, `NSN`, `NIIN`, `CAGE Code`, `Description`, and
-`Nomenclature` are recognized. NSNs and NIINs are normalized by removing spaces and
-hyphens, and dashes by themselves are interpreted as empty cells.
-
-A row needs at least one of Part, NSN, or NIIN. Description and CAGE are retained when
-present and shown as warnings when missing. Invalid and duplicate rows remain visible in
-the preview, but only valid rows are imported.
+```text
+src/lib/import/               the import pipeline, one directory per stage
+├── model.ts                  shared types and contracts
+├── reader/                   .xlsx -> workbook model (the only code that imports SheetJS)
+├── structure/                table and header detection, column mapping, sheet status
+├── normalize/                per-field normalization and validation
+├── records/                  candidate records with provenance
+├── validate/                 duplicates, conflicts, decisions, summary, import plan
+└── ai/                       optional AI request, verification, and mock
+src/lib/components/import/    the review window
+src/routes/api/interpret/     server route for the optional AI provider
+tests/acceptance/             end-to-end pipeline tests on real and synthetic workbooks
+tests/e2e/                    Playwright tests of the upload flow
+```
