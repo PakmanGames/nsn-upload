@@ -139,7 +139,11 @@
 	{@const reasonsId = `${uid}-${sheet.index}-${index}`}
 	{@const count = recordCounts.get(table.id) ?? 0}
 	{@const records = plural(count, 'record')}
-	{@const note = heldBackNote(table, decision, count)}
+	<!-- A table on a hidden sheet waits because the sheet is hidden, not because its columns are in doubt. -->
+	{@const note =
+		includedHidden.includes(sheet.name) && decision?.chosen === null
+			? `Not imported yet: this sheet is hidden in Excel. Switch it on to import its ${records}.`
+			: heldBackNote(table, decision, count)}
 	{@const text = decision && explanations.get(decision.id)}
 	<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
 		<p class="min-w-0 text-sm">

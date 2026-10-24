@@ -213,6 +213,7 @@ test('"Include anyway" brings a hidden sheet in, held back until its suggestion 
 	const archive = await sheetCard(dialog, 'Archive');
 	await expect(archive).toContainText('3 records');
 	await expect(archive).toContainText('hidden in Excel');
+	await expect(archive).toContainText('Not imported yet: this sheet is hidden in Excel. Switch it on to import its 3 records.');
 	await expect(archive.getByRole('switch', { name: 'Include Archive' })).not.toBeChecked();
 	await expectSummary(dialog, { pendingDecisions: 1, toImport: 2 });
 	await expect(dialog.getByRole('region', { name: /^Needs your decision/ })).toContainText(
