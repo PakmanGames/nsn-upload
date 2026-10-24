@@ -21,9 +21,8 @@ const BADGE: Record<SheetStatus, string> = {
 	hidden: 'Hidden - ignored'
 };
 
-/** Summary chips in the review window's header, as "<count> <label>". */
+/** Summary chips after the "<rows> rows → <records> records" one, as "<count> <label>". */
 const CHIPS: Array<[keyof ImportSummary, string]> = [
-	['candidates', 'candidates'],
 	['valid', 'valid'],
 	['warnings', 'warnings'],
 	['invalid', 'invalid'],
@@ -93,6 +92,12 @@ function sheetCard(dialog: Locator, name: string): Locator {
 
 async function expectSummary(dialog: Locator, summary: Partial<ImportSummary>) {
 	const chips = dialog.getByRole('list', { name: 'Summary' });
+	// Source rows and records differ when a cell splits into several records (WOW: 179 rows, 180 records).
+	const { sourceRows, candidates } = summary;
+	if (sourceRows !== undefined && candidates !== undefined) {
+		const name = `${sourceRows} rows → ${candidates} records`;
+		await expect(chips.getByRole('button', { name, exact: true })).toBeVisible();
+	}
 	for (const [key, label] of CHIPS) {
 		const value = summary[key];
 		if (value === undefined) continue;
