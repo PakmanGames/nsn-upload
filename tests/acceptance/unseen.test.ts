@@ -16,7 +16,6 @@ import { rows } from '../fixtures/expectations';
 import {
 	acceptAllSuggestions,
 	buildWorkbook,
-	describeAcceptance,
 	expectSummaryConsistent,
 	expectTraceable,
 	mappedColumns,
@@ -46,7 +45,7 @@ function useWorkbook(fileName: string, sheets: SheetSpec[], existing: MappingInp
 	return context;
 }
 
-describeAcceptance('unseen workbooks', () => {
+describe('unseen workbooks', () => {
 	describe('title rows and a merged header cell above a table on row 4', () => {
 		const workbook = useWorkbook('depot-register.xlsx', [
 			{
