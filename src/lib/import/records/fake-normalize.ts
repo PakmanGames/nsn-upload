@@ -54,7 +54,7 @@ export function normalizeField(field: Field, cell: Cell, sheet: string): Normali
 		let value = stripped;
 		if (field === 'niin' && cell.kind === 'number' && /^\d{1,8}$/.test(value)) {
 			value = value.padStart(9, '0');
-			transforms.push('restore-leading-zeros');
+			transforms.push('numeric-to-text', 'restore-leading-zeros');
 			warnings.push(warn(`NIIN in ${at} is stored as a number; restored leading zeros to ${value}`));
 		}
 		if (!new RegExp(`^\\d{${DIGITS[field]}}$`).test(value))

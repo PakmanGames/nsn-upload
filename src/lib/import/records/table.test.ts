@@ -150,7 +150,7 @@ describe('provenance', () => {
 
 		expect(record.fields.niin).toMatchObject({
 			value: '016582565',
-			provenance: { original: '16582565', transforms: ['restore-leading-zeros'] }
+			provenance: { original: '16582565', transforms: ['numeric-to-text', 'restore-leading-zeros'] }
 		});
 		expect(codes(record)).toEqual(['suspicious-value']);
 		expect(record).toMatchObject({ status: 'warning', approved: true });
