@@ -31,7 +31,7 @@
 	import SheetsPanel from './SheetsPanel.svelte';
 	import SheetView from './sheet-view/SheetView.svelte';
 	import SplitDivider from './sheet-view/SplitDivider.svelte';
-	import { CHIP_STYLE, FIELD_LABEL, plural, type RecordFilter } from './labels';
+	import { CHIP_STYLE, FIELD_LABEL, plural, recordLabel, type RecordFilter } from './labels';
 	import { skippedGroups } from './skipped';
 	import {
 		activeRecords,
@@ -294,9 +294,10 @@
 		drawerOpener = null;
 	}
 
+	/** A related record's link in the drawer; it names the sheet only when that differs from the drawer's record. */
 	function describeRecord(id: string) {
 		const record = recordsById.get(id);
-		return record ? `${record.sheet} row ${record.sourceRow}` : null;
+		return record ? recordLabel(record, { sheet: record.sheet !== drawerRecord?.sheet }) : null;
 	}
 
 	/** Why each record that will not be imported stays out, for the result screen. */
@@ -577,6 +578,7 @@
 									decisions={analysis.decisions}
 									{recordCounts}
 									model={session.model}
+									explanations={session.explanations}
 									bind:settingUp
 									onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
 									onSetManualTable={(sheet, spec) => session.setManualTable(sheet, spec)}
@@ -625,6 +627,7 @@
 									onOpen={(record) => openRecord(record.id)}
 									onFocus={(focus) => (session.focus = focus)}
 									onToggle={(record, include) => session.setRecordExcluded(record.id, !include)}
+									explainIssue={session.issueExplanation}
 								/>
 							</Section>
 							<Section
@@ -683,6 +686,7 @@
 								onclick={closeDrawer}
 							></button>
 							<ProvenanceDrawer
+								{session}
 								record={drawerRecord}
 								fileName={analysis.fileName}
 								decisions={analysis.decisions}

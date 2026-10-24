@@ -5,6 +5,7 @@
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import X from '@lucide/svelte/icons/x';
+	import { explainColumn } from '$lib/import/explain';
 	import { FIELDS, type ColumnMapping, type Field, type SheetAnalysis, type TableCandidate, type WorkbookModel } from '$lib/import/model';
 	import { colLetter, rangeToA1 } from '$lib/import/refs';
 	import InfoTip from './InfoTip.svelte';
@@ -47,6 +48,8 @@
 			? `Columns ${letters[0]} and ${letters[1]} both`
 			: `Columns ${letters.slice(0, -1).join(', ')} and ${letters.at(-1)} all`;
 	}
+	const plainColumn = (table: TableCandidate, column: ColumnMapping) =>
+		explainColumn(column, table, model?.sheets.find((sheet) => sheet.name === table.sheet));
 </script>
 
 {#snippet picker(table: TableCandidate, column: ColumnMapping)}
@@ -96,7 +99,10 @@
 				{capitalized(column.confidence)}
 			</span>
 		{/if}
-		<InfoTip label={`Why column ${colLetter(column.col)} is mapped this way`} lines={column.reasons} />
+		<InfoTip
+			label={`Why column ${colLetter(column.col)} is mapped this way`}
+			lines={[...plainColumn(table, column).lines, `Technical details: ${column.reasons.join('; ')}`]}
+		/>
 	</div>
 {/snippet}
 
@@ -173,13 +179,14 @@
 			{#if mapped.length}
 				<ul class="mt-2 grid gap-2 sm:grid-cols-2">
 					{#each mapped as column (column.col)}
+						{@const plain = plainColumn(table, column)}
 						<li class="rounded-lg border border-slate-200 px-3 py-2">
 							<p class="text-sm">
 								<span class="font-medium text-slate-900">{FIELD_LABEL[column.field!]}</span>
 								<span class="text-slate-400">←</span>
 								{@render header(column, table.sheet)}
 							</p>
-							<p class="truncate text-xs text-slate-500" title={column.reasons.join('\n')}>{column.reasons.at(-1)}</p>
+							<p class="truncate text-xs text-slate-500" title={plain.lines.join(' ')}>{plain.summary}</p>
 							<div class="mt-2 flex items-center gap-2">
 								{@render picker(table, column)}
 								{@render state(table, column)}
@@ -201,10 +208,11 @@
 					</summary>
 					<ul class="ml-5 divide-y divide-slate-100">
 						{#each unmapped as column (column.col)}
+							{@const plain = plainColumn(table, column)}
 							<li class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2">
 								<div class="min-w-0 flex-1 basis-56">
 									<p class="text-sm">{@render header(column, table.sheet)}</p>
-									<p class="truncate text-xs text-slate-500" title={column.reasons.join('\n')}>{column.reasons.at(-1)}</p>
+									<p class="truncate text-xs text-slate-500" title={plain.lines.join(' ')}>{plain.summary}</p>
 								</div>
 								<div class="flex w-full items-center gap-2 sm:w-56">
 									{@render picker(table, column)}

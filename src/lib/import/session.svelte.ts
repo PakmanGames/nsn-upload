@@ -14,12 +14,18 @@ import {
 	verifyInterpretation,
 	type AiAvailability
 } from './ai';
+import { createHttpExplainer, hashText } from './ai/explain-client';
+import { EXPLAIN_LIMITS, boundedItem } from './ai/explain-schema';
+import { verifyExplanations, type ExplanationVerification, type VerifiableItem } from './ai/explain-verify';
 import { analyze } from './analyze';
+import { explainDecision, explainIssue, type Explanation } from './explain';
 import {
 	WorkbookReadError,
 	type CellRange,
+	type CandidateRecord,
 	type Field,
 	type ImportPlan,
+	type Issue,
 	type Overrides,
 	type SheetAnalysis,
 	type StoredMapping,
@@ -46,6 +52,8 @@ export type ImportEngine = {
 		sheets: SheetAnalysis[],
 		signal: AbortSignal
 	): Promise<{ sent: string[]; result: VerificationResult }>;
+	/** Asks for clearer wording of decisions from their facts, and checks each answer against those facts. */
+	explain(items: VerifiableItem[], signal: AbortSignal): Promise<ExplanationVerification>;
 };
 
 export const pipelineEngine: ImportEngine = {
@@ -60,6 +68,11 @@ export const pipelineEngine: ImportEngine = {
 		if (sent.length === 0) return { sent, result: { tables: [], rejected: [] } };
 		const interpretation = await createHttpInterpreter().interpret(request, signal);
 		return { sent, result: verifyInterpretation(model, request, interpretation) };
+	},
+	async explain(items, signal) {
+		// Option labels stay in the browser: the verifier needs them, the model does not.
+		const request = { items: items.map(({ options: _, ...item }) => item) };
+		return verifyExplanations(items, await createHttpExplainer().explain(request, signal));
 	}
 };
 
@@ -86,6 +99,14 @@ export type SheetFocus = {
 	reason?: string;
 };
 
+/** The latest request for AI wording of decision explanations. */
+export type ExplainRun = {
+	/** failed: the request did not complete; the plain wording stays and nothing is retried for this file. */
+	status: 'running' | 'done' | 'failed';
+	/** Decisions in the request. */
+	sent: number;
+};
+
 const aiPreferenceKey = 'nsn-upload-interview-task:ai-assistance';
 
 /** The overrides without the column choices stored for one table. */
@@ -94,6 +115,10 @@ function withoutColumns(overrides: Overrides, id: string): Overrides {
 	const { [id]: _, ...columns } = overrides.columns;
 	return { ...overrides, columns };
 }
+
+/** Cache key of an explanation: the decision and everything the wording was written from. */
+const explanationKey = (decisionId: string, { facts, headline, body }: Explanation) =>
+	`${decisionId}#${hashText(JSON.stringify([facts, headline, body]))}`;
 
 export class ImportSession {
 	phase = $state<ImportPhase>('idle');
@@ -118,16 +143,56 @@ export class ImportSession {
 	/** Null until checked, and it is only checked once the user has AI assistance on. */
 	aiAvailability = $state.raw<AiAvailability | null>(null);
 	aiRun = $state.raw<AiRun | null>(null);
+	explainRun = $state.raw<ExplainRun | null>(null);
 
 	busy = $derived(
 		this.phase === 'reading' || this.phase === 'analyzing' || this.phase === 'importing'
 	);
+
+	/** AI wording by explanationKey(); null where the answer failed verification, so the plain wording stays. */
+	#aiWording = $state.raw<ReadonlyMap<string, Explanation | null>>(new Map());
+	/** The plain-language explanation of every decision, by decision id. */
+	plainExplanations = $derived.by(
+		() =>
+			new Map(
+				(this.analysis?.decisions ?? []).map((decision) => [
+					decision.id,
+					explainDecision(decision, this.analysis!, this.#existing)
+				])
+			)
+	);
+
+	/** What the review window shows for each decision: AI wording that passed its checks while AI is on, else the plain wording. */
+	explanations = $derived.by(() => {
+		if (!this.aiEnabled) return this.plainExplanations;
+		const shown = new Map(this.plainExplanations);
+		for (const [id, plain] of this.plainExplanations) {
+			const wording = this.#aiWording.get(explanationKey(id, plain));
+			if (wording) shown.set(id, wording);
+		}
+		return shown;
+	});
+
+	/** Current decisions that were sent for AI wording: how many show it, and how many kept the plain wording. */
+	explainStats = $derived.by(() => {
+		let ai = 0;
+		let plain = 0;
+		for (const [id, explanation] of this.plainExplanations) {
+			const wording = this.#aiWording.get(explanationKey(id, explanation));
+			if (wording) ai++;
+			else if (wording === null) plain++;
+		}
+		return { ai, plain };
+	});
 
 	#engine: ImportEngine;
 	#existing: StoredMapping[] = [];
 	#aiAbort: AbortController | null = null;
 	#aiChecked: Promise<AiAvailability> | null = null;
 	#aiRestored = false;
+	#explainAbort: AbortController | null = null;
+	/** An analysis changed while a request was out; check again for new decisions once it is back. */
+	#explainAgain = false;
 
 	constructor(engine: ImportEngine = pipelineEngine) {
 		this.#engine = engine;
@@ -161,11 +226,14 @@ export class ImportSession {
 			this.phase = 'error';
 			return;
 		}
-		void this.#interpretIfNeeded();
+		void this.#interpretIfNeeded().then(() => this.#explainIfNeeded());
 	}
 
 	reset() {
 		this.#aiAbort?.abort();
+		this.#stopExplaining();
+		this.explainRun = null;
+		this.#aiWording = new Map();
 		this.phase = 'idle';
 		this.fileName = '';
 		this.error = '';
@@ -234,6 +302,10 @@ export class ImportSession {
 	}
 
 	/** Drops the user's choice so the decision falls back to its policy (auto) or back to pending. */
+	/** Plain-language explanation of an issue on a record. Issues keep the rules wording: they can number in the hundreds. */
+	issueExplanation = (issue: Issue, record: CandidateRecord): Explanation =>
+		explainIssue(issue, record, this.analysis!, this.#existing);
+
 	resetDecision(decisionId: string) {
 		const { [decisionId]: _, ...rest } = this.overrides.decisions ?? {};
 		this.#apply({ ...this.overrides, decisions: rest });
@@ -264,12 +336,20 @@ export class ImportSession {
 			this.aiAvailability = await this.#aiChecked;
 			// Unavailable: the switch goes back off and shows the reason; the saved preference stays as the user set it.
 			if (!this.aiAvailability.available) this.aiEnabled = false;
-			else await this.#interpretIfNeeded();
+			else {
+				// A request that failed earlier gets one more try now that the user turned AI on again.
+				if (this.explainRun?.status === 'failed') this.explainRun = null;
+				await this.#interpretIfNeeded();
+				void this.#explainIfNeeded();
+			}
 			return;
 		}
-		// Off means deterministic only: stop any request and drop tables the AI proposed.
+		// Off means deterministic only: stop any request and drop tables the AI proposed. AI wording stays
+		// cached for this file, unused until AI is on again.
 		this.#aiAbort?.abort();
 		this.aiRun = null;
+		this.#stopExplaining();
+		this.explainRun = null;
 		if (this.overrides.aiTables) {
 			const { aiTables: _, ...rest } = this.overrides;
 			this.#apply(rest);
@@ -298,6 +378,65 @@ export class ImportSession {
 		if (!this.model) return;
 		this.overrides = overrides;
 		this.analysis = this.#engine.analyze(this.model, this.#existing, overrides);
+		void this.#explainIfNeeded();
+	}
+
+	#stopExplaining() {
+		this.#explainAbort?.abort();
+		this.#explainAbort = null;
+		this.#explainAgain = false;
+	}
+
+	/**
+	 * One bounded request for AI wording of the decisions that have none cached: the first EXPLAIN_LIMITS.maxItems
+	 * decisions, pending ones first. Waits for an interpretation in flight, since its tables change the decisions.
+	 * Cached by decision and facts, so a re-analysis sends only what changed. Failure is quiet: the plain wording
+	 * stays, the AI section notes it once, and nothing is retried for this file unless AI is turned off and on.
+	 */
+	async #explainIfNeeded() {
+		const { analysis } = this;
+		if (!this.aiEnabled || !this.aiAvailability?.available || !analysis || this.aiRun?.status === 'running') return;
+		if (this.#explainAbort) {
+			this.#explainAgain = true;
+			return;
+		}
+		if (this.explainRun?.status === 'failed') return;
+		const missing = analysis.decisions.slice(0, EXPLAIN_LIMITS.maxItems).flatMap((decision) => {
+			const plain = this.plainExplanations.get(decision.id);
+			return plain && !this.#aiWording.has(explanationKey(decision.id, plain)) ? [{ decision, plain }] : [];
+		});
+		if (missing.length === 0) return;
+
+		const items: VerifiableItem[] = missing.map(({ decision, plain }, i) => ({
+			...boundedItem(`d${i + 1}`, decision.kind, plain.facts, plain),
+			options: decision.options.map((option) => option.label)
+		}));
+		const abort = new AbortController();
+		this.#explainAbort = abort;
+		this.explainRun = { status: 'running', sent: items.length };
+		try {
+			const result = await this.#engine.explain(items, abort.signal);
+			if (abort.signal.aborted) return;
+			const wording = new Map(this.#aiWording);
+			missing.forEach(({ decision, plain }, i) => {
+				const answer = result.explained.get(items[i].id);
+				wording.set(explanationKey(decision.id, plain), answer ? { ...answer, facts: plain.facts, source: 'ai' } : null);
+			});
+			this.#aiWording = wording;
+			this.explainRun = { status: 'done', sent: items.length };
+		} catch {
+			if (abort.signal.aborted) return;
+			this.explainRun = { status: 'failed', sent: items.length };
+		} finally {
+			// Only the current request manages the queue; an aborted one may settle after a newer one started.
+			if (this.#explainAbort === abort) {
+				this.#explainAbort = null;
+				if (this.#explainAgain) {
+					this.#explainAgain = false;
+					void this.#explainIfNeeded();
+				}
+			}
+		}
 	}
 
 	/** Sends sheets with an aiTrigger once per file, and only while the user has AI assistance on. */

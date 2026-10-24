@@ -6,7 +6,9 @@
 	import type { CandidateRecord, Decision, SheetAnalysis, StoredMapping } from '$lib/import/model';
 	import type { ImportSession } from '$lib/import/session.svelte';
 	import DecisionComparison from './DecisionComparison.svelte';
-	import { FIELD_LABEL } from './labels';
+	import ExplanationText from './ExplanationText.svelte';
+	import TechnicalDetails from './TechnicalDetails.svelte';
+	import { FIELD_LABEL, recordLabel } from './labels';
 	import { describeGroup, shapeOf, similarDecisions } from './similar';
 	import { decisionHeading, type DecisionHeading } from './summary';
 
@@ -71,10 +73,15 @@
 	};
 	const label = (decision: Decision) =>
 		decision.options.find((option) => option.id === decision.chosen)?.label ?? decision.chosen ?? '';
-	const describe = (id: string) => {
-		const record = records.get(id);
-		return record ? `${record.sheet} row ${record.sourceRow}${record.split ? ` (${record.split.index}/${record.split.total})` : ''}` : id;
-	};
+	const own = $derived(current ? current.recordIds.flatMap((id) => records.get(id) ?? []) : []);
+	// A link names its sheet unless the heading already does: records on different sheets each need theirs,
+	// and a storage conflict's heading names the item, not where it is.
+	const linkSheets = $derived(
+		new Set(own.map((record) => record.sheet)).size > 1 || current?.kind === 'resolve-storage-conflict'
+	);
+	const plainText = $derived(current && session.plainExplanations.get(current.id));
+	const shownText = $derived(current && session.explanations.get(current.id));
+	const suggestion = $derived(current?.options.find((option) => option.id === current.suggested)?.label);
 	const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 	const ROW_KINDS = new Set<Decision['kind']>(['resolve-identifier-conflict', 'split-cell', 'ambiguous-multi-value', 'import-valid-portion', 'resolve-storage-conflict']);
 
@@ -213,16 +220,26 @@
 				<h3 bind:this={headingEl} tabindex="-1" class="mt-1.5 font-semibold text-slate-950 outline-none [overflow-wrap:anywhere]">
 					{heading.title}
 				</h3>
-				<p class="mt-1 text-sm text-slate-600">{current.reason}</p>
-				{#if current.kind !== 'include-table' && current.recordIds.length}
-					<p class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-						{#each current.recordIds as id (id)}
-							<button type="button" class="text-blue-700 hover:text-blue-900 hover:underline" onclick={() => onOpenRecord(id)}>
-								{describe(id)}
-							</button>
-						{/each}
-					</p>
-				{/if}
+				<div class="mt-1.5 text-sm">
+					{#if plainText}
+						<ExplanationText plain={plainText} shown={shownText} reserveMarker={session.aiEnabled} />
+					{:else}
+						<p class="text-slate-600">{current.reason}</p>
+					{/if}
+					{#if suggestion}
+						<p class="mt-1.5 text-slate-700">Suggested: <span class="font-medium text-slate-900">{suggestion}</span></p>
+					{/if}
+					{#if current.kind !== 'include-table' && own.length}
+						<p class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+							{#each own as record (record.id)}
+								<button type="button" class="text-blue-700 hover:text-blue-900 hover:underline" onclick={() => onOpenRecord(record.id)}>
+									{recordLabel(record, { sheet: linkSheets })}
+								</button>
+							{/each}
+						</p>
+					{/if}
+					<div class="mt-1.5"><TechnicalDetails text={current.reason} /></div>
+				</div>
 
 				<DecisionComparison decision={current} {records} {saved} />
 

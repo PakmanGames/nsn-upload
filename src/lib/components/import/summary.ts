@@ -400,7 +400,7 @@ export function aiSummary({ enabled, availability, run, triggered }: AiState): s
 		return `On · sent ${joinAnd(run.sheets)}; accepted ${plural(run.result.tables.length, 'table')}${rejected}`;
 	}
 	if (triggered.length) return `${enabled ? 'On' : 'Off'} · could help with ${joinAnd(triggered)}`;
-	return enabled ? 'On · every sheet was read without help, so nothing was sent' : 'Off · every sheet was read without help';
+	return enabled ? 'On · every sheet was read without help, so no sheet was sent' : 'Off · every sheet was read without help';
 }
 
 /** Open AI assistance when it could help or has something to show. */
