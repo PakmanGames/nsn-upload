@@ -5,6 +5,7 @@
 import type { CandidateRecord, Decision, DecisionKind, Field, TableCandidate } from '../model';
 import { colLetter, rangeToA1 } from '../refs';
 import { loose, malformed } from '../validate/entry';
+import { HIDDEN_SHEET_REASON } from '../validate/rows';
 import { Draft, splitField, type Context } from './context';
 import {
 	ambiguousRow,
@@ -46,9 +47,11 @@ function includeTable(d: Draft, decision: Decision, _records: CandidateRecord[],
 
 	if (table.status === 'ready') {
 		const columns = columnList(d, table);
+		// A ready table on a hidden sheet waits only because the sheet is hidden (D26), so that leads.
+		const hidden = decision.reason.startsWith(HIDDEN_SHEET_REASON);
 		return {
-			headline: `A table of ${rows} in ${range}`,
-			body: `${ai ? 'AI proposed this table, and the cells back it up: it has' : 'It has'} ${columns}.${doubt ? ` ${doubt.body}` : ''}`
+			headline: `A table of ${rows} in ${range}${hidden ? ', on a sheet hidden in Excel' : ''}`,
+			body: `${hidden ? 'You asked to include this hidden sheet. ' : ''}${ai ? 'AI proposed this table, and the cells back it up: it has' : 'It has'} ${columns}.${doubt ? ` ${doubt.body}` : ''}`
 		};
 	}
 	if (!weakest) {

@@ -217,7 +217,7 @@ test('"Include anyway" brings a hidden sheet in, held back until its suggestion 
 	await expect(archive.getByRole('switch', { name: 'Include Archive' })).not.toBeChecked();
 	await expectSummary(dialog, { pendingDecisions: 1, toImport: 2 });
 	await expect(dialog.getByRole('region', { name: /^Needs your decision/ })).toContainText(
-		'This sheet is hidden in Excel; you asked to include it.'
+		'A table of 3 rows in A1:C4, on a sheet hidden in Excel'
 	);
 
 	await dialog.getByRole('button', { name: 'Accept all suggestions' }).click();

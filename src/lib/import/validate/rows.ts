@@ -31,6 +31,9 @@ import {
 	type TableState
 } from './entry';
 
+/** Leads the include reason for a table on a hidden sheet the user included anyway (D26); explain/ reads it. */
+export const HIDDEN_SHEET_REASON = 'This sheet is hidden in Excel; you asked to include it.';
+
 /**
  * Ready tables are included automatically. Needs-review tables wait for the user, suggested exclude (D5),
  * except a table without a header row whose values identify it: that one is suggested include.
@@ -61,7 +64,7 @@ export function decideTables(
 				cells: [],
 				suggested: ready || byValues || hidden ? 'include' : 'exclude',
 				auto: ready,
-				reason: `${hidden ? 'This sheet is hidden in Excel; you asked to include it. ' : ''}${
+				reason: `${hidden ? `${HIDDEN_SHEET_REASON} ` : ''}${
 					byValues ? valuesReason(table) : tableReason(table)
 				}`,
 				at: [sheet.index, table.range.top]
