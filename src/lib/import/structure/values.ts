@@ -20,8 +20,10 @@ const URL = /^(https?:\/\/|www\.)/i;
  * Part numbers have no strict format, so this is the shared plausibility check applied to every
  * newline-separated segment (a two-part cell such as `12669555\nRVX08212` still counts as part numbers).
  */
-function checkPart(cell: Cell): Verdict {
-	if (cell.kind === 'date' || cell.kind === 'boolean') return 'fail';
+function checkPart(cell: Cell, sheet: string): Verdict {
+	if (cell.kind === 'boolean') return 'fail';
+	// The normalizer decides whether a date still shows the typed part number; reading it as shown is a repair.
+	if (cell.kind === 'date') return normalizeField('part', cell, sheet).kind === 'ok' ? 'repaired' : 'fail';
 	if (cell.kind === 'number') return 'repaired';
 	const segments = cell.text.split('\n').map((s) => s.trim()).filter(Boolean);
 	if (segments.length === 0 || cell.text.trim() === '-') return 'skip';
@@ -53,7 +55,7 @@ function checkDescription(cell: Cell): Verdict {
 
 export function checkValue(field: Field, cell: Cell, sheet: string): Verdict {
 	if (cell.kind === 'empty' || cell.kind === 'error') return 'skip';
-	if (field === 'part') return checkPart(cell);
+	if (field === 'part') return checkPart(cell, sheet);
 	if (field === 'description') return checkDescription(cell);
 	// Every column is checked for NSN and NIIN, so skip building an invalid-value message for text that
 	// cannot pass: a digit-based identifier needs at least one digit.
