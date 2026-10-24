@@ -1,21 +1,46 @@
 <script lang="ts">
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
-	import CircleCheck from '@lucide/svelte/icons/circle-check-big';
+	import CircleCheck from '@lucide/svelte/icons/circle-check';
+	import CircleCheckBig from '@lucide/svelte/icons/circle-check-big';
+	import Columns3 from '@lucide/svelte/icons/columns-3';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import FileUp from '@lucide/svelte/icons/file-up';
+	import Layers from '@lucide/svelte/icons/layers';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+	import Rows3 from '@lucide/svelte/icons/rows-3';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Upload from '@lucide/svelte/icons/upload';
+	import WandSparkles from '@lucide/svelte/icons/wand-sparkles';
 	import X from '@lucide/svelte/icons/x';
-	import type { CandidateRecord, ColumnMapping, Field, ImportPlan, StoredMapping } from '$lib/import/model';
+	import { tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import type { CandidateRecord, ColumnMapping, Field, ImportPlan, StoredMapping, TableCandidate } from '$lib/import/model';
 	import { colLetter } from '$lib/import/refs';
 	import { ImportSession } from '$lib/import/session.svelte';
 	import AiAssist from './AiAssist.svelte';
-	import DecisionsPanel from './DecisionsPanel.svelte';
-	import MappingPanel from './MappingPanel.svelte';
+	import AppliedDecisions from './AppliedDecisions.svelte';
+	import ColumnsPanel from './ColumnsPanel.svelte';
+	import DecisionStage from './DecisionStage.svelte';
 	import PreviewPanel from './PreviewPanel.svelte';
 	import ProvenanceDrawer from './ProvenanceDrawer.svelte';
+	import Section from './Section.svelte';
 	import SheetsPanel from './SheetsPanel.svelte';
-	import { FIELD_LABEL, plural, type RecordFilter } from './labels';
+	import { CHIP_STYLE, FIELD_LABEL, plural, type RecordFilter } from './labels';
+	import {
+		activeRecords,
+		aiOpenByDefault,
+		aiSummary,
+		columnsOpenByDefault,
+		columnsSummary,
+		heldBackGroups,
+		heldBackTables,
+		rowsSummary,
+		sheetsSummary,
+		statusChips,
+		summaryParts,
+		worthALook
+	} from './summary';
 
 	type Props = {
 		open: boolean;
@@ -31,11 +56,18 @@
 	// The session outlives the dialog, so closing mid-review and reopening keeps the user's corrections.
 	const session = new ImportSession();
 
-	let selectedSheet = $state<string | null>(null);
+	type SectionId = 'sheets' | 'columns' | 'rows' | 'auto' | 'ai';
+	const SECTIONS: SectionId[] = ['sheets', 'columns', 'rows', 'auto', 'ai'];
+
 	let previewScope = $state('all');
 	let filter = $state<RecordFilter>('all');
 	let drawerRecordId = $state<string | null>(null);
-	let remapNotice = $state('');
+	/** Per table id: what the last remap did to another column. */
+	let remapNotices = $state<Record<string, string>>({});
+	/** Sections the user opened or closed; the others follow their open-by-default rule. Kept while the window is open. */
+	let sectionOpen = $state<Partial<Record<SectionId, boolean>>>({});
+	/** Decisions that needed the user at some point; once chosen they stay with the decision stage, not "Applied automatically". */
+	const seenPending = new SvelteSet<string>();
 	let isDragActive = $state(false);
 	let fileInput = $state<HTMLInputElement>();
 	let drawerOpener: HTMLElement | null = null;
@@ -43,11 +75,6 @@
 	const analysis = $derived(session.analysis);
 	const reviewing = $derived(!!analysis && (session.phase === 'ready' || session.phase === 'importing'));
 	const recordsById = $derived(new Map(analysis?.records.map((record) => [record.id, record]) ?? []));
-	const activeSheet = $derived(
-		analysis?.sheets.find((sheet) => sheet.name === selectedSheet) ??
-			analysis?.sheets.find((sheet) => sheet.tables.length > 0) ??
-			analysis?.sheets[0]
-	);
 	const excludedTables = $derived(
 		new Set(
 			analysis?.decisions
@@ -55,8 +82,7 @@
 				.map((decision) => decision.tableId) ?? []
 		)
 	);
-	// Same scope as the summary: excluded tables keep their records, but they are not counted or previewed.
-	const previewRecords = $derived(analysis?.records.filter((record) => !excludedTables.has(record.tableId)) ?? []);
+	const heldTables = $derived(analysis ? heldBackTables(analysis) : new Set<string>());
 	const recordCounts = $derived(
 		(analysis?.records ?? []).reduce((counts, record) => counts.set(record.tableId, (counts.get(record.tableId) ?? 0) + 1), new Map<string, number>())
 	);
@@ -75,6 +101,36 @@
 	const savedById = $derived(new Map(existing.map((mapping) => [mapping.id, mapping])));
 	const drawerRecord = $derived(drawerRecordId ? recordsById.get(drawerRecordId) : undefined);
 
+	/**
+	 * The decision stage, in the order decisions first needed the user. The analysis lists pending decisions first,
+	 * so a decision just made would otherwise jump to the end and "2 of 3" would read "1 of 3".
+	 */
+	const stage = $derived.by(() => {
+		const decisions = analysis?.decisions ?? [];
+		const byId = new Map(decisions.map((decision) => [decision.id, decision]));
+		const seen = [...seenPending].flatMap((id) => {
+			const decision = byId.get(id);
+			return decision && decision.state !== 'auto' ? [decision] : [];
+		});
+		return [...seen, ...decisions.filter((decision) => decision.state === 'pending' && !seenPending.has(decision.id))];
+	});
+	const applied = $derived(analysis?.decisions.filter((decision) => !stage.includes(decision)) ?? []);
+	const triggeredSheets = $derived(
+		analysis?.sheets.filter((sheet) => sheet.aiTrigger && sheet.status !== 'hidden').map((sheet) => sheet.name) ?? []
+	);
+	const sectionDefaults = $derived<Record<SectionId, boolean>>({
+		sheets: false,
+		columns: analysis ? columnsOpenByDefault(analysis) : false,
+		rows: false,
+		auto: false,
+		ai: analysis ? aiOpenByDefault(analysis, !!session.aiRun?.result) : false
+	});
+	const isOpen = (id: SectionId) => sectionOpen[id] ?? sectionDefaults[id];
+	const allOpen = $derived(SECTIONS.every(isOpen));
+
+	$effect(() => {
+		for (const decision of analysis?.decisions ?? []) if (decision.state === 'pending') seenPending.add(decision.id);
+	});
 	$effect(() => {
 		if (open) session.initAi();
 	});
@@ -87,11 +143,12 @@
 
 	function reset() {
 		session.reset();
-		selectedSheet = null;
 		previewScope = 'all';
 		filter = 'all';
 		drawerRecordId = null;
-		remapNotice = '';
+		remapNotices = {};
+		sectionOpen = {};
+		seenPending.clear();
 	}
 
 	/** Escape closes the innermost layer first, and never interrupts reading or importing. */
@@ -122,26 +179,26 @@
 		selectFile(event.dataTransfer?.files[0]);
 	}
 
-	function selectSheet(name: string) {
-		selectedSheet = name;
-		remapNotice = '';
-		if (analysis?.sheets.find((sheet) => sheet.name === name)?.tables.length) previewScope = name;
-	}
-
-	function setColumn(column: ColumnMapping, field: Field | null) {
-		const table = activeSheet?.tables[0];
-		if (!table) return;
+	function setColumn(table: TableCandidate, column: ColumnMapping, field: Field | null) {
 		const evicted = field && table.columns.find((other) => other.col !== column.col && other.field === field);
-		remapNotice = evicted
+		remapNotices[table.id] = evicted
 			? `Column ${colLetter(evicted.col)} ("${evicted.header}") is no longer mapped: column ${colLetter(column.col)} now maps to ${FIELD_LABEL[field]}.`
 			: '';
 		session.setColumn(table.id, column.col, field);
 	}
 
-	function showStatus(next: RecordFilter) {
+	/** Chips and "Show these rows": open Rows with that filter and bring it into view. */
+	async function showRows(next: RecordFilter) {
 		filter = next;
 		previewScope = 'all';
-		document.getElementById('preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		sectionOpen.rows = true;
+		await tick();
+		document.getElementById('section-rows')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
+
+	function toggleAll() {
+		const open = !allOpen;
+		for (const id of SECTIONS) sectionOpen[id] = open;
 	}
 
 	function openRecord(id: string) {
@@ -174,14 +231,6 @@
 		return reasons;
 	}
 
-	const CHIPS: Array<{ key: keyof NonNullable<typeof analysis>['summary']; label: string; filter: RecordFilter; dot: string }> = [
-		{ key: 'valid', label: 'valid', filter: 'valid', dot: 'bg-emerald-500' },
-		{ key: 'warnings', label: 'warnings', filter: 'warning', dot: 'bg-amber-500' },
-		{ key: 'invalid', label: 'invalid', filter: 'invalid', dot: 'bg-red-500' },
-		{ key: 'duplicates', label: 'duplicates', filter: 'duplicate', dot: 'bg-slate-500' },
-		{ key: 'conflicts', label: 'conflicts', filter: 'conflict', dot: 'bg-orange-500' },
-		{ key: 'splitRecords', label: 'split', filter: 'split', dot: 'bg-blue-500' }
-	];
 </script>
 
 {#if open}
@@ -211,11 +260,6 @@
 							<p class={['mt-0.5 text-sm text-slate-500', session.fileName && 'truncate']}>
 								{#if session.fileName}
 									{session.fileName}
-									{#if analysis}
-										<span class="text-slate-400">
-											{`· ${plural(analysis.summary.sheets, 'sheet')}, ${plural(analysis.summary.tablesIncluded, 'table')} included`}
-										</span>
-									{/if}
 								{:else}
 									Upload an Excel workbook. Every sheet is checked for importable tables.
 								{/if}
@@ -248,67 +292,53 @@
 				</div>
 
 				{#if reviewing && analysis}
+					{@const parts = summaryParts(analysis)}
+					{@const chips = statusChips(analysis)}
 					<div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-						<ul class="flex flex-wrap gap-1.5" aria-label="Summary">
-							<!-- Source rows and records differ when a cell splits into several records (WOW: 179 rows, 180 records). -->
-							<li>
+						<div class="min-w-0">
+							<p id="import-summary" class="text-sm text-slate-700">
+								{`${parts.sheets} · ${parts.rows} · `}<span class={['font-semibold', parts.pending ? 'text-slate-950' : 'text-emerald-700']}>{parts.needs}</span>
+							</p>
+							{#if chips.length}
+								<ul class="mt-2 flex flex-wrap gap-1.5" aria-label="Summary">
+									{#each chips as chip (chip.tone)}
+										<li>
+											<button
+												type="button"
+												class={['rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition hover:brightness-95', CHIP_STYLE[chip.tone]]}
+												onclick={() => showRows(chip.filter)}
+											>
+												{chip.label}
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+						<!-- Stacked on phones so each button keeps its label on one line. -->
+						<div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+							{#if parts.pending}
 								<button
 									type="button"
-									class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-									onclick={() => showStatus('all')}
+									class="inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+									onclick={() => session.acceptAllSuggestions()}
 								>
-									<span class="size-1.5 rounded-full bg-slate-400"></span>
-									<span class="font-semibold tabular-nums">{analysis.summary.sourceRows.toLocaleString()}</span>
-									rows →
-									<span class="font-semibold tabular-nums">{analysis.summary.candidates.toLocaleString()}</span>
-									records
+									<WandSparkles size={16} /> Accept all suggestions
 								</button>
-							</li>
-							{#each CHIPS as chip (chip.key)}
-								{@const value = analysis.summary[chip.key]}
-								<li>
-									<button
-										type="button"
-										class={[
-											'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition hover:border-slate-300 hover:bg-slate-50',
-											value ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-100 bg-white text-slate-400'
-										]}
-										onclick={() => showStatus(chip.filter)}
-									>
-										<span class={['size-1.5 rounded-full', value ? chip.dot : 'bg-slate-300']}></span>
-										<span class="font-semibold tabular-nums">{value.toLocaleString()}</span>
-										{chip.label}
-									</button>
-								</li>
-							{/each}
-							<li>
-								<a
-									href="#decisions"
-									class={[
-										'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition',
-										analysis.summary.pendingDecisions
-											? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-											: 'border-slate-100 bg-white text-slate-400'
-									]}
-								>
-									<span class={['size-1.5 rounded-full', analysis.summary.pendingDecisions ? 'bg-amber-500' : 'bg-slate-300']}></span>
-									<span class="font-semibold tabular-nums">{analysis.summary.pendingDecisions}</span>
-									pending {analysis.summary.pendingDecisions === 1 ? 'decision' : 'decisions'}
-								</a>
-							</li>
-						</ul>
-						<button
-							type="button"
-							class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-800 disabled:bg-slate-300"
-							disabled={analysis.summary.toImport === 0 || session.busy}
-							onclick={() => session.import(onImport)}
-						>
-							{#if session.phase === 'importing'}<LoaderCircle class="animate-spin" size={16} />{/if}
-							Import {plural(analysis.summary.toImport, 'record')}
-							{#if heldBack.length}
-								<span class="font-normal opacity-80">({heldBack.length} need review)</span>
 							{/if}
-						</button>
+							<button
+								type="button"
+								class="inline-flex items-center justify-center gap-2 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:bg-slate-200 disabled:text-slate-500"
+								disabled={analysis.summary.toImport === 0 || session.busy}
+								onclick={() => session.import(onImport)}
+							>
+								{#if session.phase === 'importing'}<LoaderCircle class="animate-spin" size={16} />{/if}
+								<span aria-live="polite">Import {plural(analysis.summary.toImport, 'record')}</span>
+								{#if heldBack.length}
+									<span class="font-normal opacity-80">({heldBack.length} need review)</span>
+								{/if}
+							</button>
+						</div>
 					</div>
 				{/if}
 			</header>
@@ -319,7 +349,7 @@
 				<div class="flex flex-1 flex-col overflow-y-auto px-4 py-10 sm:justify-center sm:pb-24">
 					<div class="mx-auto w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
 						<div class="mx-auto grid size-12 place-items-center rounded-full bg-emerald-50 text-emerald-600">
-							<CircleCheck size={24} />
+							<CircleCheckBig size={24} />
 						</div>
 						<h3 class="mt-4 text-lg font-semibold text-slate-950">
 							{plural(session.imported?.add.length ?? 0, 'record')} added to your NSN table
@@ -361,56 +391,128 @@
 					</div>
 				</div>
 			{:else if reviewing && analysis}
+				{@const worth = worthALook(analysis)}
 				<div class="relative min-h-0 flex-1">
-					<div class="h-full overflow-y-auto xl:grid xl:grid-cols-[18rem_minmax(0,1fr)_24rem] xl:overflow-clip">
-						<div class="space-y-4 border-b border-slate-200 p-4 xl:overflow-y-auto xl:border-b-0 xl:border-r">
-							<SheetsPanel
-								sheets={analysis.sheets}
-								decisions={analysis.decisions}
-								{recordCounts}
-								selected={activeSheet?.name ?? null}
-								onSelect={selectSheet}
-								onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
-							/>
-							<AiAssist {session} />
-						</div>
-						<div
-							id="decisions"
-							class="scroll-mt-4 border-b border-slate-200 p-4 xl:col-start-3 xl:row-start-1 xl:overflow-y-auto xl:border-b-0 xl:border-l"
-						>
-							<DecisionsPanel
+					<div class="h-full overflow-y-auto">
+						<div class="mx-auto max-w-5xl space-y-3 p-3 sm:p-5">
+							<DecisionStage
 								{session}
-								decisions={analysis.decisions}
+								{stage}
 								records={recordsById}
 								saved={savedById}
+								sheets={analysis.sheets}
 								{aiTables}
 								onOpenRecord={openRecord}
 							/>
-						</div>
-						<div class="min-w-0 space-y-4 p-4 xl:col-start-2 xl:row-start-1 xl:overflow-y-auto">
-							{#if activeSheet}
-								<MappingPanel
-									sheet={activeSheet}
-									model={session.model?.sheets.find((sheet) => sheet.name === activeSheet.name)}
-									recordCount={recordCounts.get(activeSheet.tables[0]?.id ?? '') ?? 0}
-									notice={remapNotice}
-									onDismissNotice={() => (remapNotice = '')}
+
+							{#if worth.length}
+								<div class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+									<div class="flex items-start gap-2 text-sm text-amber-900">
+										<TriangleAlert size={16} class="mt-0.5 shrink-0 text-amber-600" />
+										<div class="min-w-0">
+											<p class="font-medium">Worth a look before importing. These still import.</p>
+											<ul class="mt-1 space-y-0.5">
+												{#each worth as line (line.title)}
+													<li>
+														<span class="font-medium">{line.title}</span>
+														<span class="text-amber-800/80">· {line.detail}</span>
+													</li>
+												{/each}
+											</ul>
+											<button
+												type="button"
+												class="mt-1.5 text-sm font-medium text-amber-800 underline decoration-amber-400 underline-offset-2 hover:text-amber-950"
+												onclick={() => showRows('warning')}
+											>
+												Show these rows
+											</button>
+										</div>
+									</div>
+								</div>
+							{/if}
+
+							<div class="flex items-center justify-between gap-2 pt-1">
+								<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</p>
+								<button type="button" class="text-xs font-medium text-blue-700 hover:text-blue-900" onclick={toggleAll}>
+									{allOpen ? 'Collapse all' : 'Expand all'}
+								</button>
+							</div>
+
+							<Section
+								id="sheets"
+								title={`Sheets (${analysis.sheets.length})`}
+								summary={sheetsSummary(analysis.sheets)}
+								icon={Layers}
+								open={isOpen('sheets')}
+								onToggle={(open) => (sectionOpen.sheets = open)}
+							>
+								<SheetsPanel
+									sheets={analysis.sheets}
+									decisions={analysis.decisions}
+									{recordCounts}
+									onInclude={(id, include) => session.choose(id, include ? 'include' : 'exclude')}
+								/>
+							</Section>
+							<Section
+								id="columns"
+								title="Columns"
+								summary={columnsSummary(analysis)}
+								icon={Columns3}
+								open={isOpen('columns')}
+								onToggle={(open) => (sectionOpen.columns = open)}
+							>
+								<ColumnsPanel
+									sheets={analysis.sheets}
+									model={session.model}
+									heldBack={heldTables}
+									notices={remapNotices}
+									onDismissNotice={(tableId) => (remapNotices[tableId] = '')}
 									onSetColumn={setColumn}
-									onResetColumn={(column) => {
-										remapNotice = '';
-										session.resetColumn(activeSheet.tables[0].id, column.col);
+									onResetColumn={(table, column) => {
+										remapNotices[table.id] = '';
+										session.resetColumn(table.id, column.col);
 									}}
 								/>
-							{/if}
-							<PreviewPanel
-								records={previewRecords}
-								sheetNames={analysis.sheets.filter((sheet) => sheet.tables.length && !excludedTables.has(sheet.tables[0].id)).map((sheet) => sheet.name)}
-								bind:filter
-								bind:scope={previewScope}
-								heldBack={heldBackIds}
-								activeRecordId={drawerRecordId}
-								onOpen={(record) => openRecord(record.id)}
-							/>
+							</Section>
+							<Section
+								id="rows"
+								title={`Rows (${analysis.records.length})`}
+								summary={rowsSummary(analysis)}
+								icon={Rows3}
+								open={isOpen('rows')}
+								onToggle={(open) => (sectionOpen.rows = open)}
+							>
+								<PreviewPanel
+									records={activeRecords(analysis)}
+									held={heldBackGroups(analysis)}
+									sheetNames={analysis.sheets.filter((sheet) => sheet.tables.some((table) => !heldTables.has(table.id))).map((sheet) => sheet.name)}
+									bind:filter
+									bind:scope={previewScope}
+									heldBack={heldBackIds}
+									activeRecordId={drawerRecordId}
+									onOpen={(record) => openRecord(record.id)}
+								/>
+							</Section>
+							<Section
+								id="auto"
+								title={`Applied automatically (${applied.length})`}
+								summary={applied.length ? 'Certain cases handled by policy; each can be undone' : 'Nothing was applied automatically'}
+								icon={CircleCheck}
+								open={isOpen('auto')}
+								onToggle={(open) => (sectionOpen.auto = open)}
+							>
+								<AppliedDecisions {session} decisions={applied} records={recordsById} onOpenRecord={openRecord} />
+							</Section>
+							<Section
+								id="ai"
+								title="AI assistance"
+								summary={aiSummary({ enabled: session.aiEnabled, availability: session.aiAvailability, run: session.aiRun, triggered: triggeredSheets })}
+								icon={Sparkles}
+								open={isOpen('ai')}
+								onToggle={(open) => (sectionOpen.ai = open)}
+							>
+								<AiAssist {session} />
+							</Section>
 						</div>
 					</div>
 
@@ -439,15 +541,15 @@
 							<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">What happens</p>
 							<ul class="mt-3 space-y-2 text-sm text-slate-700">
 								<li class="flex gap-2">
-									<CircleCheck class="mt-0.5 shrink-0 text-emerald-600" size={16} />
+									<CircleCheckBig class="mt-0.5 shrink-0 text-emerald-600" size={16} />
 									<span>Every visible sheet is checked; hidden sheets and empty formatted rows are ignored.</span>
 								</li>
 								<li class="flex gap-2">
-									<CircleCheck class="mt-0.5 shrink-0 text-emerald-600" size={16} />
+									<CircleCheckBig class="mt-0.5 shrink-0 text-emerald-600" size={16} />
 									<span>Headers can sit below titles. Part number, NSN, NIIN, CAGE, and description columns are matched by header and values.</span>
 								</li>
 								<li class="flex gap-2">
-									<CircleCheck class="mt-0.5 shrink-0 text-emerald-600" size={16} />
+									<CircleCheckBig class="mt-0.5 shrink-0 text-emerald-600" size={16} />
 									<span>You review mappings, duplicates, and conflicts before anything is saved. Nothing leaves this browser.</span>
 								</li>
 							</ul>
