@@ -59,12 +59,14 @@ export const wow = {
 		{ name: 'hiddenSheet', status: 'hidden' }
 	],
 	initial: {
+		sheets: 2,
 		tablesIncluded: 1,
 		sourceRows: 179,
 		candidates: 180,
 		invalid: 0,
 		duplicates: 0,
 		conflicts: 0,
+		splitRecords: 2,
 		pendingDecisions: 0,
 		toImport: 180
 	},
@@ -108,6 +110,7 @@ export const statz = {
 		}
 	],
 	initial: {
+		sheets: 1,
 		tablesIncluded: 1,
 		sourceRows: 54,
 		candidates: 54,
@@ -171,7 +174,7 @@ export const pencom = {
 	],
 	// Summary counts cover included and pending tables, so the initial counts also include Search Log's records,
 	// whose number depends on how its columns are mapped. Once it is excluded only XRef and Intake count.
-	initial: { tablesIncluded: 2, pendingDecisions: 3, toImport: 0 },
+	initial: { sheets: 6, tablesIncluded: 2, conflicts: 4, pendingDecisions: 3, toImport: 0 },
 	afterAcceptAll: { tablesIncluded: 2, sourceRows: 4, candidates: 4, pendingDecisions: 0, toImport: 2 },
 	/** D5: held back as a pending include-table decision with "exclude" suggested. */
 	heldBackSheet: 'Search Log',

@@ -12,7 +12,6 @@ import { FIXTURES, pencom, statz, wow } from '../fixtures/expectations';
 import {
 	acceptAllSuggestions,
 	colOf,
-	describeAcceptance,
 	expectSummaryConsistent,
 	expectTraceable,
 	loadFixture,
@@ -23,7 +22,7 @@ import {
 	tableOf
 } from './helpers';
 
-describeAcceptance('fixture acceptance', () => {
+describe('fixture acceptance', () => {
 	for (const fixture of FIXTURES) {
 		describe(fixture.file, () => {
 			let model: WorkbookModel;
@@ -143,7 +142,7 @@ describeAcceptance('fixture acceptance', () => {
 				const cell = `${wow.nsn.column}${malformed.row}`;
 				expect(record.fields.nsn).toBeUndefined();
 				expect(record.rejected.nsn?.original).toBe(malformed.original);
-				expect(record.rejected.nsn?.cell).toMatch(new RegExp(`(^|!)${cell}$`));
+				expect(record.rejected.nsn?.cell).toBe(cell);
 				expect(record.fields.part?.value).toBeTruthy();
 				expect(record).toMatchObject({ status: 'warning', approved: true });
 

@@ -4,7 +4,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
-import { describe, expect } from 'vitest';
+import { expect } from 'vitest';
 import {
 	decisionId,
 	type CandidateRecord,
@@ -17,12 +17,6 @@ import {
 } from '../../src/lib/import/model';
 import { colLetter, parseA1, toA1 } from '../../src/lib/import/refs';
 import { readWorkbook } from '../../src/lib/import/reader';
-
-/**
- * The suites target behavior that lands across T1-T6, so they stay opt-in until wave 2 removes this gate.
- * Run them with `pnpm test:acceptance`.
- */
-export const describeAcceptance = describe.skipIf(!process.env.ACCEPTANCE);
 
 const FIXTURE_DIR = new URL('../../example-excel-uploads/', import.meta.url);
 
@@ -110,11 +104,6 @@ export function colOf(letter: string): number {
 	return at.col;
 }
 
-/** Accepts "E134" or "Active Parts!E134"; the contract leaves CandidateRecord.rejected[].cell unqualified-or-not. */
-function localRef(ref: string): string {
-	return ref.slice(ref.lastIndexOf('!') + 1);
-}
-
 /**
  * The provenance contract: every source value names the cell that holds its original text, and every derived
  * value names cells that exist. A wrong row or column here would make the review window point users at the
@@ -158,7 +147,8 @@ export function expectTraceable(model: WorkbookModel, analysis: WorkbookAnalysis
 		if (!sheet) continue;
 		for (const [field, rejected] of Object.entries(record.rejected)) {
 			if (!rejected) continue;
-			const at = parseA1(localRef(rejected.cell));
+			// A plain A1 ref, like Provenance.cell; parseA1 rejects a sheet-qualified one.
+			const at = parseA1(rejected.cell);
 			const where = `${record.id} rejected ${field}`;
 			expect(at, `${where} cell ${rejected.cell}`).not.toBeNull();
 			if (at) expect(sheet.cell(at.row, at.col).text, where).toBe(rejected.original);
@@ -178,8 +168,17 @@ export function expectSummaryConsistent(analysis: WorkbookAnalysis): void {
 		tableDecisions.filter((decision) => decision.chosen === 'exclude').map((decision) => decision.id)
 	);
 	const counted = records.filter((record) => !excluded.has(decisionId('include-table', record.tableId)));
+	const withStatus = (status: CandidateRecord['status']) => counted.filter((record) => record.status === status).length;
 
+	// Every sheet counts, hidden ones included.
+	expect(summary.sheets, 'summary.sheets').toBe(analysis.sheets.length);
 	expect(summary.candidates, 'summary.candidates').toBe(counted.length);
+	expect(summary.splitRecords, 'summary.splitRecords').toBe(counted.filter((record) => record.split).length);
+	expect(summary.valid, 'summary.valid').toBe(withStatus('valid'));
+	expect(summary.warnings, 'summary.warnings').toBe(withStatus('warning'));
+	expect(summary.invalid, 'summary.invalid').toBe(withStatus('invalid'));
+	expect(summary.duplicates, 'summary.duplicates').toBe(withStatus('duplicate'));
+	expect(summary.conflicts, 'summary.conflicts').toBe(withStatus('conflict'));
 	expect(summary.sourceRows, 'summary.sourceRows').toBe(
 		new Set(counted.map((record) => `${record.tableId}:${record.sourceRow}`)).size
 	);
