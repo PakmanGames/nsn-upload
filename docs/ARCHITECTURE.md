@@ -4,7 +4,7 @@ This is the design note required by `TASK_SPEC.md` ("Deliverables", item 3).
 It describes what is built, why, and what is not supported.
 
 Status (2026-10-24, submission): Wave 1 and all of Wave 2 are merged; on `main`, 944 tests pass (plus 1 expected failure that pins a known gap and 6 placeholders for edge cases not yet asserted), and 41 Playwright browser tests pass.
-Sections 1-12 describe the Wave 1 design; section 13 describes Wave 2, the changes asked for in the review, and takes precedence where the two differ.
+Sections 1-12 describe the importer as it is now; section 13 summarizes Wave 2, the changes asked for in the POC review, and why each was made.
 Questions waiting on a product decision are in [`OPEN-DECISIONS.md`](OPEN-DECISIONS.md).
 
 ## In one minute
@@ -36,11 +36,11 @@ A record needs at least one of part, NSN, or NIIN. One part can legitimately hav
 ## Architecture at a glance
 
 The whole importer runs in the browser.
-The only server code is one stateless route that forwards an AI request after the user turns AI on; there is no database.
+The only server code is two stateless routes that forward AI requests (`/api/interpret` for table structure, `/api/explain` for plain-language wording); there is no database.
 
 Start at the top: the user opens Smart Upload on the NSNs page, picks a file in the review window, and `ImportSession` drives the pipeline.
 On a two-way arrow labeled "a / b", "a" flows down and "b" flows back up.
-Dotted arrows are the optional AI path, the importer's only network traffic.
+Dotted arrows are the AI path, the importer's only network traffic: on by default when the server has a key (D23), off for good once the user switches it off.
 
 ```mermaid
 flowchart TB
@@ -49,7 +49,7 @@ flowchart TB
     subgraph Browser["Browser: the whole import runs here"]
         Page["NSNs page<br/>NsnSettingsTab.svelte<br/>mappings table"]
         Storage[("localStorage<br/>saved records,<br/>AI on or off")]
-        Window["Review window<br/>ImportReviewWindow.svelte<br/>file picker, summary, decisions"]
+        Window["Review window<br/>ImportReviewWindow.svelte<br/>summary, decisions, details,<br/>spreadsheet view"]
         Session["ImportSession<br/>session.svelte.ts<br/>holds the workbook, overrides,<br/>and latest analysis"]
 
         subgraph Analyze["analyze(), on every change"]
@@ -62,12 +62,12 @@ flowchart TB
             Reader["reader<br/>SheetJS, lazy-loaded"] --> Model[("WorkbookModel<br/>plain cells")]
         end
 
-        AI["ai<br/>bounded sample,<br/>verifier"]
+        AI["ai<br/>bounded sample or facts,<br/>verifiers"]
     end
 
     subgraph Server["Server: stateless"]
         direction TB
-        Env[".env<br/>OPENROUTER_API_KEY"] --> Route["/api/interpret"]
+        Env[".env<br/>OPENROUTER_API_KEY"] --> Route["/api/interpret<br/>/api/explain"]
     end
 
     OpenRouter["OpenRouter<br/>Claude"]
@@ -80,8 +80,8 @@ flowchart TB
     Window <-- "user changes /<br/>analysis to show" --> Session
     Session <-- "model + Overrides /<br/>WorkbookAnalysis" --> Analyze
     Session <-- "file bytes /<br/>WorkbookModel" --> Read
-    Session <-. "only when AI is on<br/>and a sheet needs help" .-> AI
-    AI <-. "sample /<br/>proposed structure" .-> Server
+    Session <-. "while AI is on: a sheet needs help,<br/>or decisions need wording" .-> AI
+    AI <-. "sample or facts /<br/>structure or wording" .-> Server
     Server <-.-> OpenRouter
     Server <-.-> Mock
     User -- "picks the file,<br/>makes decisions" --> Window
@@ -91,12 +91,13 @@ flowchart TB
 
 | Where | What | Lifetime |
 | --- | --- | --- |
-| `localStorage` key `nsn-upload-interview-task:mappings` | The saved mapping records (part, description, NSN, NIIN, CAGE, plus id, created date, and status) as JSON. Read when the page loads, and passed to the pipeline so it can find duplicates of saved records and conflicts with them. Written when the user imports or clicks "Reset demo data"; until the first write, the page shows built-in demo records. | Until the browser's site data is cleared |
-| `localStorage` key `nsn-upload-interview-task:ai-assistance` | Whether the user turned AI assistance on, so the choice survives a reload. | Same |
-| Memory, inside `ImportSession` | The uploaded file's `WorkbookModel`, the user's `Overrides` (remaps, included tables, decisions, accepted AI tables, unchecked rows), and the latest `WorkbookAnalysis`. | Until the review window closes or another file is chosen; only the records the user imports are kept |
+| `localStorage` key `nsn-upload-interview-task:mappings` | The saved mapping records (part, description, NSN, NIIN, CAGE, plus id, created date, status, and which identifiers were derived) as JSON. Read when the page loads, and passed to the pipeline so it can find duplicates of saved records and conflicts with them. Written when the user imports or clicks "Reset demo data"; until the first write, the page shows built-in demo records. | Until the browser's site data is cleared |
+| `localStorage` key `nsn-upload-interview-task:ai-assistance` | Whether the user turned AI assistance off (it is on by default, D23), so the choice survives a reload. | Same |
+| `localStorage`, review window | Whether the spreadsheet view is open, per viewer. | Same |
+| Memory, inside `ImportSession` | The uploaded file's `WorkbookModel`, the user's `Overrides` (remaps, decisions, accepted AI tables, tables set up by hand, hidden sheets included anyway, unchecked rows), the latest `WorkbookAnalysis`, cached AI explanations, and what the spreadsheet view is focused on. | Until the review window closes or another file is chosen; only the records the user imports are kept |
 | Server | Nothing. The route reads `AI_PROVIDER`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL` from the environment on each request; the key never reaches the browser. | n/a |
 
-The AI sample leaves out hidden sheets, rows, and columns and system metadata columns, and the reply carries structure only (which rows and columns form a table), never values; section 7 has the details.
+The AI sample leaves out hidden sheets (even ones included by hand), hidden rows and columns, and system metadata columns, and the interpretation reply carries structure only, never values. Explanation requests carry only the facts behind each decision, and the reply is checked against them; section 7 has the details.
 
 ### A typical session
 
@@ -108,7 +109,7 @@ sequenceDiagram
     participant S as localStorage
     participant W as Review window
     participant E as Pipeline
-    participant R as /api/interpret
+    participant R as /api/interpret, /api/explain
 
     P->>S: load saved records
     U->>P: Smart Upload
@@ -129,6 +130,10 @@ sequenceDiagram
         R-->>W: structure only
         W->>E: verify, analyze()
     end
+    opt AI is on and decisions are pending
+        W->>R: facts per decision
+        R-->>W: wording, checked against the facts
+    end
     U->>W: Import N records
     W->>E: toImportPlan()
     E-->>W: add and replace lists
@@ -142,18 +147,19 @@ sequenceDiagram
 ```text
 .xlsx file
   -> reader      readWorkbook()       bytes -> WorkbookModel (cells, sheets, merges, hidden rows/columns)
-  -> structure   analyzeStructure()   find each sheet's table, header row, column mapping, sheet status
+  -> structure   analyzeStructure()   find each sheet's tables (stacked or side by side, with or without a header row), columns, sheet status
   -> records     buildRecords()       one candidate record per data row: normalize, split, derive, provenance
   -> validate    finalizeAnalysis()   duplicates, conflicts, automatic and pending decisions, summary
   -> review window (user checks, corrects, accepts)
   -> toImportPlan()                   add new records; replace saved ones the user chose to overwrite (browser storage)
 
-  ai  (optional)  sampled sheet -> /api/interpret -> OpenRouter -> verify -> proposed tables
+  ai  (on by default with a key)  sampled sheet -> /api/interpret -> OpenRouter -> verify -> proposed tables
+                                  decision facts -> /api/explain -> OpenRouter -> verify -> plain-language wording
 ```
 
 All of it lives in `src/lib/import/`, one directory per stage, joined by the typed contracts in `model.ts`.
 `analyze(model, existing, overrides)` runs structure -> records -> validate and is a pure function.
-The review window keeps the parsed workbook and an `Overrides` object (column remaps, decision choices, accepted AI tables, rows the user unchecked).
+The review window keeps the parsed workbook and an `Overrides` object (column remaps, decision choices, accepted AI tables, tables set up by hand, hidden sheets included anyway, rows the user unchecked).
 Every user change re-runs `analyze()` with new overrides; the file is never read again.
 
 ### From a cell to a record
@@ -163,7 +169,7 @@ The deterministic path, with the file that owns each step (all under `src/lib/im
 | Step | File | What it does |
 | --- | --- | --- |
 | 1. Read the file | `reader/index.ts` | The only code that uses SheetJS. It turns the `.xlsx` into the library-neutral `WorkbookModel` from `model.ts`: sheets, cells with their text and type, merges, hidden rows and columns. Values come from the file's cells, not from scraping text. |
-| 2. Find the header row | `structure/detect.ts` (`detectTable`) | Tries each header-like row among the first 30 non-empty rows and scores the mapping it would produce on up to 200 rows below it (section 2). |
+| 2. Find the tables | `structure/detect.ts`, `structure/headerless.ts` | Splits the sheet into row bands where another table's header starts, and each band into column segments at fully blank columns. In each, tries the header-like rows and scores the mapping each would produce on up to 200 rows below it (section 2); without a header row, columns whose values are clearly NSNs or NIINs still form a table. |
 | 3. Read header words | `structure/header.ts` (`matchHeader`) | Normalizes the header text and matches a small vocabulary word by word; modifier words make a match weak. No regular expression decides the mapping. |
 | 4. Check column values | `structure/values.ts` (`checkValue`) | Checks each cell under a column against a field, using the same normalizer that later cleans the values. |
 | 5. Score columns | `structure/columns.ts` (`confidenceFor`) | Turns header strength and pass rate into High, Medium, or Low (section 2). |
@@ -233,9 +239,14 @@ A label longer than 5 words or 40 characters reads as a sentence, not a header.
 A word containing digits also makes a match weak, because it marks a value rather than a label: a part number such as `PN-4410` starts with the header word `pn` and must not be mistaken for a repeated header. As a side effect, a header such as `Part Number 2` is weak, so its column reaches at most medium confidence.
 
 **Table extent.** Data runs from the row below the header down the used area. Inside it, these rows are skipped and listed with a reason: blank rows, hidden rows, repeated header rows (most mapped columns repeat the header text or name the same field; a repeated two-row header skips both rows), rows with values only in unmapped columns (PENCOM's template rows 5-7), and trailing totals rows ("Total", "Subtotal", "Grand total", "Sum" in an identifier column with no other identifier on the row), which are skipped as footers and left out of the pass rates.
-Data stops early only before a clearly different table's header, so a stacked second table is not read through the first table's mapping.
+Data stops before a clearly different table's header, and at a blank gap followed by rows that fit none of the table's columns (a form or notes below the table); those rows are listed as "below the table" so the user can see what was left out.
+A header cell merged across columns whose other columns hold nothing of their own is one column; columns with values but no header become "column O (no header)" and map only from their values, so nothing is dropped silently.
 
-**One table per sheet.** If a sheet has a second, different table, it is mentioned in the sheet's reasons but not imported (see Tradeoffs).
+**Several tables per sheet.** A sheet is split into row bands wherever another table's header starts (with a high-confidence primary column), and each band into column segments at columns blank in every row, so a table shifted any number of columns, or a second table beside the first, is its own table: its own line in Sheets, its own include decision, columns, and rows. Provenance keeps the real sheet name. Ids are `${sheet}@${header row}`, plus the first column's letter when two tables start on one row; at most 20 tables per sheet.
+
+**No header row.** When no header row is found, columns whose values alone pass the NSN or NIIN rule (95% of at least 3 values) form a headerless table, held on one decision suggested "include". On any sheet without an included table the user can also set a table up by hand (header row or none, and each column's field); it is scored by the same rules.
+
+**Hidden sheets** are ignored by default; "Include anyway" analyzes one like a visible sheet and holds its tables on a decision suggested "include" (D26).
 
 ## 2. Confidence scoring
 
@@ -285,7 +296,8 @@ It is computed by one function, `confidenceFor` in `structure/columns.ts`, from 
 
 Rules that keep this honest:
 
-- Only NSN and NIIN can be mapped from values alone, because only they have strict formats. A part, description, CAGE, or FSC column needs a header.
+- NSN and NIIN can be mapped from values alone, because they have strict formats. A part column can be too, at medium confidence, but only when no header names Part and exactly one column is clearly part-number-shaped (at least 90% of its values, at least half of them distinct; prices, decimals, multi-word text with commas, and emails do not count). Identifier labels such as `Material #` are weak Part hints. Description, CAGE, and FSC columns need a header.
+- A header that only mentions a field (`MATCH: NSN/PN Supplier`) never outranks a column whose values pass.
 - Values that only pass after repair (a number turned into text, a NIIN with restored leading zeros) count only when the header names the field. Otherwise a `Qty` column of small numbers would look like 100% valid NIINs.
 - Excel error cells and trailing totals rows do not count either way.
 - Hidden and zero-width columns are never mapped automatically.
@@ -368,6 +380,7 @@ Once the user settles a conflict, the record they kept carries it as a note rath
 
 Same NIIN under different FSCs: a warning on every record involved, no decision, all imported. The message names every FSC and its rows: "NIIN 011066157 (one catalog item) appears with 3 FSCs in this upload: 5210 (row 37), 5220 (this row), 6685 (row 39). An item has one FSC at a time, so at most one of these NSNs is current".
 
+An NSN that disagrees with its own FSC or NIIN cell is a decision suggested "Keep the NSN": the NIIN and FSC are worked out from it and labeled derived, and the disagreeing cells stay listed on the record (D24). When a cell lists several NSNs and the row's single FSC or NIIN matches one of them, it belongs to that record only, so it is not a conflict.
 "Accept all suggestions" resolves every pending decision in one click. Pending items never block the rest: the import button always says how many records will import and how many need review.
 A stored choice that no longer applies after a remap (for example, preferring a record that has left its group) falls back to the default policy instead of failing.
 
@@ -394,8 +407,8 @@ The file is read once; every change re-runs the analysis on the kept workbook.
 - "Accept all suggestions" when anything is pending, and an import button that always says how many records import and how many need review: "Import 0 records (7 need review)".
 
 **Decision stage** (only when something is pending): one decision at a time, "Needs your decision · 1 of 3" with progress dots.
-Each decision shows its explanation, a side-by-side comparison (cross-sheet conflicts highlight the differing fields; an identifier conflict lines the NSN's FSC and NIIN up against the NIIN and FSC cells; a storage conflict shows the saved record next to the new one), and its options with the suggestion preselected.
-"Apply and continue" moves to the next decision; "Skip for now" and "Previous" move between them. When none are left, "All 3 decisions made" lists each choice, with "Review my choices".
+Each decision leads with a plain-language headline and one or two sentences built from computed facts ("The FSC doesn't match this NSN. An NSN starts with its 4-digit FSC..."), reworded by AI when AI is on and the wording passes its check, with the pipeline's exact reason under "Technical details". Then it shows a side-by-side comparison (cross-sheet conflicts highlight the differing fields; an identifier conflict lines the NSN's FSC and NIIN up against the NIIN and FSC cells; a storage conflict shows the saved record next to the new one), and its options with the suggestion preselected.
+"Apply and continue" moves to the next decision and stays at the same screen position, so it can be clicked repeatedly; focus stays on it and the next decision is announced. When other pending decisions have the same kind, table, and shape, "Also apply to the N other rows like this" applies the choice to all of them at once, and the group can be undone as one line. "Skip for now" and "Previous" move between decisions. When none are left, "All 3 decisions made" lists each choice, with "Review my choices".
 
 **Worth a look** (only when records import with warnings): one plain line per kind of warning, for example "2 rows had a malformed NSN · rows 134 and 166; the part number imports, the bad NSN does not", and "Show these rows".
 
@@ -407,14 +420,18 @@ Each decision shows its explanation, a side-by-side comparison (cross-sheet conf
   Each importable row has a checkbox: unchecking it leaves that one record out ("Excluded by you", and the import count drops by one) without changing any other row or decision, and checking it again brings it back. "Worth a look" then stops listing it, since that line promises its rows still import.
   Clicking anywhere else on a row opens the provenance drawer: for each field the cell, original text, normalized value, transformations, and origin.
 - **Applied automatically:** the automatic decisions grouped by kind, each with undo.
-- **AI assistance:** the opt-in switch, its status, and "How AI assistance works". Opens by itself when a sheet could use AI.
+- **AI assistance:** the switch (on by default when the server has a key), what is sent, its status, and "How AI assistance works". While AI reads a sheet, the summary says so.
 
-**Import** adds approved records to browser storage, replaces saved records the user chose to overwrite (keeping their id and created date), confirms the result ("54 records added to your NSN table"), and returns to the mappings table.
+**Spreadsheet view:** a "Spreadsheet" toggle shows the workbook beside the review (or in place of it on narrow screens): an Excel-like, virtualized grid drawn from the already parsed workbook, with sheet tabs, the tables outlined by state, header rows tinted, mapped columns labeled with their field, and skipped rows dimmed. Selecting a row in Rows or a source cell in the provenance drawer scrolls the grid to it and highlights it. It shows values, not Excel's formatting.
+
+**When nothing will import**, the summary says why and offers the next step (accept the detected table, set one up by hand, or turn AI on) instead of "nothing needs you".
+
+**Import** adds approved records to browser storage, replaces saved records the user chose to overwrite (keeping their id and created date), confirms the result ("54 records added to your NSN table"), and returns to the mappings table, where a NIIN or NSN the importer worked out carries a "derived" tag (D25).
 The layout works down to phone width without horizontal scrolling.
 
 ## 7. AI fallback boundary
 
-**When it runs.** Only while "AI assistance" is on (Wave 1: off by default; Wave 2 makes it on by default when the server has a key, D23, section 13; turning it off is remembered per browser) and the deterministic analysis flagged a sheet: either at least 3 cells look like NSNs or NIINs but no ready table was found, or two columns compete for a primary field. Conventional workbooks, including all three examples, never trigger it.
+**When it runs.** While "AI assistance" is on: on by default when the server has a key (D23), and off for good on a browser where the user switched it off. Interpretation runs when the deterministic analysis flagged a sheet: either at least 3 cells look like NSNs or NIINs but no ready table was found, or two columns compete for a primary field. Conventional workbooks, including all three examples, never trigger it.
 
 **What is sent.** A bounded sample of the flagged sheets only: at most 3 sheets, 60 rows per sheet (the first 40 non-empty rows plus 20 spread over the rest, always including the last), 30 columns, 120 characters per cell, and 3000 cells in total. Hidden sheets, hidden rows and columns, and columns that look like UUIDs, checksums, or timestamps are never sent.
 
@@ -422,7 +439,7 @@ The layout works down to phone width without horizontal scrolling.
 The request uses a strict JSON schema (`response_format: json_schema`, `strict: true`) and only routes to providers that support it (`require_parameters: true`).
 The default model is `anthropic/claude-opus-5.5`, overridable with `OPENROUTER_MODEL`. The reply is validated with Zod on the server and again in the browser.
 Without a key, the route reports "unavailable" and the toggle is disabled with that reason; everything else works.
-The review window asks the route whether AI is available only when the user turns AI on, so opening the window and analyzing a workbook send nothing; the E2E tests check this.
+The review window asks the route whether AI is available when it opens, unless the user switched AI off; with AI off, nothing is sent, and the E2E tests check this. D23 accepts this as a deviation from a literal reading of TASK_SPEC's "transmission disabled unless AI parsing is explicitly enabled": nothing leaves the server without a key, only sheets the rules cannot read are sent, and the AI section says what is sent.
 
 **What comes back.** Structure only: sheet name, A1 range, header row numbers, and for each mapped field its column number and the header text the model read, plus a confidence and short reasons. No cell values, so the model cannot invent identifiers.
 
@@ -445,7 +462,11 @@ A live smoke test with a planted "ignore all previous instructions" cell returne
 
 **Testing without a key.** `AI_PROVIDER=mock` swaps in a mock interpreter built from the request alone; its proposals use confidence 0.6, so they always land as pending decisions. Adversarial mock answers (unknown sheet, out-of-range column, off-by-one header, duplicate field, hidden column) are all rejected by the verifier in tests.
 
-The provider sits behind a small interface (`WorkbookInterpreter`), so it can be mocked or replaced.
+A proposal may also have no header row; it is then accepted only when every mapped column passes the value-only rule.
+
+**Explanations** (`/api/explain`, `ai/explain-*.ts`). While AI is on, one request per analysis sends up to 60 pending and applied decisions as facts (the values and cell references the plain-language text is built from, never sheet samples) and gets back a headline and body for each. Each answer is checked against its own facts: every cell reference and every number of 4 or more digits must appear in them, lengths are capped, and suggestion wording is refused, because the AI explains a problem but never decides one. An answer that fails, times out, or never arrives leaves the deterministic wording in place. Answers are cached by decision id and facts, so a re-analysis only asks about what changed.
+
+The providers sit behind small interfaces (`WorkbookInterpreter`, and the explainer client), so they can be mocked (`AI_PROVIDER=mock`) or replaced.
 
 ## 8. Performance and safety
 
@@ -457,17 +478,18 @@ The provider sits behind a small interface (`WorkbookInterpreter`), so it can be
 - Zip bombs are stopped before SheetJS unzips anything: the reader adds up the uncompressed sizes the zip declares and rejects the file above 200 MB, and it caps each entry's actual inflated bytes at its declared size, so a zip that lies about its sizes is reported as damaged. A legitimate workbook at the 2,000,000-cell limit unzips to about 90 MB; unguarded, SheetJS would have inflated a 1 GB bomb.
 - Files are checked by signature before parsing: random bytes are "corrupt", and an encrypted workbook is reported as password-protected.
 - Only `.xlsx` is accepted. Formulas are never evaluated, macros and external links are never run, and cell text is always rendered as text.
-- No network request happens during parsing or import; only the opt-in AI path calls `/api/interpret`.
+- No network request happens during parsing or import except the AI path (`/api/interpret`, `/api/explain`), which is on by default with a key and off for good once the user switches it off.
 
 ## 9. Testing
 
 - Unit tests per module: reader against the 3 real files and synthetic workbooks; normalizers table-driven over every rule above; structure on hand-built sheet shapes and the real files; records, validation, and the AI request builder, verifier, and route.
 - Acceptance suites in `tests/acceptance/` (part of `pnpm test`; 944 tests pass in total on `main` after Wave 2): the real workbooks end to end through `readWorkbook` and `analyze`, plus "unseen" workbooks written in the tests with ExcelJS (a different writer than the fixtures) covering titles above merged headers, line-break headers, part numbers that begin with a header word (`PN-4410`), numeric NIINs, FSC + NIIN derivation, cross-sheet duplicates and conflicts, hidden sheets, a notes sheet that mentions NSNs, storage duplicates, multi-line descriptions next to multi-line parts, and exact cell references for a table offset to `C5`.
 - Every expected number for the example files was checked independently against the raw workbooks.
+- Wave 2 added an acceptance suite per new review workbook (`just-nsns`, `merged-column`, `shifted-table`, `substring-headers`), 14 generated edge-case workbooks in `example-excel-uploads/edge-cases/` with a README of expected behavior and their own suite, and browser tests for the table setup, several tables per sheet, hidden sheets, AI on by default, decisions applied in a row, explanations, and the spreadsheet view (41 browser tests in total).
 - A messy-case suite (`tests/acceptance/messy.test.ts`) adds 14 more unseen workbooks: a part cell merged down across several rows, numeric NSNs and CAGEs, `NSN:` prefixes and dash variants, formulas and `#N/A`, part numbers Excel turned into dates, filtered rows, a header on row 7 below instructions, FSC + NIIN only, a totals row, a malformed value above a repeated header, two stacked tables, and a two-row header. Two-row headers have their own cases in `structure/two-row.test.ts` (split labels, a group label above the header, a hint row, a repeated two-row header, and a guard that keeps a first data row as data). The demo workbooks in `docs/demo-workbooks/` are tested to behave as their README says.
 - The acceptance suites also cover both F1 decisions: an unseen workbook whose NIIN contradicts its NSN, and PENCOM with a saved copy whose description differs, each through every option and the resulting import plan.
-- Playwright E2E tests (`pnpm test:e2e`, Chromium against a production build, `AI_PROVIDER=mock`): each example file is uploaded, its sheet badges, chips, and decisions are checked, "Accept all suggestions" is used where needed, the records are imported and found in the mappings table, and no AI request is sent. A fourth test turns AI on for a synthetic sheet and checks the mock proposal and that exactly one request was made.
-  Nine more (`tests/e2e/review-window.spec.ts`) cover the redesigned window: walking PENCOM's three decisions one at a time with focus moving to the next one, "Review my choices", a chip opening Rows with its filter, held-back rows folded outside the main list, the Columns open-by-default rule (closed on a clean file, open once an uncertain table is included or after a remap), "Worth a look" for WOW and Statz, including that it stays hidden when nothing imports with a warning, and unchecking a row to leave it out of the import and checking it again.
+- Playwright E2E tests (`pnpm test:e2e`, Chromium against a production build, `AI_PROVIDER=mock`): each example file is uploaded, its sheet badges, chips, and decisions are checked, "Accept all suggestions" is used where needed, the records are imported and found in the mappings table, and with AI switched off no AI request is sent. A fourth test turns AI on for a synthetic sheet and checks the mock proposal and that exactly one request was made.
+  Nine more (`tests/e2e/review-window.spec.ts`) cover the redesigned window: walking PENCOM's three decisions one at a time, "Review my choices", a chip opening Rows with its filter, held-back rows folded outside the main list, the Columns open-by-default rule (closed on a clean file, open once an uncertain table is included or after a remap), "Worth a look" for WOW and Statz, including that it stays hidden when nothing imports with a warning, and unchecking a row to leave it out of the import and checking it again.
 
 ## 10. Dependencies
 
@@ -492,6 +514,7 @@ Behaviors the reader corrects for: SheetJS parses almost any bytes as a one-shee
 - **ISO date cells** (`t="d"`, which Excel does not write in `.xlsx`) are read as numbers.
 - **A `no-table` sheet** can be set up by hand since Wave 2 (E1); drawing the table on the spreadsheet view is not built.
 - **Storage duplicates with only new information** (the saved record lacks a description that the upload has) are dropped rather than merged into the saved record.
+- **Edge cases still open** (each an `it.todo` in `tests/acceptance/edge-cases.test.ts`, described in `example-excel-uploads/edge-cases/README.md`): a headerless NIIN column typed as numbers (lost leading zeros are a repair, and repaired values do not count as value-only evidence); an NSN split into FSC, 2-digit country code, and 7-digit item number columns; full-width digits in an NSN; a zero-width space inside a part number; notes rows interleaved with data; and an "NSN/NIIN" column holding both kinds.
 - **Not interpreted:** cell colors, strikethrough, comments, and Excel Table objects.
 - **Out of scope per TASK_SPEC:** a backend, authentication, enrichment from external NSN databases, `.xls` / `.xlsm` / CSV.
 
@@ -557,13 +580,13 @@ No dead ends (every state says what happened and what to do next), nothing misle
 | Tell tables from dashboards, notes, logs | Values must pass; modifiers and sentence-length labels are weak | acceptance (PENCOM statuses), unseen notes sheet |
 | Classify every sheet; choose what to import; never import low confidence silently | Status + reasons per sheet; include decisions; needs-review held back | `validate/index.test.ts`, acceptance |
 | Header below titles, merged titles, repeated headers, blank rows | Header scoring; merged cells count once; skipped rows with reasons | `structure/structure.test.ts`, acceptance (Statz rows 32-34) |
-| Multiple table regions | One table per sheet; a second is reported, not imported. Wave 2: stacked (E3) and side-by-side (E5) tables | Known gap (section 11); Wave 2 acceptance suites (section 13) |
+| Multiple table regions | Row bands and column segments, one table each (section 1) | `structure/tables.test.ts`, `tests/acceptance/shifted-table.test.ts`, edge cases |
 | Header variants, prefixes, line breaks | Token vocabulary with strong/weak matches | `structure/header.test.ts`, unseen line-break header |
 | Header split over two rows | Continuation rows joined into one header (section 1) | `structure/two-row.test.ts`, `tests/acceptance/messy.test.ts` |
-| Values decide (UUID `Part` loses) | Pass rates; value-only only for NSN/NIIN | `structure/structure.test.ts`, acceptance (WOW) |
+| Values decide (UUID `Part` loses) | Pass rates; value-only for NSN/NIIN, and for Part when exactly one column clearly qualifies | `structure/structure.test.ts`, `structure/part-by-values.test.ts`, acceptance (WOW, Substring Headers) |
 | UI shows header row, mapping, confidence; lets the user change or exclude; no double mapping | Mapping controls with evidence; one-to-one overrides | `structure/overrides.test.ts`, `components/import/session.test.ts` |
 | Field normalization rules | Per-field normalizers with recorded transforms | `normalize/normalize.test.ts` |
-| NSN from FSC + NIIN; NIIN from NSN; labeled derived | Derivation with `derivedFrom` | `records/table.test.ts`, unseen FSC + NIIN |
+| NSN from FSC + NIIN; NIIN from NSN; labeled derived | Derivation with `derivedFrom`; `derived` kept on saved records | `records/table.test.ts`, unseen FSC + NIIN |
 | `-` is empty; no number coercion; formulas and rich text; line endings | Normalizer and reader rules | `normalize/normalize.test.ts`, `reader/reader.test.ts` |
 | Malformed optional field: field-level, import valid portion or exclude | Rejected values + `import-valid-portion` decision | `records/table.test.ts`, acceptance (WOW E134, E166) |
 | Multi-value cells: split identifiers, keep descriptions, traceable | Newline splits with `split` provenance; ambiguous rows held back | `normalize`, `records`, acceptance (WOW D136), unseen |
@@ -572,6 +595,6 @@ No dead ends (every state says what happened and what to do next), nothing misle
 | Cross-sheet duplicates: prefer neither silently, show cells, choose/merge/exclude | Auto-merge compatible; pending conflict otherwise | `validate/index.test.ts`, acceptance (PENCOM) |
 | Provenance for every value | `Provenance` on every field value | `records/table.test.ts`, unseen provenance check |
 | Preview, filters, search, import approved only, recompute without rereading | Review window; `analyze()` re-run with overrides | `components/import/session.test.ts`, `tests/e2e/import.spec.ts` |
-| AI: bounded input, structured output, verified, never invents identifiers, opt-in, no hidden content, works without a key, behind an interface | Section 7 | `ai/request.test.ts`, `ai/verify.test.ts`, `routes/api/interpret/server.test.ts` |
+| AI: bounded input, structured output, verified, never invents identifiers, no hidden content, works without a key, behind an interface; enabled by default with a key (D23) | Section 7 | `ai/request.test.ts`, `ai/verify.test.ts`, `routes/api/interpret/server.test.ts` |
 | Lazy parser, linear scans, limits, no network, no formula execution | Section 8 | `reader/reader.test.ts` (limits, file signatures), `reader/zip.test.ts` (zip bombs); performance measured by hand |
 | At least one integration test on a real `.xlsx` | All three fixtures end to end | `tests/acceptance/fixtures.test.ts` |

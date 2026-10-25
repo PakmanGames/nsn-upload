@@ -26,8 +26,8 @@ AI_PROVIDER=mock pnpm dev
 What to expect:
 
 1. The sheet "Stock List" needs review: the header is found on row 4, column B is recognized as NSNs from its values alone (6 of 6 are valid), and column A "Ref" as part numbers from its values alone (6 of 6 look like part numbers), but neither header names its field, so confidence is only medium.
-2. Nothing imports yet ("Import 0 records"), and AI assistance says it could help with Stock List. No workbook data has been sent.
-3. Turn on AI assistance. Only a sample of Stock List is sent; the proposal is verified against the workbook ("Accepted 1 table") and the sheet gets an AI badge.
+2. AI assistance is on by default when the server has a key (with `AI_PROVIDER=mock` it works offline), so the summary says AI is reading Stock List. Only a sample of that sheet is sent. With AI switched off, nothing imports yet ("Import 0 records"), no workbook data is sent, and the AI section offers to help with Stock List.
+3. The proposal is verified against the workbook ("Accepted 1 table"), and the sheet gets an AI badge.
 4. The mock's confidence is below the auto-apply bar, so the AI table still waits for you. Include it, and 6 records import, each with its NSN and the NIIN derived from it.
 
 With a real model, the proposal may also map the "Ref" or "Item" column; it is still verified the same way.

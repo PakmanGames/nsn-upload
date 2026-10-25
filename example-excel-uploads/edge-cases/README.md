@@ -12,8 +12,8 @@ Outcomes are asserted only where `main` handles the case; the rest are `it.todo`
 
 | File | What it tests | Should happen | Owner |
 | --- | --- | --- | --- |
-| `side-by-side-tables.xlsx` | Two tables in the same rows (A-C and E-G) under merged group titles, with a blank column between them. | Two tables, each with its own columns and 4 records. | E5 |
-| `hidden-sheet-parts.xlsx` | A hidden `Archive` sheet with 4 real parts next to a visible `Current` sheet with 2. | Visible sheet imports; the hidden one is ignored by default and offered as "Include anyway". | H1 |
+| `side-by-side-tables.xlsx` | Two tables in the same rows (A-C and E-G) under merged group titles, with a blank column between them. | Two tables, each with its own columns and 4 records. | Works today (E5) |
+| `hidden-sheet-parts.xlsx` | A hidden `Archive` sheet with 4 real parts next to a visible `Current` sheet with 2. | Visible sheet imports; the hidden one is ignored by default and offered as "Include anyway". | Works today (H1) |
 | `headerless-niins-as-numbers.xlsx` | A single column of NIINs with no header, typed as numbers so Excel dropped the leading zeros (`9673346`). | Detected as a headerless NIIN table; leading zeros restored to 9 digits. | E1 |
 | `header-on-row-15.xlsx` | Header on row 15 under an instructions paragraph merged across `A1:F13`. | Header found on row 15; 4 records import. | Works today |
 | `two-row-header-shifted.xlsx` | A two-row header starting at `C3`: merged group labels ("Identification", "Details") above the real labels. | Columns C-F mapped from the second header row; 4 records import. | Works today |

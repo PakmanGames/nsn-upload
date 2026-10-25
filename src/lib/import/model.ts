@@ -159,8 +159,8 @@ export type SheetAnalysis = {
 	status: SheetStatus;
 	reasons: string[];
 	/**
-	 * Every table found on the sheet, in row order. Detected tables never share rows, so they never share a
-	 * header row or an id; an accepted AI proposal replaces them with its one table.
+	 * Every table found on the sheet, in row order. Tables side by side share rows; their ids then carry the
+	 * first column's letter (see tableId). An accepted AI proposal replaces them with its one table.
 	 */
 	tables: TableCandidate[];
 	/** Why an AI interpretation could help, or null when deterministic analysis is confident. */
