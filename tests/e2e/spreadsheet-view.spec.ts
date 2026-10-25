@@ -86,6 +86,67 @@ test.describe('at 1440 px', () => {
 		await expect(dialog.getByRole('region', { name: /^Needs your decision/ })).toBeInViewport();
 	});
 
+	test.describe('switches sheets after something is focused', () => {
+		const SYNONYMS = `${FIXTURE_DIR}edge-cases/header-synonyms.xlsx`;
+
+		/** The NIIN List tab is selected and its cells, not Supplier List's, are in the grid. */
+		async function showsNiinList(dialog: Locator) {
+			await expect(dialog.getByRole('tab', { name: 'NIIN List' })).toHaveAttribute('aria-selected', 'true');
+			await expect(dialog.getByRole('tab', { name: 'Supplier List' })).toHaveAttribute('aria-selected', 'false');
+			const grid = dialog.getByRole('grid');
+			await expect(grid).toContainText('Valve, check');
+			await expect(grid).not.toContainText('Washer, flat');
+		}
+
+		test('after clicking a cell in the grid', async ({ page }) => {
+			const dialog = await upload(page, SYNONYMS);
+			const grid = await openSpreadsheet(dialog);
+			await expect(dialog.getByRole('tab', { name: 'Supplier List' })).toHaveAttribute('aria-selected', 'true');
+			await grid.locator('[data-row="3"][data-col="2"]').click();
+			await expect(dialog.getByLabel('Selected cell')).toHaveValue('B3');
+
+			await dialog.getByRole('tab', { name: 'NIIN List' }).click();
+			await showsNiinList(dialog);
+		});
+
+		test('after selecting a row in Rows', async ({ page }) => {
+			const dialog = await upload(page, SYNONYMS);
+			const grid = await openSpreadsheet(dialog);
+			const rows = await openSection(dialog, 'rows');
+			await rows.getByRole('button', { name: 'Details for Supplier List row 5' }).click();
+			await expect.poll(() => selectedCells(grid)).not.toEqual([]);
+
+			await dialog.getByRole('tab', { name: 'NIIN List' }).click();
+			await showsNiinList(dialog);
+		});
+
+		test('with the arrow keys after clicking a cell', async ({ page }) => {
+			const dialog = await upload(page, SYNONYMS);
+			const grid = await openSpreadsheet(dialog);
+			await grid.locator('[data-row="3"][data-col="2"]').click();
+
+			await dialog.getByRole('tab', { name: 'Supplier List' }).press('ArrowRight');
+			await expect(dialog.getByRole('tab', { name: 'NIIN List' })).toBeFocused();
+			await showsNiinList(dialog);
+		});
+
+		test('a cell on the picked sheet keeps it; a newer row from Rows moves the view to its sheet', async ({ page }) => {
+			const dialog = await upload(page, SYNONYMS);
+			const grid = await openSpreadsheet(dialog);
+			// Header cells, so no record's details open over the Rows section.
+			await grid.locator('[data-row="1"][data-col="2"]').click();
+			await dialog.getByRole('tab', { name: 'NIIN List' }).click();
+			await grid.locator('[data-row="1"][data-col="3"]').click();
+			await expect(dialog.getByLabel('Cell value')).toHaveValue('Item Description');
+			await showsNiinList(dialog);
+
+			const rows = await openSection(dialog, 'rows');
+			await rows.getByRole('button', { name: 'Details for Supplier List row 5' }).click();
+			await expect(dialog.getByRole('tab', { name: 'Supplier List' })).toHaveAttribute('aria-selected', 'true');
+			await expect.poll(() => selectedCells(grid)).toContain('B5');
+		});
+	});
+
 	test('selecting a row in Rows scrolls the grid to its cells and highlights them', async ({ page }) => {
 		const dialog = await upload(page, `${FIXTURE_DIR}${wow.file}`);
 		const grid = await openSpreadsheet(dialog);
