@@ -43,8 +43,9 @@
 	/**
 	 * A tab the user picked, and the focus at that moment: the pick holds until a newer focus moves the view to
 	 * its sheet, so a row selected in the review always shows even after the user browsed other tabs.
+	 * Raw, because the focus is compared by identity: deep state would store a proxy that never equals the prop.
 	 */
-	let picked = $state<{ name: string; focus: SheetFocus | null } | null>(null);
+	let picked = $state.raw<{ name: string; focus: SheetFocus | null } | null>(null);
 	const current = $derived.by((): SheetModel | undefined => {
 		if (picked && picked.focus === focus && byName(picked.name)) return byName(picked.name);
 		return byName(focus?.sheet) ?? byName(picked?.name) ?? opening;
